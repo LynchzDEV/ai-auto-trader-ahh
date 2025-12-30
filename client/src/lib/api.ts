@@ -37,4 +37,22 @@ export const getEquityHistory = (traderId: string) => api.get(`/equity-history?t
 // Health
 export const getHealth = () => api.get('/health');
 
+// Backtest API
+export const listBacktests = () => api.get('/backtest');
+export const startBacktest = (data: any) => api.post('/backtest/start', data);
+export const stopBacktest = (runId: string) => api.post(`/backtest/${runId}/stop`);
+export const getBacktestStatus = (runId: string) => api.get(`/backtest/${runId}/status`);
+export const getBacktestMetrics = (runId: string) => api.get(`/backtest/${runId}/metrics`);
+export const getBacktestEquity = (runId: string) => api.get(`/backtest/${runId}/equity`);
+export const getBacktestTrades = (runId: string) => api.get(`/backtest/${runId}/trades`);
+export const deleteBacktest = (runId: string) => api.delete(`/backtest/${runId}`);
+
+// Debate API
+export const listDebates = () => api.get('/debate/sessions');
+export const createDebate = (data: any) => api.post('/debate/sessions', data);
+export const getDebate = (sessionId: string) => api.get(`/debate/sessions/${sessionId}`);
+export const startDebate = (sessionId: string) => api.post(`/debate/sessions/${sessionId}/start`);
+export const stopDebate = (sessionId: string) => api.post(`/debate/sessions/${sessionId}/stop`);
+export const deleteDebate = (sessionId: string) => api.delete(`/debate/sessions/${sessionId}`);
+
 export default api;
