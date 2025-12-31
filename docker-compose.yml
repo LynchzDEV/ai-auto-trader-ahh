@@ -12,6 +12,7 @@ services:
       - BINANCE_API_KEY=${BINANCE_API_KEY}
       - BINANCE_SECRET_KEY=${BINANCE_SECRET_KEY}
       - BINANCE_TESTNET=${BINANCE_TESTNET:-true}
+      - ACCESS_PASSKEY=${ACCESS_PASSKEY}
       - API_PORT=8080
     volumes:
       - trader-data:/app/data

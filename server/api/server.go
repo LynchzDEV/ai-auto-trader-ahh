@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -28,6 +29,7 @@ type Server struct {
 	backtestManager *backtest.Manager
 	aiClient        mcp.AIClient
 	binanceClient   *exchange.BinanceClient
+	accessPasskey   string
 }
 
 func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Server {
@@ -40,8 +42,8 @@ func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Serve
 	// Create debate engine and register AI client
 	debateEng := debate.NewEngine()
 	debateEng.RegisterClient("openrouter", aiClient)
-	debateEng.RegisterClient("openai", aiClient)     // Use OpenRouter for all providers
-	debateEng.RegisterClient("anthropic", aiClient)  // OpenRouter supports these models
+	debateEng.RegisterClient("openai", aiClient)    // Use OpenRouter for all providers
+	debateEng.RegisterClient("anthropic", aiClient) // OpenRouter supports these models
 	debateEng.RegisterClient("deepseek", aiClient)
 
 	return &Server{
@@ -55,53 +57,136 @@ func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Serve
 		backtestManager: backtest.NewManager(aiClient, binanceClient),
 		aiClient:        aiClient,
 		binanceClient:   binanceClient,
+		accessPasskey:   cfg.AccessPasskey,
 	}
 }
 
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Health check
+	// Public endpoints (no auth required)
 	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/auth/verify", s.handleAuthVerify)
 
+	// Protected endpoints (auth required)
 	// Strategy endpoints
-	mux.HandleFunc("/api/strategies", s.handleStrategies)
-	mux.HandleFunc("/api/strategies/", s.handleStrategy)
-	mux.HandleFunc("/api/strategies/active", s.handleActiveStrategy)
-	mux.HandleFunc("/api/strategies/default-config", s.handleDefaultConfig)
+	mux.HandleFunc("/api/strategies", s.authMiddleware(s.handleStrategies))
+	mux.HandleFunc("/api/strategies/", s.authMiddleware(s.handleStrategy))
+	mux.HandleFunc("/api/strategies/active", s.authMiddleware(s.handleActiveStrategy))
+	mux.HandleFunc("/api/strategies/default-config", s.authMiddleware(s.handleDefaultConfig))
 
 	// Trader endpoints
-	mux.HandleFunc("/api/traders", s.handleTraders)
-	mux.HandleFunc("/api/traders/", s.handleTrader)
+	mux.HandleFunc("/api/traders", s.authMiddleware(s.handleTraders))
+	mux.HandleFunc("/api/traders/", s.authMiddleware(s.handleTrader))
 
 	// Data endpoints
-	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/account", s.handleAccount)
-	mux.HandleFunc("/api/positions", s.handlePositions)
-	mux.HandleFunc("/api/decisions", s.handleDecisions)
-	mux.HandleFunc("/api/equity-history", s.handleEquityHistory)
+	mux.HandleFunc("/api/status", s.authMiddleware(s.handleStatus))
+	mux.HandleFunc("/api/account", s.authMiddleware(s.handleAccount))
+	mux.HandleFunc("/api/positions", s.authMiddleware(s.handlePositions))
+	mux.HandleFunc("/api/decisions", s.authMiddleware(s.handleDecisions))
+	mux.HandleFunc("/api/equity-history", s.authMiddleware(s.handleEquityHistory))
 
 	// Backtest endpoints
-	mux.HandleFunc("/api/backtest", s.handleBacktests)
-	mux.HandleFunc("/api/backtest/start", s.handleBacktestStart)
-	mux.HandleFunc("/api/backtest/", s.handleBacktest)
+	mux.HandleFunc("/api/backtest", s.authMiddleware(s.handleBacktests))
+	mux.HandleFunc("/api/backtest/start", s.authMiddleware(s.handleBacktestStart))
+	mux.HandleFunc("/api/backtest/", s.authMiddleware(s.handleBacktest))
 
 	// Debate endpoints
-	mux.HandleFunc("/api/debate/sessions", s.handleDebateSessions)
-	mux.HandleFunc("/api/debate/sessions/", s.handleDebateSession)
+	mux.HandleFunc("/api/debate/sessions", s.authMiddleware(s.handleDebateSessions))
+	mux.HandleFunc("/api/debate/sessions/", s.authMiddleware(s.handleDebateSession))
 
 	// Wrap with CORS middleware
 	handler := corsMiddleware(mux)
 
 	log.Printf("API server starting at http://localhost:%s", s.port)
+	if s.accessPasskey != "" {
+		log.Printf("Authentication enabled - passkey required")
+	} else {
+		log.Printf("WARNING: No ACCESS_PASSKEY set - server is unprotected!")
+	}
 	return http.ListenAndServe(":"+s.port, handler)
+}
+
+// authMiddleware checks for valid passkey in X-Access-Key header
+func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth if no passkey is configured
+		if s.accessPasskey == "" {
+			next(w, r)
+			return
+		}
+
+		// Check X-Access-Key header
+		accessKey := r.Header.Get("X-Access-Key")
+		if accessKey == "" {
+			s.errorResponse(w, http.StatusUnauthorized, "Access key required")
+			return
+		}
+
+		// Use constant-time comparison to prevent timing attacks
+		if !secureCompare(accessKey, s.accessPasskey) {
+			s.errorResponse(w, http.StatusUnauthorized, "Invalid access key")
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// handleAuthVerify verifies the passkey and returns success/failure
+func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// If no passkey is configured, always allow
+	if s.accessPasskey == "" {
+		s.jsonResponse(w, map[string]interface{}{
+			"valid":    true,
+			"message":  "No authentication required",
+			"required": false,
+		})
+		return
+	}
+
+	var req struct {
+		Passkey string `json:"passkey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Use constant-time comparison to prevent timing attacks
+	if secureCompare(req.Passkey, s.accessPasskey) {
+		s.jsonResponse(w, map[string]interface{}{
+			"valid":    true,
+			"message":  "Access granted",
+			"required": true,
+		})
+	} else {
+		s.jsonResponse(w, map[string]interface{}{
+			"valid":    false,
+			"message":  "Invalid passkey",
+			"required": true,
+		})
+	}
+}
+
+// secureCompare performs constant-time comparison to prevent timing attacks
+func secureCompare(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Access-Key")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)

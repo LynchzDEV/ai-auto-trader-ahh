@@ -4,12 +4,44 @@ import axios from 'axios';
 // Use localhost in development
 const API_BASE = import.meta.env.PROD ? '/api' : 'http://localhost:8080/api';
 
+// Storage key for access passkey
+const ACCESS_KEY_STORAGE = 'trader_access_key';
+
 const api = axios.create({
   baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Add access key to all requests if available
+api.interceptors.request.use((config) => {
+  const accessKey = localStorage.getItem(ACCESS_KEY_STORAGE);
+  if (accessKey) {
+    config.headers['X-Access-Key'] = accessKey;
+  }
+  return config;
+});
+
+// Auth API
+export const verifyPasskey = (passkey: string) =>
+  axios.post(`${API_BASE}/auth/verify`, { passkey });
+
+export const setAccessKey = (key: string) => {
+  localStorage.setItem(ACCESS_KEY_STORAGE, key);
+};
+
+export const clearAccessKey = () => {
+  localStorage.removeItem(ACCESS_KEY_STORAGE);
+};
+
+export const getStoredAccessKey = () => {
+  return localStorage.getItem(ACCESS_KEY_STORAGE);
+};
+
+export const isAuthenticated = () => {
+  return !!localStorage.getItem(ACCESS_KEY_STORAGE);
+};
 
 // Strategy API
 export const getStrategies = () => api.get('/strategies');
@@ -58,3 +90,4 @@ export const stopDebate = (sessionId: string) => api.post(`/debate/sessions/${se
 export const deleteDebate = (sessionId: string) => api.delete(`/debate/sessions/${sessionId}`);
 
 export default api;
+

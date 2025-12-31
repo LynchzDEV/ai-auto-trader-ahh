@@ -25,6 +25,9 @@ type Config struct {
 
 	// Server
 	APIPort string
+
+	// Authentication
+	AccessPasskey string
 }
 
 var cfg *Config
@@ -50,6 +53,9 @@ func Load() *Config {
 
 		// Server
 		APIPort: getEnv("API_PORT", "8080"),
+
+		// Authentication
+		AccessPasskey: getEnv("ACCESS_PASSKEY", ""),
 	}
 
 	return cfg
