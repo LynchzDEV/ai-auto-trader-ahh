@@ -18,7 +18,6 @@ import {
   Activity,
   Wallet,
   DollarSign,
-  Percent,
   Target,
   Zap,
 } from 'lucide-react';
@@ -28,8 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlowBadge } from '@/components/ui/glow-badge';
 import { StatCard, MiniStat, ProgressStat } from '@/components/ui/stat-card';
-import { SpotlightCard, AnimatedBorderCard } from '@/components/ui/spotlight-card';
-import { NumberTicker } from '@/components/ui/number-ticker';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
 
 interface AccountInfo {
   balance: number;
@@ -132,8 +130,6 @@ export default function Dashboard() {
     positions.length > 0
       ? positions.reduce((sum, p) => sum + p.pnl_percent, 0) / positions.length
       : 0;
-
-  const currentTrader = traders.find((t) => t.id === selectedTrader);
 
   return (
     <div className="p-6 space-y-6">
@@ -255,7 +251,7 @@ export default function Dashboard() {
 
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">
-                          {trader.strategy_name || 'Default Strategy'}
+                          {trader.exchange || 'binance'}
                         </span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           {trader.is_running ? (

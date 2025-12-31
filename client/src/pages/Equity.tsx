@@ -16,9 +16,7 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
-  Calendar,
   DollarSign,
-  Percent,
   Activity,
 } from 'lucide-react';
 import { getTraders, getEquityHistory, getAccount } from '../lib/api';
@@ -267,7 +265,7 @@ export default function Equity() {
                         borderRadius: '8px',
                       }}
                       labelFormatter={(v) => new Date(v).toLocaleString()}
-                      formatter={(v: number) => [`$${v.toFixed(2)}`, 'Equity']}
+                      formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Equity']}
                     />
                     <Area
                       type="monotone"
@@ -316,7 +314,7 @@ export default function Equity() {
                         borderRadius: '8px',
                       }}
                       labelFormatter={(v) => new Date(v).toLocaleDateString()}
-                      formatter={(v: number) => [`${v.toFixed(2)}%`, 'Return']}
+                      formatter={(v) => [`${Number(v).toFixed(2)}%`, 'Return']}
                     />
                     <Bar dataKey="return" radius={[4, 4, 0, 0]}>
                       {metrics.dailyReturns.map((entry, index) => (

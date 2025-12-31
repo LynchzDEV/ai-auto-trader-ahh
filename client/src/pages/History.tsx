@@ -39,7 +39,6 @@ export default function History() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [filteredDecisions, setFilteredDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDecision, setSelectedDecision] = useState<Decision | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -342,7 +341,6 @@ export default function History() {
                     <DialogTrigger asChild>
                       <tr
                         className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
-                        onClick={() => setSelectedDecision(decision)}
                       >
                         <td className="p-4 text-sm">
                           {new Date(decision.created_at).toLocaleString()}

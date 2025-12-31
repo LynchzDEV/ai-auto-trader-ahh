@@ -1,13 +1,12 @@
-import { ReactNode } from 'react';
+import type { ElementType } from 'react';
 import { motion } from 'framer-motion';
-import { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NumberTicker } from './number-ticker';
 
 interface StatCardProps {
   title: string;
   value: number;
-  icon?: LucideIcon;
+  icon?: ElementType;
   prefix?: string;
   suffix?: string;
   decimals?: number;

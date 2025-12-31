@@ -8,11 +8,8 @@ import {
   RefreshCw,
   Plus,
   Users,
-  Clock,
-  Target,
   CheckCircle2,
   XCircle,
-  AlertCircle,
 } from 'lucide-react';
 import {
   listDebates,
@@ -21,7 +18,6 @@ import {
   startDebate,
   stopDebate,
   deleteDebate,
-  getTraders,
 } from '../lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +28,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlowBadge } from '@/components/ui/glow-badge';
-import { StatCard, ProgressStat } from '@/components/ui/stat-card';
+import { ProgressStat } from '@/components/ui/stat-card';
 import { SpotlightCard, AnimatedBorderCard } from '@/components/ui/spotlight-card';
 
 // Personality types with colors and emojis
@@ -65,14 +61,6 @@ interface DebateSession {
   final_decisions?: any[];
 }
 
-interface Participant {
-  id: string;
-  ai_model_id: string;
-  ai_model_name: string;
-  personality: string;
-  color: string;
-}
-
 interface Message {
   id: string;
   round: number;
@@ -88,7 +76,6 @@ export default function Debate() {
   const [sessions, setSessions] = useState<DebateSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [sessionDetails, setSessionDetails] = useState<DebateSession | null>(null);
-  const [traders, setTraders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -117,12 +104,8 @@ export default function Debate() {
 
   const loadData = async () => {
     try {
-      const [sessionsRes, tradersRes] = await Promise.all([
-        listDebates().catch(() => ({ data: { sessions: [] } })),
-        getTraders().catch(() => ({ data: { traders: [] } })),
-      ]);
+      const sessionsRes = await listDebates().catch(() => ({ data: { sessions: [] } }));
       setSessions(sessionsRes.data.sessions || []);
-      setTraders(tradersRes.data.traders || []);
       if (sessionsRes.data.sessions?.length > 0 && !selectedSession) {
         setSelectedSession(sessionsRes.data.sessions[0].id);
       }

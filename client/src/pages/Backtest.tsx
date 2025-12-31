@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   AreaChart,
   Area,
@@ -8,30 +8,21 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
 } from 'recharts';
 import {
   FlaskConical,
   Play,
-  Square,
   Trash2,
   RefreshCw,
   TrendingUp,
   TrendingDown,
   Target,
-  Clock,
-  Calendar,
   Percent,
-  DollarSign,
   Activity,
-  AlertCircle,
 } from 'lucide-react';
 import {
   listBacktests,
   startBacktest,
-  stopBacktest,
-  getBacktestStatus,
   getBacktestMetrics,
   getBacktestEquity,
   getBacktestTrades,
@@ -171,15 +162,6 @@ export default function Backtest() {
       alert(err.response?.data?.error || 'Failed to start backtest');
     } finally {
       setCreating(false);
-    }
-  };
-
-  const handleStopBacktest = async (runId: string) => {
-    try {
-      await stopBacktest(runId);
-      await loadData();
-    } catch (err) {
-      console.error('Failed to stop backtest:', err);
     }
   };
 
@@ -498,7 +480,7 @@ export default function Backtest() {
                                 borderRadius: '8px',
                               }}
                               labelFormatter={(v) => new Date(v).toLocaleString()}
-                              formatter={(v: number) => [`$${v.toFixed(2)}`, 'Equity']}
+                              formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Equity']}
                             />
                             <Area
                               type="monotone"
