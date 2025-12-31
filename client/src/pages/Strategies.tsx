@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { getStrategies, createStrategy, updateStrategy, deleteStrategy, getDefaultConfig } from '../lib/api';
 import type { Strategy, StrategyConfig } from '../types';
 import {
@@ -19,6 +19,7 @@ import {
   BarChart3,
   Zap,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,6 +31,56 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlowBadge } from '@/components/ui/glow-badge';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
+
+// Moved outside component to prevent re-renders
+const CollapsibleSection = ({
+  title,
+  icon: Icon,
+  isExpanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  isExpanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) => (
+  <GlassCard className="p-0 overflow-hidden">
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-lg bg-primary/20">
+          <Icon className="w-4 h-4 text-primary" />
+        </div>
+        <h3 className="font-medium">{title}</h3>
+      </div>
+      {isExpanded ? (
+        <ChevronUp className="w-4 h-4 text-muted-foreground" />
+      ) : (
+        <ChevronDown className="w-4 h-4 text-muted-foreground" />
+      )}
+    </button>
+    <AnimatePresence initial={false}>
+      {isExpanded && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="overflow-hidden"
+        >
+          <div className="px-4 pb-4">
+            {children}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </GlassCard>
+);
 
 export default function Strategies() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -121,47 +172,6 @@ export default function Strategies() {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const CollapsibleSection = ({
-    id,
-    title,
-    icon: Icon,
-    children,
-  }: {
-    id: string;
-    title: string;
-    icon: typeof Shield;
-    children: React.ReactNode;
-  }) => (
-    <GlassCard className="p-0 overflow-hidden">
-      <button
-        onClick={() => toggleSection(id)}
-        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/20">
-            <Icon className="w-4 h-4 text-primary" />
-          </div>
-          <h3 className="font-medium">{title}</h3>
-        </div>
-        {expandedSections[id] ? (
-          <ChevronUp className="w-4 h-4 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-        )}
-      </button>
-      {expandedSections[id] && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          className="px-4 pb-4"
-        >
-          {children}
-        </motion.div>
-      )}
-    </GlassCard>
-  );
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -187,9 +197,9 @@ export default function Strategies() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -245,7 +255,7 @@ export default function Strategies() {
                     </p>
 
                     {/* Quick Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                    <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-4">
                       <div className="flex items-center gap-2 text-sm">
                         <Clock className="w-4 h-4 text-blue-400" />
                         <span className="text-muted-foreground">Interval:</span>
@@ -317,7 +327,7 @@ export default function Strategies() {
 
       {/* Strategy Editor Modal */}
       <Dialog open={!!editingStrategy} onOpenChange={(open) => !open && setEditingStrategy(null)}>
-        <DialogContent className="max-w-4xl glass-card border-white/10 max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-4xl glass-card border-white/10 max-h-[85vh] overflow-y-auto p-4 lg:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Layers className="w-5 h-5" />
@@ -328,7 +338,7 @@ export default function Strategies() {
           {editingStrategy && (
             <div className="space-y-4 mt-4">
               {/* Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Name</Label>
                   <Input
@@ -349,8 +359,8 @@ export default function Strategies() {
               </div>
 
               {/* Coin Source */}
-              <CollapsibleSection id="coinSource" title="Coin Source" icon={Target}>
-                <div className="grid grid-cols-2 gap-4">
+              <CollapsibleSection title="Coin Source" icon={Target} isExpanded={expandedSections.coinSource} onToggle={() => toggleSection('coinSource')}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Source Type</Label>
                     <Select
@@ -394,9 +404,9 @@ export default function Strategies() {
               </CollapsibleSection>
 
               {/* Technical Indicators */}
-              <CollapsibleSection id="indicators" title="Technical Indicators" icon={BarChart3}>
+              <CollapsibleSection title="Technical Indicators" icon={BarChart3} isExpanded={expandedSections.indicators} onToggle={() => toggleSection('indicators')}>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label>Timeframe</Label>
                       <Select
@@ -450,7 +460,7 @@ export default function Strategies() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:gap-4 mt-4">
                     {[
                       { key: 'enable_ema', label: 'EMA', desc: 'Exponential Moving Average' },
                       { key: 'enable_macd', label: 'MACD', desc: 'Moving Average Convergence' },
@@ -484,7 +494,7 @@ export default function Strategies() {
               </CollapsibleSection>
 
               {/* Risk Control */}
-              <CollapsibleSection id="riskControl" title="Risk Control" icon={Shield}>
+              <CollapsibleSection title="Risk Control" icon={Shield} isExpanded={expandedSections.riskControl} onToggle={() => toggleSection('riskControl')}>
                 <div className="space-y-6">
                   {/* Sliders for visual parameters */}
                   <div className="space-y-4">
@@ -582,7 +592,7 @@ export default function Strategies() {
                   </div>
 
                   {/* Numeric inputs for precise values */}
-                  <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/10">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-white/10">
                     <div className="space-y-2">
                       <Label>Min Position USD</Label>
                       <Input
@@ -619,7 +629,7 @@ export default function Strategies() {
               </CollapsibleSection>
 
               {/* Custom AI Prompt */}
-              <CollapsibleSection id="aiPrompt" title="Custom AI Prompt" icon={Brain}>
+              <CollapsibleSection title="Custom AI Prompt" icon={Brain} isExpanded={expandedSections.aiPrompt} onToggle={() => toggleSection('aiPrompt')}>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground mb-3">
                     Add custom instructions for the AI trading decisions. This will be appended to the system prompt.

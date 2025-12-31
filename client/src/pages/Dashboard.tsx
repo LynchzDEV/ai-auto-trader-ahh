@@ -141,15 +141,15 @@ export default function Dashboard() {
       : 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient">Dashboard</h1>
-          <p className="text-muted-foreground">Monitor your AI trading bots in real-time</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient">Dashboard</h1>
+          <p className="text-sm lg:text-base text-muted-foreground">Monitor your AI trading bots in real-time</p>
         </motion.div>
         <motion.div
           initial={{ opacity: 0, x: 20 }}
@@ -175,7 +175,7 @@ export default function Dashboard() {
 
       {/* Stats Cards */}
       {selectedTrader && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 lg:gap-4 grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Account Balance"
             value={account?.wallet_balance || 0}
@@ -213,7 +213,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 lg:gap-6 lg:grid-cols-3">
         {/* Traders List */}
         <GlassCard className="lg:col-span-1 p-0 overflow-hidden">
           <div className="p-4 border-b border-white/5">
@@ -231,7 +231,7 @@ export default function Dashboard() {
               </p>
             </div>
           ) : (
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="h-[280px] lg:h-[400px]">
               <div className="p-4 space-y-2">
                 <AnimatePresence>
                   {traders.map((trader, index) => (
@@ -404,7 +404,7 @@ export default function Dashboard() {
             </div>
 
             {status?.decisions && Object.keys(status.decisions).length > 0 ? (
-              <ScrollArea className="h-[300px]">
+              <ScrollArea className="h-[250px] lg:h-[300px]">
                 <div className="p-4 space-y-3">
                   <AnimatePresence>
                     {Object.entries(status.decisions).map(
