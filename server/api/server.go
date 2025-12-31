@@ -1,32 +1,60 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"time"
 
+	"auto-trader-ahh/backtest"
+	"auto-trader-ahh/config"
+	"auto-trader-ahh/debate"
+	"auto-trader-ahh/decision"
+	"auto-trader-ahh/exchange"
+	"auto-trader-ahh/mcp"
 	"auto-trader-ahh/store"
 	"auto-trader-ahh/trader"
 )
 
 type Server struct {
-	port           string
-	strategyStore  *store.StrategyStore
-	traderStore    *store.TraderStore
-	decisionStore  *store.DecisionStore
-	equityStore    *store.EquityStore
-	engineManager  *trader.EngineManager
+	port            string
+	strategyStore   *store.StrategyStore
+	traderStore     *store.TraderStore
+	decisionStore   *store.DecisionStore
+	equityStore     *store.EquityStore
+	engineManager   *trader.EngineManager
+	debateEngine    *debate.Engine
+	backtestManager *backtest.Manager
+	aiClient        mcp.AIClient
+	binanceClient   *exchange.BinanceClient
 }
 
-func NewServer(port string, em *trader.EngineManager) *Server {
+func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Server {
+	// Create OpenRouter AI client
+	aiClient := mcp.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel)
+
+	// Create Binance client for backtest
+	binanceClient := exchange.NewBinanceClient(cfg.BinanceAPIKey, cfg.BinanceSecretKey, cfg.BinanceTestnet)
+
+	// Create debate engine and register AI client
+	debateEng := debate.NewEngine()
+	debateEng.RegisterClient("openrouter", aiClient)
+	debateEng.RegisterClient("openai", aiClient)     // Use OpenRouter for all providers
+	debateEng.RegisterClient("anthropic", aiClient)  // OpenRouter supports these models
+	debateEng.RegisterClient("deepseek", aiClient)
+
 	return &Server{
-		port:          port,
-		strategyStore: store.NewStrategyStore(),
-		traderStore:   store.NewTraderStore(),
-		decisionStore: store.NewDecisionStore(),
-		equityStore:   store.NewEquityStore(),
-		engineManager: em,
+		port:            port,
+		strategyStore:   store.NewStrategyStore(),
+		traderStore:     store.NewTraderStore(),
+		decisionStore:   store.NewDecisionStore(),
+		equityStore:     store.NewEquityStore(),
+		engineManager:   em,
+		debateEngine:    debateEng,
+		backtestManager: backtest.NewManager(aiClient, binanceClient),
+		aiClient:        aiClient,
+		binanceClient:   binanceClient,
 	}
 }
 
@@ -52,6 +80,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/positions", s.handlePositions)
 	mux.HandleFunc("/api/decisions", s.handleDecisions)
 	mux.HandleFunc("/api/equity-history", s.handleEquityHistory)
+
+	// Backtest endpoints
+	mux.HandleFunc("/api/backtest", s.handleBacktests)
+	mux.HandleFunc("/api/backtest/start", s.handleBacktestStart)
+	mux.HandleFunc("/api/backtest/", s.handleBacktest)
+
+	// Debate endpoints
+	mux.HandleFunc("/api/debate/sessions", s.handleDebateSessions)
+	mux.HandleFunc("/api/debate/sessions/", s.handleDebateSession)
 
 	// Wrap with CORS middleware
 	handler := corsMiddleware(mux)
@@ -376,7 +413,7 @@ func (s *Server) handleEquityHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshots, err := s.equityStore.ListByTrader(traderID, 1000)
+	snapshots, err := s.equityStore.GetLatest(traderID, 1000)
 	if err != nil {
 		s.errorResponse(w, http.StatusInternalServerError, err.Error())
 		return
@@ -401,4 +438,340 @@ func splitPath(path string) []string {
 		parts = append(parts, current)
 	}
 	return parts
+}
+
+// ============ BACKTEST ENDPOINTS ============
+
+func (s *Server) handleBacktests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	runs := s.backtestManager.ListRuns()
+	s.jsonResponse(w, map[string]interface{}{"backtests": runs})
+}
+
+func (s *Server) handleBacktestStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var cfg backtest.Config
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := cfg.Validate(); err != nil {
+		s.errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	runID, err := s.backtestManager.Start(context.Background(), &cfg)
+	if err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.jsonResponse(w, map[string]string{"run_id": runID, "status": "started"})
+}
+
+func (s *Server) handleBacktest(w http.ResponseWriter, r *http.Request) {
+	// Extract path: /api/backtest/{runId} or /api/backtest/{runId}/action
+	path := r.URL.Path[len("/api/backtest/"):]
+	parts := splitPath(path)
+
+	if len(parts) == 0 {
+		s.errorResponse(w, http.StatusBadRequest, "Run ID required")
+		return
+	}
+
+	runID := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	switch action {
+	case "stop":
+		if r.Method != "POST" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		if err := s.backtestManager.Stop(runID); err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]string{"status": "stopped"})
+
+	case "status":
+		if r.Method != "GET" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		meta, err := s.backtestManager.GetStatus(runID)
+		if err != nil {
+			s.errorResponse(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.jsonResponse(w, meta)
+
+	case "metrics":
+		if r.Method != "GET" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		metrics, err := s.backtestManager.GetMetrics(runID)
+		if err != nil {
+			s.errorResponse(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.jsonResponse(w, metrics)
+
+	case "equity":
+		if r.Method != "GET" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		curve, err := s.backtestManager.GetEquityCurve(runID)
+		if err != nil {
+			s.errorResponse(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]interface{}{"equity_curve": curve})
+
+	case "trades":
+		if r.Method != "GET" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		trades, err := s.backtestManager.GetTrades(runID)
+		if err != nil {
+			s.errorResponse(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]interface{}{"trades": trades})
+
+	case "":
+		// No action - CRUD on run
+		switch r.Method {
+		case "GET":
+			meta, err := s.backtestManager.GetStatus(runID)
+			if err != nil {
+				s.errorResponse(w, http.StatusNotFound, err.Error())
+				return
+			}
+			s.jsonResponse(w, meta)
+
+		case "DELETE":
+			if err := s.backtestManager.Delete(runID); err != nil {
+				s.errorResponse(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.jsonResponse(w, map[string]string{"status": "deleted"})
+
+		default:
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		}
+
+	default:
+		s.errorResponse(w, http.StatusBadRequest, "Unknown action")
+	}
+}
+
+// ============ DEBATE ENDPOINTS ============
+
+func (s *Server) handleDebateSessions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		sessions := s.debateEngine.ListSessions()
+		s.jsonResponse(w, map[string]interface{}{"sessions": sessions})
+
+	case "POST":
+		var req debate.CreateSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		session, err := s.debateEngine.CreateSession(&req)
+		if err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		s.jsonResponse(w, session)
+
+	default:
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (s *Server) handleDebateSession(w http.ResponseWriter, r *http.Request) {
+	// Extract path: /api/debate/sessions/{sessionId} or /api/debate/sessions/{sessionId}/action
+	path := r.URL.Path[len("/api/debate/sessions/"):]
+	parts := splitPath(path)
+
+	if len(parts) == 0 {
+		s.errorResponse(w, http.StatusBadRequest, "Session ID required")
+		return
+	}
+
+	sessionID := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	switch action {
+	case "start":
+		if r.Method != "POST" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+
+		// Get session to retrieve symbols
+		session, err := s.debateEngine.GetSession(sessionID)
+		if err != nil {
+			s.errorResponse(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		// Build market context with real data
+		marketCtx := s.buildDebateMarketContext(session.Symbols)
+
+		if err := s.debateEngine.Start(context.Background(), sessionID, marketCtx); err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]string{"status": "started"})
+
+	case "stop":
+		if r.Method != "POST" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		if err := s.debateEngine.Stop(sessionID); err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]string{"status": "stopped"})
+
+	case "":
+		// No action - CRUD on session
+		switch r.Method {
+		case "GET":
+			session, err := s.debateEngine.GetSession(sessionID)
+			if err != nil {
+				s.errorResponse(w, http.StatusNotFound, err.Error())
+				return
+			}
+			s.jsonResponse(w, session)
+
+		case "DELETE":
+			// For now, just stop it
+			s.debateEngine.Stop(sessionID)
+			s.jsonResponse(w, map[string]string{"status": "deleted"})
+
+		default:
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		}
+
+	default:
+		s.errorResponse(w, http.StatusBadRequest, "Unknown action")
+	}
+}
+
+// buildDebateMarketContext fetches real market data and creates a simulated account for debate
+func (s *Server) buildDebateMarketContext(symbols []string) *debate.MarketContext {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	marketData := make(map[string]*decision.MarketData)
+
+	// Fetch market data for each symbol
+	for _, symbol := range symbols {
+		// Get ticker for current price
+		ticker, err := s.binanceClient.GetTicker(ctx, symbol)
+		if err != nil {
+			log.Printf("Failed to get ticker for %s: %v", symbol, err)
+			continue
+		}
+
+		// Get recent klines (5m, last 288 candles = ~24 hours for stats)
+		klines, err := s.binanceClient.GetKlines(ctx, symbol, "5m", 288)
+		if err != nil {
+			log.Printf("Failed to get klines for %s: %v", symbol, err)
+		}
+
+		// Calculate 24h stats from klines
+		var highPrice, lowPrice, volume24h, openPrice float64
+		if len(klines) > 0 {
+			openPrice = klines[0].Open
+			highPrice = klines[0].High
+			lowPrice = klines[0].Low
+			for _, k := range klines {
+				if k.High > highPrice {
+					highPrice = k.High
+				}
+				if k.Low < lowPrice {
+					lowPrice = k.Low
+				}
+				volume24h += k.Volume
+			}
+		}
+
+		// Calculate 24h change percentage
+		change24h := 0.0
+		if openPrice > 0 {
+			change24h = ((ticker.Price - openPrice) / openPrice) * 100
+		}
+
+		// Convert klines to decision.Kline format
+		var decisionKlines []decision.Kline
+		for _, k := range klines {
+			decisionKlines = append(decisionKlines, decision.Kline{
+				OpenTime:  k.OpenTime,
+				Open:      k.Open,
+				High:      k.High,
+				Low:       k.Low,
+				Close:     k.Close,
+				Volume:    k.Volume,
+				CloseTime: k.CloseTime,
+			})
+		}
+
+		md := &decision.MarketData{
+			Symbol:       symbol,
+			Price:        ticker.Price,
+			Change24h:    change24h,
+			Volume24h:    volume24h,
+			HighPrice24h: highPrice,
+			LowPrice24h:  lowPrice,
+			Timestamp:    time.Now(),
+			Klines:       decisionKlines,
+		}
+		marketData[symbol] = md
+	}
+
+	// Create simulated account with $10,000 starting balance for debate purposes
+	account := decision.AccountInfo{
+		TotalEquity:      10000.0,
+		AvailableBalance: 10000.0,
+		UnrealizedPnL:    0,
+		TotalPnL:         0,
+		TotalPnLPct:      0,
+		MarginUsed:       0,
+		MarginUsedPct:    0,
+		PositionCount:    0,
+	}
+
+	return &debate.MarketContext{
+		CurrentTime: time.Now().Format(time.RFC3339),
+		Account:     account,
+		Positions:   []decision.PositionInfo{}, // No existing positions
+		MarketData:  marketData,
+	}
 }

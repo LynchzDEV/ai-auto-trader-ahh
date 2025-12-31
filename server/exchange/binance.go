@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -246,6 +247,62 @@ func (c *BinanceClient) GetKlines(ctx context.Context, symbol, interval string, 
 	return klines, nil
 }
 
+// GetHistoricalKlines retrieves candlestick data for a time range
+func (c *BinanceClient) GetHistoricalKlines(ctx context.Context, symbol, interval string, startTime, endTime int64) ([]Kline, error) {
+	var allKlines []Kline
+	limit := 1500 // Max limit for Binance API
+
+	for startTime < endTime {
+		params := url.Values{}
+		params.Set("symbol", symbol)
+		params.Set("interval", interval)
+		params.Set("startTime", strconv.FormatInt(startTime, 10))
+		params.Set("endTime", strconv.FormatInt(endTime, 10))
+		params.Set("limit", strconv.Itoa(limit))
+
+		body, err := c.doRequest(ctx, "GET", "/fapi/v1/klines", params, false)
+		if err != nil {
+			return nil, err
+		}
+
+		var raw [][]interface{}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, fmt.Errorf("failed to parse klines: %w", err)
+		}
+
+		if len(raw) == 0 {
+			break
+		}
+
+		for _, k := range raw {
+			if len(k) < 7 {
+				continue
+			}
+			kline := Kline{
+				OpenTime:  int64(k[0].(float64)),
+				Open:      parseFloat(k[1]),
+				High:      parseFloat(k[2]),
+				Low:       parseFloat(k[3]),
+				Close:     parseFloat(k[4]),
+				Volume:    parseFloat(k[5]),
+				CloseTime: int64(k[6].(float64)),
+			}
+			allKlines = append(allKlines, kline)
+		}
+
+		// Move start time to after last kline
+		lastKline := raw[len(raw)-1]
+		startTime = int64(lastKline[6].(float64)) + 1
+
+		// If we got less than limit, we're done
+		if len(raw) < limit {
+			break
+		}
+	}
+
+	return allKlines, nil
+}
+
 // SetLeverage sets the leverage for a symbol
 func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage int) error {
 	params := url.Values{}
@@ -256,21 +313,80 @@ func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage
 	return err
 }
 
+// getQuantityPrecision returns the quantity precision for a symbol
+func getQuantityPrecision(symbol string) int {
+	// Binance Futures precision requirements
+	precisions := map[string]int{
+		"BTCUSDT":  3,
+		"ETHUSDT":  3,
+		"BNBUSDT":  2,
+		"SOLUSDT":  0,
+		"XRPUSDT":  1,
+		"DOGEUSDT": 0,
+		"ADAUSDT":  0,
+		"AVAXUSDT": 1,
+		"DOTUSDT":  1,
+		"LINKUSDT": 2,
+		"MATICUSDT": 0,
+		"LTCUSDT":  3,
+		"ATOMUSDT": 2,
+		"UNIUSDT":  1,
+		"XLMUSDT":  0,
+	}
+	if p, ok := precisions[symbol]; ok {
+		return p
+	}
+	return 3 // default
+}
+
+// getPricePrecision returns the price precision for a symbol
+func getPricePrecision(symbol string) int {
+	precisions := map[string]int{
+		"BTCUSDT":  1,
+		"ETHUSDT":  2,
+		"BNBUSDT":  2,
+		"SOLUSDT":  2,
+		"XRPUSDT":  4,
+		"DOGEUSDT": 5,
+		"ADAUSDT":  4,
+		"AVAXUSDT": 2,
+		"DOTUSDT":  3,
+		"LINKUSDT": 3,
+		"MATICUSDT": 4,
+		"LTCUSDT":  2,
+		"ATOMUSDT": 3,
+		"UNIUSDT":  3,
+		"XLMUSDT":  5,
+	}
+	if p, ok := precisions[symbol]; ok {
+		return p
+	}
+	return 2 // default
+}
+
 // PlaceOrder places a new order
 func (c *BinanceClient) PlaceOrder(ctx context.Context, symbol, side, orderType string, quantity float64, price float64) (*Order, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("side", side) // BUY or SELL
 	params.Set("type", orderType) // MARKET or LIMIT
-	params.Set("quantity", strconv.FormatFloat(quantity, 'f', 6, 64))
+
+	// Use proper precision for the symbol
+	qtyPrecision := getQuantityPrecision(symbol)
+	qtyStr := strconv.FormatFloat(quantity, 'f', qtyPrecision, 64)
+	params.Set("quantity", qtyStr)
 
 	if orderType == "LIMIT" {
-		params.Set("price", strconv.FormatFloat(price, 'f', 2, 64))
+		pricePrecision := getPricePrecision(symbol)
+		params.Set("price", strconv.FormatFloat(price, 'f', pricePrecision, 64))
 		params.Set("timeInForce", "GTC")
 	}
 
+	log.Printf("[Binance] Placing %s %s order: %s %s @ %s", orderType, side, symbol, qtyStr, "MARKET")
+
 	body, err := c.doRequest(ctx, "POST", "/fapi/v1/order", params, true)
 	if err != nil {
+		log.Printf("[Binance] Order failed: %v", err)
 		return nil, err
 	}
 
@@ -279,6 +395,7 @@ func (c *BinanceClient) PlaceOrder(ctx context.Context, symbol, side, orderType 
 		return nil, fmt.Errorf("failed to parse order: %w", err)
 	}
 
+	log.Printf("[Binance] Order placed successfully: ID=%d, Status=%s, AvgPrice=%.2f", order.OrderID, order.Status, order.AvgPrice)
 	return &order, nil
 }
 
@@ -290,6 +407,14 @@ func (c *BinanceClient) ClosePosition(ctx context.Context, symbol string, positi
 		side = "BUY"
 		quantity = -positionAmt
 	}
+
+	// Round quantity to proper precision
+	qtyPrecision := getQuantityPrecision(symbol)
+	multiplier := 1.0
+	for i := 0; i < qtyPrecision; i++ {
+		multiplier *= 10
+	}
+	quantity = float64(int(quantity*multiplier+0.5)) / multiplier
 
 	return c.PlaceOrder(ctx, symbol, side, "MARKET", quantity, 0)
 }
