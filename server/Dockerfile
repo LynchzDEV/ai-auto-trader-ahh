@@ -8,8 +8,9 @@ ARG TARGETARCH
 
 WORKDIR /app
 
-# Install build dependencies for CGO (sqlite)
-RUN apk add --no-cache gcc musl-dev
+# Install xx for cross-compilation and build dependencies
+RUN apk add --no-cache clang lld
+COPY --from=tonistiigi/xx / /
 
 # Copy go mod files
 COPY go.mod go.sum* ./
@@ -18,8 +19,10 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+# Install target-specific build dependencies and build
+RUN xx-apk add --no-cache gcc musl-dev
+RUN CGO_ENABLED=1 GOOS=$(xx-info os) GOARCH=$(xx-info arch) \
+    CC="xx-clang" \
     go build -ldflags="-w -s" -o server .
 
 # Runtime stage
