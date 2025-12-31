@@ -255,8 +255,8 @@ func (c *Client) buildOpenAIRequest(req *Request) (*http.Request, error) {
 
 	// OpenRouter-specific headers
 	if c.config.Provider == ProviderOpenRouter {
-		httpReq.Header.Set("HTTP-Referer", "https://auto-trader.local")
-		httpReq.Header.Set("X-Title", "Auto Trader")
+		httpReq.Header.Set("HTTP-Referer", "https://passive-income-ahh.local")
+		httpReq.Header.Set("X-Title", "Passive Income Ahh")
 	}
 
 	return httpReq, nil

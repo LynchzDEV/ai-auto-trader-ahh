@@ -15,7 +15,7 @@ import (
 
 func main() {
 	fmt.Println("╔════════════════════════════════════════════════════════════╗")
-	fmt.Println("║        Auto Trader - AI-Powered Trading System             ║")
+	fmt.Println("║      Passive Income Ahh - AI-Powered Trading System        ║")
 	fmt.Println("║        OpenRouter + Binance Futures                        ║")
 	fmt.Println("╚════════════════════════════════════════════════════════════╝")
 	fmt.Println()
@@ -50,7 +50,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start API server in background
-	server := api.NewServer(cfg.APIPort, engineManager)
+	server := api.NewServer(cfg.APIPort, engineManager, cfg)
 	go func() {
 		if err := server.Start(); err != nil {
 			log.Printf("API server error: %v", err)
@@ -70,6 +70,10 @@ func main() {
 	log.Println("  - GET  /api/status?trader_id=x     - Get trader status")
 	log.Println("  - GET  /api/positions?trader_id=x  - Get positions")
 	log.Println("  - GET  /api/decisions?trader_id=x  - Get decisions")
+	log.Println("  - GET  /api/backtest               - List backtests")
+	log.Println("  - POST /api/backtest/start         - Start backtest")
+	log.Println("  - GET  /api/debate/sessions        - List debates")
+	log.Println("  - POST /api/debate/sessions        - Create debate")
 	log.Println()
 	log.Println("Press Ctrl+C to stop")
 	fmt.Println()

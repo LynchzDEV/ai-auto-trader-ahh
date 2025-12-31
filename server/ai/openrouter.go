@@ -89,8 +89,8 @@ func (c *Client) Chat(messages []Message) (string, error) {
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("HTTP-Referer", "https://auto-trader-ahh.local")
-	httpReq.Header.Set("X-Title", "Auto Trader")
+	httpReq.Header.Set("HTTP-Referer", "https://passive-income-ahh.local")
+	httpReq.Header.Set("X-Title", "Passive Income Ahh")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

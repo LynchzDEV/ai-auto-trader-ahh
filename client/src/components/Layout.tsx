@@ -41,8 +41,8 @@ export default function Layout() {
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gradient">AutoTrader</h1>
-              <p className="text-xs text-muted-foreground">AI-Powered Trading</p>
+              <h1 className="text-xl font-bold text-gradient">Passive Income</h1>
+              <p className="text-xs text-muted-foreground">AI-Powered Trading Ahh</p>
             </div>
           </motion.div>
         </div>
