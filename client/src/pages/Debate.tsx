@@ -63,6 +63,10 @@ interface DebateSession {
   messages?: any[];
   votes?: any[];
   final_decisions?: any[];
+  auto_cycle?: boolean;
+  cycle_interval_minutes?: number;
+  cycle_count?: number;
+  next_cycle_at?: string;
 }
 
 interface Message {
@@ -92,6 +96,8 @@ export default function Debate() {
     auto_execute: false,
     trader_id: '',
     participants: [] as { ai_model_id: string; ai_model_name: string; provider: string; personality: string }[],
+    auto_cycle: false,
+    cycle_interval_minutes: 5,
   });
 
   // Selected model and personality for adding participants
@@ -173,6 +179,8 @@ export default function Debate() {
         auto_execute: formData.auto_execute,
         trader_id: formData.trader_id,
         participants: formData.participants,
+        auto_cycle: formData.auto_cycle,
+        cycle_interval_minutes: formData.cycle_interval_minutes,
       };
       const res = await createDebate(data);
       setSelectedSession(res.data.id || res.data.session_id);
@@ -184,6 +192,8 @@ export default function Debate() {
         auto_execute: false,
         trader_id: '',
         participants: [],
+        auto_cycle: false,
+        cycle_interval_minutes: 5,
       });
       await loadData();
     } catch (err: any) {
@@ -342,6 +352,44 @@ export default function Debate() {
                   </div>
                 </div>
 
+                {/* Auto-Cycle Settings */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Auto-Cycle</Label>
+                    <div className="flex items-center gap-2 h-10">
+                      <Checkbox
+                        checked={formData.auto_cycle}
+                        onCheckedChange={(v) => setFormData({ ...formData, auto_cycle: !!v })}
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        Run debates continuously
+                      </span>
+                    </div>
+                  </div>
+                  {formData.auto_cycle && (
+                    <div className="space-y-2">
+                      <Label>Cycle Interval (minutes)</Label>
+                      <Select
+                        value={String(formData.cycle_interval_minutes)}
+                        onValueChange={(v) => setFormData({ ...formData, cycle_interval_minutes: parseInt(v) })}
+                      >
+                        <SelectTrigger className="glass">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">1 min</SelectItem>
+                          <SelectItem value="3">3 mins</SelectItem>
+                          <SelectItem value="5">5 mins</SelectItem>
+                          <SelectItem value="10">10 mins</SelectItem>
+                          <SelectItem value="15">15 mins</SelectItem>
+                          <SelectItem value="30">30 mins</SelectItem>
+                          <SelectItem value="60">1 hour</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+
                 {/* Participants */}
                 <div className="space-y-3">
                   <Label>AI Participants ({formData.participants.length})</Label>
@@ -466,30 +514,38 @@ export default function Debate() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium">{session.name}</span>
-                      <GlowBadge
-                        variant={
-                          session.status === 'running'
-                            ? 'info'
-                            : session.status === 'completed'
-                            ? 'success'
-                            : session.status === 'voting'
-                            ? 'warning'
-                            : 'secondary'
-                        }
-                        pulse={session.status === 'running'}
-                      >
-                        {session.status}
-                      </GlowBadge>
+                      <div className="flex gap-1">
+                        {session.auto_cycle && (
+                          <GlowBadge variant="info" pulse>
+                            🔄 Auto
+                          </GlowBadge>
+                        )}
+                        <GlowBadge
+                          variant={
+                            session.status === 'running'
+                              ? 'info'
+                              : session.status === 'completed'
+                              ? 'success'
+                              : session.status === 'voting'
+                              ? 'warning'
+                              : 'secondary'
+                          }
+                          pulse={session.status === 'running'}
+                        >
+                          {session.status}
+                        </GlowBadge>
+                      </div>
                     </div>
                     <div className="text-xs text-muted-foreground mb-2">
                       {session.symbols.join(', ')}
+                      {session.auto_cycle && session.cycle_count ? ` • Cycle #${session.cycle_count}` : ''}
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">
                         Round {session.current_round}/{session.max_rounds}
                       </span>
                       <div className="flex gap-1">
-                        {session.status === 'pending' && (
+                        {(session.status === 'pending' || (session.status === 'completed' && session.auto_cycle)) && (
                           <Button
                             size="icon"
                             className="h-6 w-6 bg-green-600 hover:bg-green-500"
@@ -497,6 +553,7 @@ export default function Debate() {
                               e.stopPropagation();
                               handleStartDebate(session.id);
                             }}
+                            title={session.auto_cycle ? 'Start auto-cycle' : 'Start debate'}
                           >
                             <Play className="h-3 w-3" />
                           </Button>

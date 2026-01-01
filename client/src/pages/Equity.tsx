@@ -28,7 +28,7 @@ import { StatCard } from '@/components/ui/stat-card';
 
 interface EquityPoint {
   timestamp: string;
-  equity: number;
+  total_equity: number;  // matches server field name
 }
 
 interface DailyReturn {
@@ -85,25 +85,25 @@ export default function Equity() {
   const calculateMetrics = () => {
     if (equityData.length < 2) return { pnl: 0, pnlPercent: 0, maxDrawdown: 0, dailyReturns: [] };
 
-    const firstEquity = equityData[0]?.equity || 0;
-    const lastEquity = equityData[equityData.length - 1]?.equity || 0;
+    const firstEquity = equityData[0]?.total_equity || 0;
+    const lastEquity = equityData[equityData.length - 1]?.total_equity || 0;
     const pnl = lastEquity - firstEquity;
     const pnlPercent = firstEquity > 0 ? ((lastEquity - firstEquity) / firstEquity) * 100 : 0;
 
     // Calculate max drawdown
-    let peak = equityData[0]?.equity || 0;
+    let peak = equityData[0]?.total_equity || 0;
     let maxDrawdown = 0;
     for (const point of equityData) {
-      if (point.equity > peak) peak = point.equity;
-      const drawdown = ((peak - point.equity) / peak) * 100;
+      if (point.total_equity > peak) peak = point.total_equity;
+      const drawdown = ((peak - point.total_equity) / peak) * 100;
       if (drawdown > maxDrawdown) maxDrawdown = drawdown;
     }
 
     // Calculate daily returns
     const dailyReturns: DailyReturn[] = [];
     for (let i = 1; i < equityData.length; i++) {
-      const prevEquity = equityData[i - 1].equity;
-      const currEquity = equityData[i].equity;
+      const prevEquity = equityData[i - 1].total_equity;
+      const currEquity = equityData[i].total_equity;
       if (prevEquity > 0) {
         dailyReturns.push({
           date: equityData[i].timestamp,
@@ -194,7 +194,7 @@ export default function Equity() {
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard
           title="Current Equity"
-          value={account?.equity || 0}
+          value={account?.total_equity || 0}
           icon={DollarSign}
           prefix="$"
           decimals={2}
@@ -278,7 +278,7 @@ export default function Equity() {
                     />
                     <Area
                       type="monotone"
-                      dataKey="equity"
+                      dataKey="total_equity"
                       stroke={metrics.pnl >= 0 ? '#22c55e' : '#ef4444'}
                       strokeWidth={2}
                       fill="url(#colorEquityMain)"

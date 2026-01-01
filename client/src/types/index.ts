@@ -54,11 +54,10 @@ export interface Trader {
   name: string;
   strategy_id: string;
   exchange: string;
-  status: string;
+  status: 'running' | 'stopped';
   initial_balance: number;
   config: TraderConfig;
   created_at: string;
-  is_running?: boolean;
 }
 
 export interface TraderConfig {

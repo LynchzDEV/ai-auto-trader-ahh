@@ -14,13 +14,21 @@ import (
 	"auto-trader-ahh/mcp"
 )
 
+// MarketContextProvider is a function that provides fresh market context
+type MarketContextProvider func(symbols []string) (*MarketContext, error)
+
+// TradeExecutor is a function that executes trades based on debate decisions
+type TradeExecutor func(decisions []*Decision) error
+
 // Engine runs debate sessions
 type Engine struct {
-	sessions   map[string]*SessionWithDetails
-	clients    map[string]mcp.AIClient // provider -> client
-	eventChan  map[string]chan *Event  // sessionID -> event channel
-	cancels    map[string]context.CancelFunc
-	mu         sync.RWMutex
+	sessions            map[string]*SessionWithDetails
+	clients             map[string]mcp.AIClient // provider -> client
+	eventChan           map[string]chan *Event  // sessionID -> event channel
+	cancels             map[string]context.CancelFunc
+	mu                  sync.RWMutex
+	marketCtxProvider   MarketContextProvider
+	tradeExecutor       TradeExecutor
 }
 
 // NewEngine creates a new debate engine
@@ -40,6 +48,20 @@ func (e *Engine) RegisterClient(provider string, client mcp.AIClient) {
 	e.clients[provider] = client
 }
 
+// SetMarketContextProvider sets the function to get fresh market context
+func (e *Engine) SetMarketContextProvider(provider MarketContextProvider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.marketCtxProvider = provider
+}
+
+// SetTradeExecutor sets the function to execute trades
+func (e *Engine) SetTradeExecutor(executor TradeExecutor) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.tradeExecutor = executor
+}
+
 // CreateSession creates a new debate session
 func (e *Engine) CreateSession(req *CreateSessionRequest) (*SessionWithDetails, error) {
 	e.mu.Lock()
@@ -47,17 +69,19 @@ func (e *Engine) CreateSession(req *CreateSessionRequest) (*SessionWithDetails, 
 
 	session := &SessionWithDetails{
 		Session: Session{
-			ID:              fmt.Sprintf("debate_%d", time.Now().UnixNano()),
-			Name:            req.Name,
-			Status:          StatusPending,
-			Symbols:         req.Symbols,
-			MaxRounds:       req.MaxRounds,
-			IntervalMinutes: req.IntervalMinutes,
-			PromptVariant:   req.PromptVariant,
-			AutoExecute:     req.AutoExecute,
-			TraderID:        req.TraderID,
-			Language:        req.Language,
-			CreatedAt:       time.Now(),
+			ID:                   fmt.Sprintf("debate_%d", time.Now().UnixNano()),
+			Name:                 req.Name,
+			Status:               StatusPending,
+			Symbols:              req.Symbols,
+			MaxRounds:            req.MaxRounds,
+			IntervalMinutes:      req.IntervalMinutes,
+			PromptVariant:        req.PromptVariant,
+			AutoExecute:          req.AutoExecute,
+			TraderID:             req.TraderID,
+			Language:             req.Language,
+			CreatedAt:            time.Now(),
+			AutoCycle:            req.AutoCycle,
+			CycleIntervalMinutes: req.CycleIntervalMinutes,
 		},
 		Participants: make([]*Participant, 0),
 		Messages:     make([]*Message, 0),
@@ -69,6 +93,9 @@ func (e *Engine) CreateSession(req *CreateSessionRequest) (*SessionWithDetails, 
 	}
 	if session.Language == "" {
 		session.Language = "en-US"
+	}
+	if session.CycleIntervalMinutes <= 0 {
+		session.CycleIntervalMinutes = 5 // Default 5 minutes between cycles
 	}
 
 	// Add participants
@@ -138,9 +165,9 @@ func (e *Engine) Start(ctx context.Context, sessionID string, marketCtx *MarketC
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	if session.Status != StatusPending {
+	if session.Status != StatusPending && session.Status != StatusCompleted {
 		e.mu.Unlock()
-		return fmt.Errorf("session already started or completed")
+		return fmt.Errorf("session already running")
 	}
 
 	session.Status = StatusRunning
@@ -152,22 +179,165 @@ func (e *Engine) Start(ctx context.Context, sessionID string, marketCtx *MarketC
 
 	// Run debate in background
 	go func() {
-		if err := e.runDebate(ctx, session, marketCtx); err != nil {
-			log.Printf("Debate error: %v", err)
-			e.mu.Lock()
-			session.Status = StatusCancelled
-			session.Error = err.Error()
-			e.mu.Unlock()
-			e.sendEvent(sessionID, &Event{
-				Type:      "error",
-				SessionID: sessionID,
-				Data:      err.Error(),
-				Timestamp: time.Now(),
-			})
+		if session.AutoCycle {
+			e.runAutoCycle(ctx, session, marketCtx)
+		} else {
+			if err := e.runDebate(ctx, session, marketCtx); err != nil {
+				log.Printf("Debate error: %v", err)
+				e.mu.Lock()
+				session.Status = StatusCancelled
+				session.Error = err.Error()
+				e.mu.Unlock()
+				e.sendEvent(sessionID, &Event{
+					Type:      "error",
+					SessionID: sessionID,
+					Data:      err.Error(),
+					Timestamp: time.Now(),
+				})
+			}
 		}
 	}()
 
 	return nil
+}
+
+// runAutoCycle runs the debate in continuous cycles
+func (e *Engine) runAutoCycle(ctx context.Context, session *SessionWithDetails, initialMarketCtx *MarketContext) {
+	log.Printf("[Debate] Starting auto-cycle for session %s (interval: %d minutes)", session.ID, session.CycleIntervalMinutes)
+
+	marketCtx := initialMarketCtx
+	cycleInterval := time.Duration(session.CycleIntervalMinutes) * time.Minute
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[Debate] Auto-cycle stopped for session %s", session.ID)
+			return
+		default:
+		}
+
+		// Get fresh market context if provider is available
+		e.mu.RLock()
+		provider := e.marketCtxProvider
+		e.mu.RUnlock()
+
+		if provider != nil {
+			freshCtx, err := provider(session.Symbols)
+			if err != nil {
+				log.Printf("[Debate] Error getting market context: %v", err)
+			} else {
+				marketCtx = freshCtx
+			}
+		}
+
+		// Reset session state for new cycle
+		e.mu.Lock()
+		session.Status = StatusRunning
+		session.CurrentRound = 0
+		session.Messages = make([]*Message, 0)
+		session.Votes = make([]*Vote, 0)
+		session.FinalDecisions = nil
+		session.Error = ""
+		e.mu.Unlock()
+
+		// Send cycle start event
+		session.CycleCount++
+		e.sendEvent(session.ID, &Event{
+			Type:      "cycle_start",
+			SessionID: session.ID,
+			Data: map[string]interface{}{
+				"cycle_number": session.CycleCount,
+				"symbols":      session.Symbols,
+			},
+			Timestamp: time.Now(),
+		})
+
+		log.Printf("[Debate] Starting cycle #%d for session %s", session.CycleCount, session.ID)
+
+		// Run the debate
+		if err := e.runDebate(ctx, session, marketCtx); err != nil {
+			if ctx.Err() != nil {
+				// Context cancelled, stop cycling
+				return
+			}
+			log.Printf("[Debate] Cycle #%d error: %v", session.CycleCount, err)
+			e.sendEvent(session.ID, &Event{
+				Type:      "cycle_error",
+				SessionID: session.ID,
+				Data:      err.Error(),
+				Timestamp: time.Now(),
+			})
+		} else {
+			// Execute trades if enabled
+			if session.AutoExecute && len(session.FinalDecisions) > 0 {
+				e.executeDecisions(session)
+			}
+		}
+
+		// Send cycle complete event
+		e.sendEvent(session.ID, &Event{
+			Type:      "cycle_complete",
+			SessionID: session.ID,
+			Data: map[string]interface{}{
+				"cycle_number": session.CycleCount,
+				"decisions":    session.FinalDecisions,
+			},
+			Timestamp: time.Now(),
+		})
+
+		// Calculate next cycle time
+		e.mu.Lock()
+		session.NextCycleAt = time.Now().Add(cycleInterval)
+		session.Status = StatusCompleted // Mark as completed between cycles
+		e.mu.Unlock()
+
+		log.Printf("[Debate] Cycle #%d complete. Next cycle at %s", session.CycleCount, session.NextCycleAt.Format("15:04:05"))
+
+		// Wait for next cycle
+		select {
+		case <-ctx.Done():
+			log.Printf("[Debate] Auto-cycle stopped for session %s", session.ID)
+			return
+		case <-time.After(cycleInterval):
+			// Continue to next cycle
+		}
+	}
+}
+
+// executeDecisions executes the final decisions from the debate
+func (e *Engine) executeDecisions(session *SessionWithDetails) {
+	e.mu.RLock()
+	executor := e.tradeExecutor
+	e.mu.RUnlock()
+
+	if executor == nil {
+		log.Printf("[Debate] No trade executor configured, skipping execution")
+		return
+	}
+
+	log.Printf("[Debate] Executing %d decisions from cycle #%d", len(session.FinalDecisions), session.CycleCount)
+
+	if err := executor(session.FinalDecisions); err != nil {
+		log.Printf("[Debate] Trade execution error: %v", err)
+		e.sendEvent(session.ID, &Event{
+			Type:      "execution_error",
+			SessionID: session.ID,
+			Data:      err.Error(),
+			Timestamp: time.Now(),
+		})
+	} else {
+		// Mark decisions as executed
+		for _, d := range session.FinalDecisions {
+			d.Executed = true
+			d.ExecutedAt = time.Now()
+		}
+		e.sendEvent(session.ID, &Event{
+			Type:      "execution_complete",
+			SessionID: session.ID,
+			Data:      session.FinalDecisions,
+			Timestamp: time.Now(),
+		})
+	}
 }
 
 // Stop cancels a running debate

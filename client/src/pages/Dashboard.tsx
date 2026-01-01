@@ -250,11 +250,11 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium">{trader.name}</span>
                         <GlowBadge
-                          variant={trader.is_running ? 'success' : 'secondary'}
-                          dot={trader.is_running}
-                          pulse={trader.is_running}
+                          variant={trader.status === 'running' ? 'success' : 'secondary'}
+                          dot={trader.status === 'running'}
+                          pulse={trader.status === 'running'}
                         >
-                          {trader.is_running ? 'Running' : 'Stopped'}
+                          {trader.status === 'running' ? 'Running' : 'Stopped'}
                         </GlowBadge>
                       </div>
 
@@ -263,7 +263,7 @@ export default function Dashboard() {
                           {trader.exchange || 'binance'}
                         </span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {trader.is_running ? (
+                          {trader.status === 'running' ? (
                             <Button
                               size="icon"
                               variant="destructive"

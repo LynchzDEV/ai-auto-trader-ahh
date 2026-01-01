@@ -83,6 +83,12 @@ type Session struct {
 	StartedAt       time.Time    `json:"started_at"`
 	CompletedAt     time.Time    `json:"completed_at"`
 	Error           string       `json:"error,omitempty"`
+
+	// Auto-cycle settings
+	AutoCycle            bool  `json:"auto_cycle"`              // Enable continuous debate cycles
+	CycleIntervalMinutes int   `json:"cycle_interval_minutes"`  // Minutes between cycles
+	CycleCount           int   `json:"cycle_count"`             // Number of completed cycles
+	NextCycleAt          time.Time `json:"next_cycle_at,omitempty"` // When next cycle starts
 }
 
 // Participant represents an AI participant in the debate
@@ -153,15 +159,17 @@ type SessionWithDetails struct {
 
 // CreateSessionRequest is the request to create a debate session
 type CreateSessionRequest struct {
-	Name            string                      `json:"name"`
-	Symbols         []string                    `json:"symbols"`
-	MaxRounds       int                         `json:"max_rounds"`
-	IntervalMinutes int                         `json:"interval_minutes"`
-	PromptVariant   string                      `json:"prompt_variant"`
-	AutoExecute     bool                        `json:"auto_execute"`
-	TraderID        string                      `json:"trader_id"`
-	Language        string                      `json:"language"`
-	Participants    []CreateParticipantRequest  `json:"participants"`
+	Name                 string                      `json:"name"`
+	Symbols              []string                    `json:"symbols"`
+	MaxRounds            int                         `json:"max_rounds"`
+	IntervalMinutes      int                         `json:"interval_minutes"`
+	PromptVariant        string                      `json:"prompt_variant"`
+	AutoExecute          bool                        `json:"auto_execute"`
+	TraderID             string                      `json:"trader_id"`
+	Language             string                      `json:"language"`
+	Participants         []CreateParticipantRequest  `json:"participants"`
+	AutoCycle            bool                        `json:"auto_cycle"`
+	CycleIntervalMinutes int                         `json:"cycle_interval_minutes"`
 }
 
 // CreateParticipantRequest is the request to add a participant

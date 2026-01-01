@@ -75,17 +75,40 @@ export default function Config() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this trader?')) return;
+    const confirmed = window.confirm('Are you sure you want to delete this trader?');
+    if (!confirmed) return;
+
     try {
+      console.log('Deleting trader:', id);
       await deleteTrader(id);
-      loadData();
+      console.log('Trader deleted successfully');
+      await loadData();
     } catch (err: any) {
+      console.error('Delete failed:', err);
       alert(err.response?.data?.error || 'Failed to delete trader');
     }
   };
 
   const toggleShowSecret = (field: string) => {
     setShowSecrets((prev) => ({ ...prev, [field]: !prev[field] }));
+  };
+
+  // Check if API key is used by another trader
+  const getDuplicateApiKeyWarning = (): string | null => {
+    if (!editingTrader?.config?.api_key) return null;
+
+    const currentApiKey = editingTrader.config.api_key;
+    const duplicateTraders = traders.filter(t =>
+      t.id !== editingTrader.id &&
+      t.config?.api_key === currentApiKey &&
+      currentApiKey.length > 10 // Only check if key looks valid
+    );
+
+    if (duplicateTraders.length > 0) {
+      const names = duplicateTraders.map(t => t.name).join(', ');
+      return `This API key is already used by: ${names}. Using the same Binance wallet for multiple traders can cause position conflicts and unexpected behavior.`;
+    }
+    return null;
   };
 
   if (loading) {
@@ -172,11 +195,11 @@ export default function Config() {
                       </div>
                       <h3 className="font-semibold text-lg">{trader.name}</h3>
                       <GlowBadge
-                        variant={trader.is_running ? 'success' : 'secondary'}
-                        dot={trader.is_running}
-                        pulse={trader.is_running}
+                        variant={trader.status === 'running' ? 'success' : 'secondary'}
+                        dot={trader.status === 'running'}
+                        pulse={trader.status === 'running'}
                       >
-                        {trader.is_running ? 'Running' : 'Stopped'}
+                        {trader.status === 'running' ? 'Running' : 'Stopped'}
                       </GlowBadge>
                       {trader.config?.testnet && (
                         <GlowBadge variant="warning">Testnet</GlowBadge>
@@ -202,7 +225,7 @@ export default function Config() {
                       size="icon"
                       className="glass text-red-400 hover:text-red-300"
                       onClick={() => handleDelete(trader.id)}
-                      disabled={trader.is_running}
+                      disabled={trader.status === 'running'}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -333,6 +356,16 @@ export default function Config() {
                       </Button>
                     </div>
                   </div>
+
+                  {/* Duplicate API key warning */}
+                  {getDuplicateApiKeyWarning() && (
+                    <Alert className="border-yellow-500/30 bg-yellow-500/10">
+                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                      <AlertDescription className="text-yellow-200">
+                        {getDuplicateApiKeyWarning()}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </GlassCard>
 
