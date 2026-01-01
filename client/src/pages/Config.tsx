@@ -22,6 +22,17 @@ export default function Config() {
   const [isCreating, setIsCreating] = useState(false);
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
 
+  // Preset models list - used to detect if current model is custom
+  const PRESET_MODELS = [
+    'google/gemini-2.5-flash',
+    'openai/gpt-oss-120b',
+    'x-ai/grok-4.1-fast',
+    'deepseek/deepseek-v3.2',
+    'openai/gpt-5-mini',
+    'openai/gpt-4.1-nano',
+    'openai/gpt-4o-mini',
+  ];
+
   useEffect(() => {
     loadData();
   }, []);
@@ -39,6 +50,19 @@ export default function Config() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle editing - auto-detect if model is custom
+  const handleEdit = (trader: Trader) => {
+    const isCustomModel = !!(trader.config?.ai_model && !PRESET_MODELS.includes(trader.config.ai_model));
+    setEditingTrader({
+      ...trader,
+      config: {
+        ...trader.config,
+        use_custom_model: isCustomModel,
+      },
+    });
+    setIsCreating(false);
   };
 
   const handleCreate = () => {
@@ -216,7 +240,7 @@ export default function Config() {
                       variant="outline"
                       size="icon"
                       className="glass"
-                      onClick={() => { setEditingTrader(trader); setIsCreating(false); }}
+                      onClick={() => handleEdit(trader)}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -428,25 +452,30 @@ export default function Config() {
                     <div className="space-y-2">
                       <Label>AI Model</Label>
                       <Select
-                        value={editingTrader.config?.ai_model || 'deepseek/deepseek-chat'}
+                        value={editingTrader.config?.ai_model || 'deepseek/deepseek-v3.2'}
                         onValueChange={(v) => setEditingTrader({
                           ...editingTrader,
                           config: { ...editingTrader.config!, ai_model: v }
                         })}
                       >
                         <SelectTrigger className="glass">
-                          <SelectValue placeholder="Select a model" />
+                          <SelectValue placeholder={editingTrader.config?.ai_model || 'Select a model'} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (Free)</SelectItem>
-                          <SelectItem value="google/gemini-2.0-flash-thinking-exp:free">Gemini 2.0 Flash Thinking (Free)</SelectItem>
-                          <SelectItem value="deepseek/deepseek-chat">DeepSeek Chat</SelectItem>
-                          <SelectItem value="deepseek/deepseek-r1">DeepSeek R1</SelectItem>
-                          <SelectItem value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</SelectItem>
-                          <SelectItem value="openai/gpt-4o">GPT-4o</SelectItem>
+                          {/* Show current model if it's not in the predefined list */}
+                          {editingTrader.config?.ai_model &&
+                            !PRESET_MODELS.includes(editingTrader.config.ai_model) && (
+                              <SelectItem value={editingTrader.config.ai_model}>
+                                {editingTrader.config.ai_model} (current)
+                              </SelectItem>
+                            )}
+                          <SelectItem value="google/gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                          <SelectItem value="openai/gpt-oss-120b">GPT-OSS-120B</SelectItem>
+                          <SelectItem value="x-ai/grok-4.1-fast">Grok 4.1 Fast</SelectItem>
+                          <SelectItem value="deepseek/deepseek-v3.2">DeepSeek V3.2</SelectItem>
+                          <SelectItem value="openai/gpt-5-mini">GPT-5 Mini</SelectItem>
+                          <SelectItem value="openai/gpt-4.1-nano">GPT-4.1 Nano</SelectItem>
                           <SelectItem value="openai/gpt-4o-mini">GPT-4o Mini</SelectItem>
-                          <SelectItem value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</SelectItem>
-                          <SelectItem value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
