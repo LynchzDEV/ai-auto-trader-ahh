@@ -73,17 +73,22 @@ type RiskControlConfig struct {
 	// Position limits
 	MaxPositions int `json:"max_positions"`
 
-	// Leverage limits (separate for BTC/ETH vs altcoins)
+	// LEGACY fields (for backward compatibility with existing strategies)
+	MaxLeverage        int     `json:"max_leverage"`         // Legacy: single leverage for all symbols
+	MaxPositionPercent float64 `json:"max_position_percent"` // Legacy: % of balance per position
+
+	// NEW: Leverage limits (separate for BTC/ETH vs altcoins)
 	BTCETHMaxLeverage  int `json:"btc_eth_max_leverage"`  // Max leverage for BTC/ETH (default: 10)
 	AltcoinMaxLeverage int `json:"altcoin_max_leverage"`  // Max leverage for altcoins (default: 20)
 
-	// Position value ratios (position size = equity * ratio)
+	// NEW: Position value ratios (position size = equity * ratio)
 	BTCETHMaxPositionValueRatio  float64 `json:"btc_eth_max_position_value_ratio"`  // Max position value ratio for BTC/ETH (default: 5.0)
 	AltcoinMaxPositionValueRatio float64 `json:"altcoin_max_position_value_ratio"` // Max position value ratio for altcoins (default: 1.0)
 
 	// Minimum position sizes
 	MinPositionSize      float64 `json:"min_position_size"`        // Min position size for altcoins (default: 12 USDT)
 	MinPositionSizeBTCETH float64 `json:"min_position_size_btc_eth"` // Min position size for BTC/ETH (default: 60 USDT)
+	MinPositionUSD       float64 `json:"min_position_usd"`          // Legacy: single min for all (fallback)
 
 	// Margin and buffer
 	MaxMarginUsage float64 `json:"max_margin_usage"` // Max % of balance in margin (default: 90)

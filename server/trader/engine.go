@@ -454,13 +454,16 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 
 	leverage := e.getLeverageLimit(symbol)
 
-	// Log balance info for debugging
-	log.Printf("[%s][%s] Balance: equity=$%.2f, available=$%.2f, leverage=%dx",
-		e.name, symbol, equity, account.AvailableBalance, leverage)
+	// Get position percentage from strategy (fallback to legacy field, then config, then default 10%)
+	positionPct := e.getPositionPercent()
 
-	positionSizeUSD := account.AvailableBalance * 0.1 * float64(leverage) // Start with 10% of available
-	log.Printf("[%s][%s] Initial position size: $%.2f (10%% of $%.2f * %dx)",
-		e.name, symbol, positionSizeUSD, account.AvailableBalance, leverage)
+	// Log balance info for debugging
+	log.Printf("[%s][%s] Balance: equity=$%.2f, available=$%.2f, leverage=%dx, positionPct=%.1f%%",
+		e.name, symbol, equity, account.AvailableBalance, leverage, positionPct)
+
+	positionSizeUSD := account.AvailableBalance * (positionPct / 100) * float64(leverage)
+	log.Printf("[%s][%s] Initial position size: $%.2f (%.1f%% of $%.2f * %dx)",
+		e.name, symbol, positionSizeUSD, positionPct, account.AvailableBalance, leverage)
 
 	if isOpenAction && !hasPosition {
 		// 3. Enforce position value ratio (cap by equity * ratio)
@@ -832,20 +835,63 @@ func isBTCETH(symbol string) bool {
 		symbol == "BTCUSDC" || symbol == "ETHUSDC"
 }
 
+// getPositionPercent returns the position percentage to use for sizing
+// Falls back through: strategy new fields -> legacy MaxPositionPercent -> config -> default 10%
+func (e *Engine) getPositionPercent() float64 {
+	// Check strategy first
+	if e.strategy != nil {
+		rc := e.strategy.Config.RiskControl
+
+		// Legacy MaxPositionPercent field (most likely for existing strategies)
+		if rc.MaxPositionPercent > 0 {
+			return rc.MaxPositionPercent
+		}
+	}
+
+	// Fallback to config
+	if e.cfg != nil && e.cfg.MaxPositionPct > 0 {
+		return e.cfg.MaxPositionPct
+	}
+
+	// Default to 10%
+	return 10.0
+}
+
 // getLeverageLimit returns the max leverage for a symbol based on its type
 func (e *Engine) getLeverageLimit(symbol string) int {
 	if e.strategy == nil {
+		// No strategy, use config fallback
+		if e.cfg != nil && e.cfg.Leverage > 0 {
+			return e.cfg.Leverage
+		}
 		return 10 // Default
 	}
 	rc := e.strategy.Config.RiskControl
+
+	// Check new separate leverage fields first
 	if isBTCETH(symbol) {
 		if rc.BTCETHMaxLeverage > 0 {
 			return rc.BTCETHMaxLeverage
 		}
-		return 10
+	} else {
+		if rc.AltcoinMaxLeverage > 0 {
+			return rc.AltcoinMaxLeverage
+		}
 	}
-	if rc.AltcoinMaxLeverage > 0 {
-		return rc.AltcoinMaxLeverage
+
+	// Fallback to legacy MaxLeverage field (for existing strategies)
+	if rc.MaxLeverage > 0 {
+		return rc.MaxLeverage
+	}
+
+	// Fallback to config
+	if e.cfg != nil && e.cfg.Leverage > 0 {
+		return e.cfg.Leverage
+	}
+
+	// Ultimate default
+	if isBTCETH(symbol) {
+		return 10
 	}
 	return 20
 }
@@ -901,12 +947,22 @@ func (e *Engine) enforceMinPositionSize(positionSizeUSD float64, symbol string) 
 	var minSize float64
 
 	if isBTCETH(symbol) {
+		// Try new field first
 		minSize = rc.MinPositionSizeBTCETH
+		if minSize <= 0 {
+			// Fallback to legacy MinPositionUSD
+			minSize = rc.MinPositionUSD
+		}
 		if minSize <= 0 {
 			minSize = 60.0 // Default $60 for BTC/ETH
 		}
 	} else {
+		// Try new field first
 		minSize = rc.MinPositionSize
+		if minSize <= 0 {
+			// Fallback to legacy MinPositionUSD
+			minSize = rc.MinPositionUSD
+		}
 		if minSize <= 0 {
 			minSize = 12.0 // Default $12 for altcoins
 		}
