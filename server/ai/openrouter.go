@@ -56,8 +56,8 @@ type TradingDecision struct {
 	Symbol     string  `json:"symbol"`      // Trading pair
 	Confidence float64 `json:"confidence"`  // 0-100
 	Reasoning  string  `json:"reasoning"`   // AI's reasoning
-	StopLoss   float64 `json:"stop_loss"`   // Suggested stop loss %
-	TakeProfit float64 `json:"take_profit"` // Suggested take profit %
+	StopLoss   float64 `json:"stop_loss"`   // Stop loss PRICE (absolute, not %)
+	TakeProfit float64 `json:"take_profit"` // Take profit PRICE (absolute, not %)
 }
 
 func NewClient(apiKey, model string) *Client {
@@ -128,7 +128,7 @@ func (c *Client) Chat(messages []Message) (string, error) {
 }
 
 func (c *Client) GetTradingDecision(marketData string) (*TradingDecision, string, error) {
-	systemPrompt := `You are an expert cryptocurrency trader AI. Analyze the market data and make trading decisions.
+	systemPrompt := `You are an expert cryptocurrency futures trader AI. Analyze the market data and make trading decisions.
 
 IMPORTANT: You must respond with ONLY a valid JSON object, no other text.
 
@@ -138,18 +138,25 @@ Response format:
   "symbol": "BTCUSDT",
   "confidence": 0-100,
   "reasoning": "Brief explanation of your decision",
-  "stop_loss": 2.0,
-  "take_profit": 4.0
+  "stop_loss": 93500.00,
+  "take_profit": 96000.00
 }
 
-Rules:
-- BUY: Open a long position
-- SELL: Open a short position
+CRITICAL RULES FOR stop_loss AND take_profit:
+- These MUST be ABSOLUTE PRICE values, NOT percentages
+- For BUY (long): stop_loss < current_price < take_profit
+- For SELL (short): take_profit < current_price < stop_loss
+- Use the current price from market data to calculate reasonable levels
+- Aim for at least 3:1 reward-to-risk ratio
+- Example for BUY at $94000: stop_loss=93000, take_profit=97000
+
+Trading Rules:
+- BUY: Open a long position (bullish)
+- SELL: Open a short position (bearish)
 - HOLD: Do nothing, wait for better opportunity
 - CLOSE: Close existing position
 - Only trade when confidence >= 70
-- Always set stop_loss (1-5%) and take_profit (2-10%)
-- Consider trend, volume, RSI, MACD, and support/resistance levels`
+- Consider trend, volume, RSI, MACD, EMA crossovers, and support/resistance levels`
 
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
