@@ -348,6 +348,7 @@ func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage
 // getQuantityPrecision returns the quantity precision for a symbol
 func getQuantityPrecision(symbol string) int {
 	// Binance Futures precision requirements
+	// Check https://www.binance.com/fapi/v1/exchangeInfo for actual values
 	precisions := map[string]int{
 		"BTCUSDT":   3,
 		"ETHUSDT":   3,
@@ -364,11 +365,21 @@ func getQuantityPrecision(symbol string) int {
 		"ATOMUSDT":  2,
 		"UNIUSDT":   1,
 		"XLMUSDT":   0,
+		"THUSDT":    0, // Threshold Network
+		"ARUSDT":    1,
+		"FETUSDT":   0,
+		"APTUSDT":   1,
+		"ARBUSDT":   0,
+		"OPUSDT":    1,
+		"SUIUSDT":   0,
+		"SEIUSDT":   0,
+		"TIAUSDT":   1,
+		"INJUSDT":   1,
 	}
 	if p, ok := precisions[symbol]; ok {
 		return p
 	}
-	return 3 // default
+	return 2 // default to 2 decimal places
 }
 
 // getPricePrecision returns the price precision for a symbol
@@ -389,11 +400,21 @@ func getPricePrecision(symbol string) int {
 		"ATOMUSDT":  3,
 		"UNIUSDT":   3,
 		"XLMUSDT":   5,
+		"THUSDT":    5, // Threshold Network
+		"ARUSDT":    3,
+		"FETUSDT":   4,
+		"APTUSDT":   3,
+		"ARBUSDT":   4,
+		"OPUSDT":    4,
+		"SUIUSDT":   4,
+		"SEIUSDT":   4,
+		"TIAUSDT":   4,
+		"INJUSDT":   3,
 	}
 	if p, ok := precisions[symbol]; ok {
 		return p
 	}
-	return 2 // default
+	return 4 // default to 4 decimal places
 }
 
 // PlaceOrder places a new order
