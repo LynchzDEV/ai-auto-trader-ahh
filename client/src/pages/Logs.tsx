@@ -44,9 +44,28 @@ export default function Logs() {
     }
   };
 
+  // Check if a decision is an error/failed entry
+  const isErrorDecision = (dec: any): boolean => {
+    const reasoning = (dec.reasoning || dec.error || '').toLowerCase();
+    const errorPatterns = [
+      'failed',
+      'error',
+      'timeout',
+      'context deadline exceeded',
+      'unable to',
+      'could not',
+    ];
+    return (
+      errorPatterns.some(pattern => reasoning.includes(pattern)) ||
+      ((!dec.confidence || dec.confidence === 0) && (!dec.action || dec.action === 'NONE'))
+    );
+  };
+
   const parseDecisions = (decisionsJson: string) => {
     try {
-      return JSON.parse(decisionsJson);
+      const parsed = JSON.parse(decisionsJson);
+      // Filter out error entries
+      return parsed.filter((dec: any) => !isErrorDecision(dec));
     } catch {
       return [];
     }
@@ -91,6 +110,8 @@ export default function Logs() {
         <div className="space-y-4">
           {decisions.map((decision) => {
             const parsed = parseDecisions(decision.decisions);
+            // Skip if no valid decisions after filtering
+            if (parsed.length === 0) return null;
             return (
               <div key={decision.id} className="bg-slate-800 rounded-lg p-4">
                 <div className="flex justify-between items-center mb-3">
