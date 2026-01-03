@@ -74,6 +74,8 @@ func NewClient(apiKey, model string) *Client {
 }
 
 func (c *Client) Chat(messages []Message) (string, error) {
+	start := time.Now()
+
 	req := ChatRequest{
 		Model:       c.model,
 		Messages:    messages,
@@ -86,6 +88,13 @@ func (c *Client) Chat(messages []Message) (string, error) {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Log prompt size for debugging
+	promptSize := 0
+	for _, m := range messages {
+		promptSize += len(m.Content)
+	}
+	log.Printf("[OpenRouter] Sending request to %s (prompt size: %d chars, model: %s)", c.model, promptSize, c.model)
+
 	httpReq, err := http.NewRequest("POST", OpenRouterBaseURL+"/chat/completions", bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -97,10 +106,13 @@ func (c *Client) Chat(messages []Message) (string, error) {
 	httpReq.Header.Set("X-Title", "Passive Income Ahh")
 
 	resp, err := c.httpClient.Do(httpReq)
+	elapsed := time.Since(start)
 	if err != nil {
+		log.Printf("[OpenRouter] Request failed after %v: %v", elapsed, err)
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+	log.Printf("[OpenRouter] Response received in %v (status: %d)", elapsed, resp.StatusCode)
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
