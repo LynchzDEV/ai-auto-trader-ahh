@@ -135,9 +135,9 @@ func DefaultStrategyConfig() StrategyConfig {
 		RiskControl: RiskControlConfig{
 			MaxPositions: 3,
 
-			// Leverage limits
-			BTCETHMaxLeverage:  10,
-			AltcoinMaxLeverage: 20,
+			// Leverage limits (0 = use legacy MaxLeverage field)
+			BTCETHMaxLeverage:  0,
+			AltcoinMaxLeverage: 0,
 
 			// Position value ratios
 			BTCETHMaxPositionValueRatio:  5.0,
