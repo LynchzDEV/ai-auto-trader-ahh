@@ -146,17 +146,9 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 
 	sb.WriteString(fmt.Sprintf("--- Overall Trend: %s ---\n\n", data.Trend))
 
-	// Recent price action (last 20 candles max to keep prompt size reasonable)
-	candlesToShow := 20
-	if len(data.Klines) < candlesToShow {
-		candlesToShow = len(data.Klines)
-	}
-	sb.WriteString(fmt.Sprintf("--- Recent Price Action (Last %d Candles) ---\n", candlesToShow))
-	start := len(data.Klines) - candlesToShow
-	if start < 0 {
-		start = 0
-	}
-	for i := start; i < len(data.Klines); i++ {
+	// Recent price action (all candles from kline_count setting)
+	sb.WriteString(fmt.Sprintf("--- Recent Price Action (Last %d Candles) ---\n", len(data.Klines)))
+	for i := 0; i < len(data.Klines); i++ {
 		k := data.Klines[i]
 		change := ((k.Close - k.Open) / k.Open) * 100
 		candle := "GREEN"
