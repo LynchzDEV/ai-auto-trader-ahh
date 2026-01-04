@@ -25,6 +25,7 @@ type Server struct {
 	traderStore     *store.TraderStore
 	decisionStore   *store.DecisionStore
 	equityStore     *store.EquityStore
+	tradeStore      *store.TradeStore
 	engineManager   *trader.EngineManager
 	debateEngine    *debate.Engine
 	backtestManager *backtest.Manager
@@ -55,6 +56,7 @@ func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Serve
 		traderStore:     store.NewTraderStore(),
 		decisionStore:   store.NewDecisionStore(),
 		equityStore:     equityStore,
+		tradeStore:      store.NewTradeStore(),
 		engineManager:   em,
 		debateEngine:    debateEng,
 		backtestManager: backtest.NewManager(aiClient, binanceClient),
@@ -93,6 +95,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/account", s.authMiddleware(s.handleAccount))
 	mux.HandleFunc("/api/positions", s.authMiddleware(s.handlePositions))
 	mux.HandleFunc("/api/decisions", s.authMiddleware(s.handleDecisions))
+	mux.HandleFunc("/api/trades", s.authMiddleware(s.handleTrades))
 	mux.HandleFunc("/api/equity-history", s.authMiddleware(s.handleEquityHistory))
 
 	// Backtest endpoints
@@ -514,6 +517,35 @@ func (s *Server) handleEquityHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.jsonResponse(w, map[string]interface{}{"history": snapshots})
+}
+
+func (s *Server) handleTrades(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	traderID := r.URL.Query().Get("trader_id")
+	if traderID == "" {
+		s.errorResponse(w, http.StatusBadRequest, "trader_id required")
+		return
+	}
+
+	trades, err := s.tradeStore.GetByTrader(traderID, 500)
+	if err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	stats, err := s.tradeStore.GetTradeStats(traderID)
+	if err != nil {
+		stats = map[string]interface{}{}
+	}
+
+	s.jsonResponse(w, map[string]interface{}{
+		"trades": trades,
+		"stats":  stats,
+	})
 }
 
 func splitPath(path string) []string {

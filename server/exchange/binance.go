@@ -748,6 +748,86 @@ func (c *BinanceClient) GetOpenOrders(ctx context.Context, symbol string) ([]Ord
 	return orders, nil
 }
 
+// Trade represents a single trade (fill) from Binance
+type Trade struct {
+	ID              int64   `json:"id"`
+	Symbol          string  `json:"symbol"`
+	OrderID         int64   `json:"orderId"`
+	Side            string  `json:"side"`            // BUY or SELL
+	Price           float64 `json:"price,string"`    // Execution price
+	Qty             float64 `json:"qty,string"`      // Executed quantity
+	RealizedPnL     float64 `json:"realizedPnl,string"`
+	QuoteQty        float64 `json:"quoteQty,string"` // Executed value in USDT
+	Commission      float64 `json:"commission,string"`
+	CommissionAsset string  `json:"commissionAsset"`
+	Time            int64   `json:"time"`
+	PositionSide    string  `json:"positionSide"`
+	Buyer           bool    `json:"buyer"`
+	Maker           bool    `json:"maker"`
+}
+
+// GetTradeHistory retrieves trade history for a symbol
+// If symbol is empty, returns trades for all symbols
+// startTime is in milliseconds, 0 means from the beginning
+func (c *BinanceClient) GetTradeHistory(ctx context.Context, symbol string, startTime int64, limit int) ([]Trade, error) {
+	params := url.Values{}
+	if symbol != "" {
+		params.Set("symbol", symbol)
+	}
+	if startTime > 0 {
+		params.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	} else {
+		params.Set("limit", "500") // Default limit
+	}
+
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/userTrades", params, true)
+	if err != nil {
+		return nil, err
+	}
+
+	var trades []Trade
+	if err := json.Unmarshal(body, &trades); err != nil {
+		return nil, fmt.Errorf("failed to parse trades: %w", err)
+	}
+
+	return trades, nil
+}
+
+// GetIncomeHistory retrieves income history (PnL, funding, commission, etc.)
+// incomeType can be: REALIZED_PNL, FUNDING_FEE, COMMISSION, etc.
+func (c *BinanceClient) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime int64, limit int) ([]map[string]interface{}, error) {
+	params := url.Values{}
+	if symbol != "" {
+		params.Set("symbol", symbol)
+	}
+	if incomeType != "" {
+		params.Set("incomeType", incomeType)
+	}
+	if startTime > 0 {
+		params.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	} else {
+		params.Set("limit", "100")
+	}
+
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/income", params, true)
+	if err != nil {
+		return nil, err
+	}
+
+	var income []map[string]interface{}
+	if err := json.Unmarshal(body, &income); err != nil {
+		return nil, fmt.Errorf("failed to parse income: %w", err)
+	}
+
+	return income, nil
+}
+
 func parseFloat(v interface{}) float64 {
 	switch val := v.(type) {
 	case string:

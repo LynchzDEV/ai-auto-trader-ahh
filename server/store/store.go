@@ -112,5 +112,10 @@ func migrate() error {
 		return fmt.Errorf("equity store init failed: %w", err)
 	}
 
+	tradeStore := NewTradeStore()
+	if err := tradeStore.InitTables(); err != nil {
+		return fmt.Errorf("trade store init failed: %w", err)
+	}
+
 	return nil
 }

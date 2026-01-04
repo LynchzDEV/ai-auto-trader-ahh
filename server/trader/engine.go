@@ -46,6 +46,7 @@ type Engine struct {
 	// Stores
 	decisionStore *store.DecisionStore
 	equityStore   *store.EquityStore
+	tradeStore    *store.TradeStore
 
 	// Position Management - Peak P&L tracking
 	peakPnLCache      map[string]float64 // key: "symbol_side" -> peak P&L %
@@ -131,6 +132,7 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		positions:      make(map[string]*exchange.Position),
 		decisionStore:  store.NewDecisionStore(),
 		equityStore:    store.NewEquityStore(),
+		tradeStore:     store.NewTradeStore(),
 
 		// Initialize position management maps
 		peakPnLCache:          make(map[string]float64),
@@ -351,6 +353,9 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 	if e.checkDailyLoss() {
 		e.triggerTradingPause()
 	}
+
+	// Sync trade history from Binance (captures SL/TP fills)
+	e.syncTradeHistory(ctx)
 
 	log.Printf("[%s] === Trading cycle complete ===", e.name)
 }
@@ -1174,6 +1179,64 @@ func (e *Engine) setPositionFirstSeen(symbol, side string) {
 
 	if _, exists := e.positionFirstSeenTime[key]; !exists {
 		e.positionFirstSeenTime[key] = time.Now().UnixMilli()
+	}
+}
+
+// syncTradeHistory fetches recent trades from Binance and saves them to the database
+func (e *Engine) syncTradeHistory(ctx context.Context) {
+	// Get last synced trade time
+	lastTradeTime, err := e.tradeStore.GetLastTradeTime(e.id)
+	if err != nil {
+		log.Printf("[%s] Failed to get last trade time: %v", e.name, err)
+		lastTradeTime = 0
+	}
+
+	// If no previous trades, start from 24 hours ago
+	if lastTradeTime == 0 {
+		lastTradeTime = time.Now().Add(-24*time.Hour).UnixMilli()
+	} else {
+		// Add 1ms to avoid duplicates
+		lastTradeTime++
+	}
+
+	// Get coins from strategy to fetch trades for each symbol
+	coins := e.getTradingPairs()
+	if len(coins) == 0 {
+		return
+	}
+
+	var allTrades []*store.Trade
+	for _, symbol := range coins {
+		trades, err := e.binance.GetTradeHistory(ctx, symbol, lastTradeTime, 100)
+		if err != nil {
+			log.Printf("[%s] Failed to fetch trades for %s: %v", e.name, symbol, err)
+			continue
+		}
+
+		for _, t := range trades {
+			trade := &store.Trade{
+				ID:          t.ID,
+				TraderID:    e.id,
+				Symbol:      t.Symbol,
+				Side:        t.Side,
+				Price:       t.Price,
+				Quantity:    t.Qty,
+				QuoteQty:    t.QuoteQty,
+				RealizedPnL: t.RealizedPnL,
+				Commission:  t.Commission,
+				Timestamp:   time.UnixMilli(t.Time),
+				OrderID:     t.OrderID,
+			}
+			allTrades = append(allTrades, trade)
+		}
+	}
+
+	if len(allTrades) > 0 {
+		if err := e.tradeStore.SaveBatch(allTrades); err != nil {
+			log.Printf("[%s] Failed to save trades: %v", e.name, err)
+		} else {
+			log.Printf("[%s] Synced %d trades from Binance", e.name, len(allTrades))
+		}
 	}
 }
 
