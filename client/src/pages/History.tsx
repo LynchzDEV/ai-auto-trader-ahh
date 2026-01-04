@@ -8,18 +8,18 @@ import {
   TrendingUp,
   TrendingDown,
   Filter,
-  ChevronDown,
-  ChevronUp,
+
 } from 'lucide-react';
 import { getTraders, getDecisions, getTrades } from '../lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlowBadge } from '@/components/ui/glow-badge';
 import { StatCard } from '@/components/ui/stat-card';
+import { MobileCardTable } from '@/components/ui/mobile-card-table';
 
 interface RawDecision {
   id: number;
@@ -68,8 +68,8 @@ export default function History() {
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
-  const [sortField, setSortField] = useState<'created_at' | 'symbol' | 'pnl'>('created_at');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortField] = useState<'created_at' | 'symbol' | 'pnl'>('created_at');
+  const [sortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     loadTraders();
@@ -287,14 +287,7 @@ export default function History() {
     setFilteredDecisions(filtered);
   };
 
-  const handleSort = (field: 'created_at' | 'symbol' | 'pnl') => {
-    if (sortField === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('desc');
-    }
-  };
+
 
   const exportToCsv = () => {
     const headers = ['Date', 'Symbol', 'Action', 'Confidence', 'PnL', 'Reasoning'];
@@ -359,51 +352,50 @@ export default function History() {
     );
   }
 
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field) return null;
-    return sortDir === 'asc' ? (
-      <ChevronUp className="w-4 h-4" />
-    ) : (
-      <ChevronDown className="w-4 h-4" />
-    );
-  };
+
 
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
+          className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <HistoryIcon className="w-8 h-8" />
-            Trade History
-          </h1>
-          <p className="text-muted-foreground">Complete log of all AI trading decisions</p>
-        </motion.div>
+          <div>
+            <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+              <HistoryIcon className="w-6 h-6 lg:w-8 lg:h-8" />
+              Trade History
+            </h1>
+            <p className="text-sm lg:text-base text-muted-foreground">Complete log of all AI trading decisions</p>
+          </div>
 
-        <div className="flex gap-2">
-          <Select value={selectedTrader} onValueChange={setSelectedTrader}>
-            <SelectTrigger className="w-[200px] glass">
-              <SelectValue placeholder="Select trader" />
-            </SelectTrigger>
-            <SelectContent>
-              {traders.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={exportToCsv} className="glass">
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => { loadDecisions(); loadTrades(); }} className="glass">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Select value={selectedTrader} onValueChange={setSelectedTrader}>
+              <SelectTrigger className="flex-1 sm:w-[180px] glass">
+                <SelectValue placeholder="Select trader" />
+              </SelectTrigger>
+              <SelectContent>
+                {traders.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={exportToCsv} className="glass hidden sm:flex">
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+            <Button variant="outline" size="icon" onClick={exportToCsv} className="glass sm:hidden">
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => { loadDecisions(); loadTrades(); }} className="glass">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </motion.div>
       </div>
 
       {/* View Mode Tabs */}
@@ -499,18 +491,18 @@ export default function History() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by symbol or reasoning..."
+            placeholder="Search symbol..."
             className="pl-10 glass"
           />
         </div>
         <Select value={actionFilter} onValueChange={setActionFilter}>
-          <SelectTrigger className="w-[150px] glass">
+          <SelectTrigger className="w-full sm:w-[140px] glass">
             <SelectValue placeholder="Action" />
           </SelectTrigger>
           <SelectContent>
@@ -525,228 +517,152 @@ export default function History() {
 
       {/* Table */}
       <GlassCard className="p-0 overflow-hidden">
-        <ScrollArea className="h-[500px]">
-          {viewMode === 'trades' ? (
-            /* Trades Table */
-            <table className="w-full trading-table">
-              <thead className="sticky top-0 bg-[#12121a] z-10">
-                <tr className="border-b border-white/5">
-                  <th
-                    className="p-4 text-left font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('created_at')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Date <SortIcon field="created_at" />
-                    </div>
-                  </th>
-                  <th
-                    className="p-4 text-left font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('symbol')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Symbol <SortIcon field="symbol" />
-                    </div>
-                  </th>
-                  <th className="p-4 text-left font-medium text-muted-foreground">Side</th>
-                  <th className="p-4 text-right font-medium text-muted-foreground">Price</th>
-                  <th className="p-4 text-right font-medium text-muted-foreground">Quantity</th>
-                  <th className="p-4 text-right font-medium text-muted-foreground">Value</th>
-                  <th
-                    className="p-4 text-right font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('pnl')}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      PnL <SortIcon field="pnl" />
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTrades.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-12 text-center">
-                      <HistoryIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                      <p className="text-muted-foreground">No trades found</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredTrades.map((trade) => (
-                    <tr
-                      key={trade.id}
-                      className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                    >
-                      <td className="p-4 text-sm">
-                        {new Date(trade.timestamp).toLocaleString()}
-                      </td>
-                      <td className="p-4 font-medium">{trade.symbol}</td>
-                      <td className="p-4">
-                        <GlowBadge variant={trade.side === 'BUY' ? 'success' : 'danger'}>
-                          {trade.side}
-                        </GlowBadge>
-                      </td>
-                      <td className="p-4 text-right font-mono">${trade.price.toFixed(2)}</td>
-                      <td className="p-4 text-right font-mono">{trade.quantity.toFixed(4)}</td>
-                      <td className="p-4 text-right font-mono">${trade.quote_qty.toFixed(2)}</td>
-                      <td
-                        className={`p-4 text-right font-mono font-medium ${
-                          trade.realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}
-                      >
-                        {trade.realized_pnl !== 0 ? `$${trade.realized_pnl.toFixed(4)}` : '-'}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          ) : (
-            /* Decisions Table */
-            <table className="w-full trading-table">
-              <thead className="sticky top-0 bg-[#12121a] z-10">
-                <tr className="border-b border-white/5">
-                  <th
-                    className="p-4 text-left font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('created_at')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Date <SortIcon field="created_at" />
-                    </div>
-                  </th>
-                  <th
-                    className="p-4 text-left font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('symbol')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Symbol <SortIcon field="symbol" />
-                    </div>
-                  </th>
-                  <th className="p-4 text-left font-medium text-muted-foreground">Action</th>
-                  <th className="p-4 text-right font-medium text-muted-foreground">Confidence</th>
-                  <th
-                    className="p-4 text-right font-medium text-muted-foreground cursor-pointer hover:text-white"
-                    onClick={() => handleSort('pnl')}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      PnL <SortIcon field="pnl" />
-                    </div>
-                  </th>
-                  <th className="p-4 text-left font-medium text-muted-foreground">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDecisions.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-12 text-center">
-                      <HistoryIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                      <p className="text-muted-foreground">No decisions found</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredDecisions.map((decision) => (
-                    <Dialog key={decision.id}>
-                      <DialogTrigger asChild>
-                        <tr
-                          className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
-                        >
-                          <td className="p-4 text-sm">
-                            {new Date(decision.created_at).toLocaleString()}
-                          </td>
-                          <td className="p-4 font-medium">{decision.symbol}</td>
-                          <td className="p-4">
-                            <GlowBadge
-                              variant={
-                                ['buy', 'open_long'].includes(decision.action?.toLowerCase())
-                                  ? 'success'
-                                  : ['sell', 'open_short'].includes(decision.action?.toLowerCase())
-                                  ? 'danger'
-                                  : ['close', 'close_long', 'close_short'].includes(decision.action?.toLowerCase())
-                                  ? 'warning'
-                                  : 'secondary'
-                              }
-                            >
-                              {decision.action?.toUpperCase() || 'N/A'}
-                            </GlowBadge>
-                          </td>
-                          <td className="p-4 text-right font-mono">{decision.confidence}%</td>
-                          <td
-                            className={`p-4 text-right font-mono font-medium ${
-                              (decision.pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-                            }`}
-                          >
-                            {decision.pnl !== undefined ? `$${decision.pnl.toFixed(2)}` : '-'}
-                          </td>
-                          <td className="p-4">
-                            <GlowBadge
-                              variant={decision.executed ? 'success' : 'secondary'}
-                              dot={decision.executed}
-                            >
-                              {decision.executed ? 'Executed' : 'Pending'}
-                            </GlowBadge>
-                          </td>
-                        </tr>
-                      </DialogTrigger>
-                    <DialogContent className="max-w-xl glass-card border-white/10">
-                      <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                          {decision.symbol}
-                          <GlowBadge
-                            variant={
-                              ['buy', 'open_long'].includes(decision.action?.toLowerCase())
-                                ? 'success'
-                                : ['sell', 'open_short'].includes(decision.action?.toLowerCase())
-                                ? 'danger'
-                                : ['close', 'close_long', 'close_short'].includes(decision.action?.toLowerCase())
+        <ScrollArea className="h-[400px] lg:h-[500px]">
+          <div className="p-4 lg:p-0">
+            {viewMode === 'trades' ? (
+              <MobileCardTable<Trade>
+                data={filteredTrades}
+                keyExtractor={(trade) => trade.id}
+                columns={[
+                  {
+                    key: 'symbol',
+                    label: 'Symbol',
+                    primary: true,
+                    render: (v) => <span className="font-medium">{v}</span>,
+                  },
+                  {
+                    key: 'side',
+                    label: 'Side',
+                    primary: true,
+                    render: (v) => (
+                      <GlowBadge variant={v === 'BUY' ? 'success' : 'danger'}>
+                        {v}
+                      </GlowBadge>
+                    ),
+                  },
+                  {
+                    key: 'realized_pnl',
+                    label: 'PnL',
+                    primary: true,
+                    align: 'right',
+                    render: (v) => (
+                      <span className={`font-mono font-medium ${v >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {v !== 0 ? `$${v.toFixed(4)}` : '-'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'timestamp',
+                    label: 'Date',
+                    primary: true,
+                    render: (v) => <span className="text-xs text-muted-foreground">{new Date(v).toLocaleDateString()}</span>,
+                  },
+                  {
+                    key: 'price',
+                    label: 'Price',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                  },
+                  {
+                    key: 'quantity',
+                    label: 'Quantity',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">{v.toFixed(4)}</span>,
+                  },
+                  {
+                    key: 'quote_qty',
+                    label: 'Value',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                  },
+                ]}
+                emptyState={
+                  <div className="p-12 text-center">
+                    <HistoryIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No trades found</p>
+                  </div>
+                }
+              />
+            ) : (
+              <MobileCardTable<Decision>
+                data={filteredDecisions}
+                keyExtractor={(d) => d.id}
+                columns={[
+                  {
+                    key: 'symbol',
+                    label: 'Symbol',
+                    primary: true,
+                    render: (v) => <span className="font-medium">{v}</span>,
+                  },
+                  {
+                    key: 'action',
+                    label: 'Action',
+                    primary: true,
+                    render: (v) => (
+                      <GlowBadge
+                        variant={
+                          ['buy', 'open_long'].includes(v?.toLowerCase())
+                            ? 'success'
+                            : ['sell', 'open_short'].includes(v?.toLowerCase())
+                              ? 'danger'
+                              : ['close', 'close_long', 'close_short'].includes(v?.toLowerCase())
                                 ? 'warning'
                                 : 'secondary'
-                            }
-                          >
-                            {decision.action?.toUpperCase() || 'N/A'}
-                          </GlowBadge>
-                        </DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 mt-4">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <span className="text-sm text-muted-foreground">Confidence</span>
-                            <p className="text-lg font-semibold">{decision.confidence}%</p>
-                          </div>
-                          <div>
-                            <span className="text-sm text-muted-foreground">PnL</span>
-                            <p
-                              className={`text-lg font-semibold ${
-                                (decision.pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-                              }`}
-                            >
-                              {decision.pnl !== undefined ? `$${decision.pnl.toFixed(2)}` : 'N/A'}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-sm text-muted-foreground">Status</span>
-                            <p className="text-lg font-semibold">
-                              {decision.executed ? 'Executed' : 'Pending'}
-                            </p>
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-sm text-muted-foreground">Date</span>
-                          <p className="font-medium">
-                            {new Date(decision.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-sm text-muted-foreground">AI Reasoning</span>
-                          <p className="mt-1 text-sm text-muted-foreground bg-white/5 p-4 rounded-lg whitespace-pre-wrap">
-                            {decision.reasoning}
-                          </p>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                ))
-              )}
-            </tbody>
-          </table>
-          )}
+                        }
+                      >
+                        {v?.toUpperCase() || 'N/A'}
+                      </GlowBadge>
+                    ),
+                  },
+                  {
+                    key: 'pnl',
+                    label: 'PnL',
+                    primary: true,
+                    align: 'right',
+                    render: (v) => (
+                      <span className={`font-mono font-medium ${(v || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {v !== undefined ? `$${v.toFixed(2)}` : '-'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'created_at',
+                    label: 'Date',
+                    primary: true,
+                    render: (v) => <span className="text-xs text-muted-foreground">{new Date(v).toLocaleDateString()}</span>,
+                  },
+                  {
+                    key: 'confidence',
+                    label: 'Confidence',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">{v}%</span>,
+                  },
+                  {
+                    key: 'executed',
+                    label: 'Status',
+                    render: (v) => (
+                      <GlowBadge variant={v ? 'success' : 'secondary'} dot={v}>
+                        {v ? 'Executed' : 'Pending'}
+                      </GlowBadge>
+                    ),
+                  },
+                  {
+                    key: 'reasoning',
+                    label: 'Reasoning',
+                    render: (v) => (
+                      <p className="text-sm text-muted-foreground line-clamp-2">{v}</p>
+                    ),
+                  },
+                ]}
+                emptyState={
+                  <div className="p-12 text-center">
+                    <HistoryIcon className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No decisions found</p>
+                  </div>
+                }
+              />
+            )}
+          </div>
         </ScrollArea>
       </GlassCard>
     </div>

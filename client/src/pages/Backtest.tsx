@@ -40,6 +40,7 @@ import { GlowBadge } from '@/components/ui/glow-badge';
 import { StatCard, ProgressStat } from '@/components/ui/stat-card';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { useConfirm, useAlert } from '@/components/ui/confirm-modal';
+import { MobileCardTable } from '@/components/ui/mobile-card-table';
 
 interface BacktestConfig {
   symbols: string[];
@@ -232,16 +233,16 @@ export default function Backtest() {
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex justify-between items-start gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <FlaskConical className="w-8 h-8" />
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+            <FlaskConical className="w-6 h-6 lg:w-8 lg:h-8" />
             Backtesting
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm lg:text-base text-muted-foreground">
             Test your strategies on historical data
           </p>
         </motion.div>
@@ -450,7 +451,7 @@ export default function Backtest() {
             <>
               {/* Metrics Cards */}
               {metrics && (
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-3 lg:gap-4 grid-cols-2 lg:grid-cols-4">
                   <StatCard
                     title="Total PnL"
                     value={metrics.total_return}
@@ -497,7 +498,7 @@ export default function Backtest() {
 
                   <TabsContent value="equity" className="mt-4">
                     {equityCurve.length > 0 ? (
-                      <div className="h-[350px]">
+                      <div className="h-[250px] lg:h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
                           <AreaChart data={equityCurve}>
                             <defs>
@@ -538,66 +539,72 @@ export default function Backtest() {
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <div className="h-[350px] flex items-center justify-center">
+                      <div className="h-[200px] lg:h-[350px] flex items-center justify-center">
                         <p className="text-muted-foreground">No equity data available</p>
                       </div>
                     )}
                   </TabsContent>
 
                   <TabsContent value="trades" className="mt-4">
-                    {trades.length > 0 ? (
-                      <ScrollArea className="h-[350px]">
-                        <table className="w-full trading-table">
-                          <thead>
-                            <tr className="border-b border-white/5 text-left text-sm text-muted-foreground">
-                              <th className="p-3 font-medium">Time</th>
-                              <th className="p-3 font-medium">Symbol</th>
-                              <th className="p-3 font-medium">Side</th>
-                              <th className="p-3 font-medium text-right">Entry</th>
-                              <th className="p-3 font-medium text-right">Exit</th>
-                              <th className="p-3 font-medium text-right">PnL</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {trades.map((trade, i) => (
-                              <tr
-                                key={i}
-                                className="border-b border-white/5 hover:bg-white/5"
-                              >
-                                <td className="p-3 text-sm">
-                                  {new Date(trade.timestamp).toLocaleString()}
-                                </td>
-                                <td className="p-3 font-medium">{trade.symbol}</td>
-                                <td className="p-3">
-                                  <GlowBadge
-                                    variant={trade.side === 'LONG' ? 'success' : 'danger'}
-                                  >
-                                    {trade.side}
-                                  </GlowBadge>
-                                </td>
-                                <td className="p-3 text-right font-mono">
-                                  ${trade.entry_price.toFixed(2)}
-                                </td>
-                                <td className="p-3 text-right font-mono">
-                                  ${trade.exit_price.toFixed(2)}
-                                </td>
-                                <td
-                                  className={`p-3 text-right font-mono font-medium ${
-                                    trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'
-                                  }`}
-                                >
-                                  ${trade.pnl.toFixed(2)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </ScrollArea>
-                    ) : (
-                      <div className="h-[350px] flex items-center justify-center">
-                        <p className="text-muted-foreground">No trades yet</p>
+                    <ScrollArea className="h-[250px] lg:h-[350px]">
+                      <div className="p-4 lg:p-0">
+                        <MobileCardTable<Trade>
+                          data={trades}
+                          keyExtractor={(_, i) => i}
+                          columns={[
+                            {
+                              key: 'symbol',
+                              label: 'Symbol',
+                              primary: true,
+                              render: (v) => <span className="font-medium">{v}</span>,
+                            },
+                            {
+                              key: 'side',
+                              label: 'Side',
+                              primary: true,
+                              render: (v) => (
+                                <GlowBadge variant={v === 'LONG' ? 'success' : 'danger'}>
+                                  {v}
+                                </GlowBadge>
+                              ),
+                            },
+                            {
+                              key: 'pnl',
+                              label: 'PnL',
+                              primary: true,
+                              align: 'right',
+                              render: (v, trade) => (
+                                <span className={`font-mono font-medium ${v >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  ${v.toFixed(2)} ({trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(1)}%)
+                                </span>
+                              ),
+                            },
+                            {
+                              key: 'timestamp',
+                              label: 'Time',
+                              render: (v) => <span className="text-sm">{new Date(v).toLocaleDateString()}</span>,
+                            },
+                            {
+                              key: 'entry_price',
+                              label: 'Entry',
+                              align: 'right',
+                              render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                            },
+                            {
+                              key: 'exit_price',
+                              label: 'Exit',
+                              align: 'right',
+                              render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                            },
+                          ]}
+                          emptyState={
+                            <div className="h-[200px] flex items-center justify-center">
+                              <p className="text-muted-foreground">No trades yet</p>
+                            </div>
+                          }
+                        />
                       </div>
-                    )}
+                    </ScrollArea>
                   </TabsContent>
 
                   <TabsContent value="metrics" className="mt-4">

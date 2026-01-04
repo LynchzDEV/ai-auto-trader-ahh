@@ -1,8 +1,9 @@
 import { useState, useEffect, type ReactNode } from 'react';
+import { AuthContext } from '../contexts/AuthContext';
 import { verifyPasskey, setAccessKey, getStoredAccessKey, clearAccessKey } from '../lib/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Lock, Unlock, AlertCircle, Loader2, Shield, LogOut } from 'lucide-react';
+import { Lock, Unlock, AlertCircle, Loader2, Shield } from 'lucide-react';
 
 interface AuthGateProps {
     children: ReactNode;
@@ -132,18 +133,9 @@ export default function AuthGate({ children }: AuthGateProps) {
 
     if (isAuthenticated) {
         return (
-            <>
-                {authRequired && (
-                    <button
-                        onClick={handleLogout}
-                        className="fixed bottom-4 right-4 z-50 p-3 rounded-full bg-secondary/80 backdrop-blur-sm border border-border hover:bg-secondary transition-colors group"
-                        title="Sign out"
-                    >
-                        <LogOut className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                    </button>
-                )}
+            <AuthContext.Provider value={{ logout: handleLogout, isAuthenticated, authRequired }}>
                 {children}
-            </>
+            </AuthContext.Provider>
         );
     }
 

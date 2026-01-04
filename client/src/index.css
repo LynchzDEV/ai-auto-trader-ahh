@@ -364,3 +364,29 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Mobile safe area utilities */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.h-safe {
+  height: env(safe-area-inset-bottom, 0);
+}
+
+/* Mobile dock clearance - add to pages */
+.dock-clearance {
+  @media (max-width: 1023px) {
+    padding-bottom: 6rem;
+  }
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

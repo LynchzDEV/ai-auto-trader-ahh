@@ -178,25 +178,28 @@ export default function Config() {
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex justify-between items-start gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <Settings className="w-8 h-8" />
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+            <Settings className="w-6 h-6 lg:w-8 lg:h-8" />
             Configuration
           </h1>
-          <p className="text-muted-foreground">Manage your trading bots and API keys</p>
+          <p className="text-sm lg:text-base text-muted-foreground">Manage your trading bots and API keys</p>
         </motion.div>
 
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={loadData} className="glass">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={handleCreate} disabled={strategies.length === 0}>
+          <Button onClick={handleCreate} disabled={strategies.length === 0} className="hidden sm:flex">
             <Plus className="w-4 h-4 mr-2" />
             New Trader
+          </Button>
+          <Button onClick={handleCreate} disabled={strategies.length === 0} size="icon" className="sm:hidden">
+            <Plus className="w-4 h-4" />
           </Button>
         </div>
       </div>

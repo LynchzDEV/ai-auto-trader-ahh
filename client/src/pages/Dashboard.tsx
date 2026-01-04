@@ -20,6 +20,7 @@ import {
   DollarSign,
   Target,
   Zap,
+
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,6 +30,7 @@ import { GlowBadge } from '@/components/ui/glow-badge';
 import { StatCard, MiniStat, ProgressStat } from '@/components/ui/stat-card';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { useAlert } from '@/components/ui/confirm-modal';
+import { MobileCardTable } from '@/components/ui/mobile-card-table';
 
 interface AccountInfo {
   wallet_balance: number;
@@ -247,11 +249,10 @@ export default function Dashboard() {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedTrader(trader.id)}
-                      className={`group cursor-pointer p-4 rounded-xl transition-all duration-200 ${
-                        selectedTrader === trader.id
+                      className={`group cursor-pointer p-4 rounded-xl transition-all duration-200 ${selectedTrader === trader.id
                           ? 'bg-primary/20 border border-primary/30'
                           : 'bg-white/5 hover:bg-white/10 border border-transparent'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium">{trader.name}</span>
@@ -328,75 +329,68 @@ export default function Dashboard() {
               )}
             </div>
 
-            {positions.length === 0 ? (
-              <div className="p-12 text-center">
-                <Activity className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                <p className="text-muted-foreground">No open positions</p>
-                <p className="text-sm text-muted-foreground/60">
-                  Positions will appear here when the AI opens trades
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto trading-table">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-white/5 text-left text-sm text-muted-foreground">
-                      <th className="p-4 font-medium">Symbol</th>
-                      <th className="p-4 font-medium">Side</th>
-                      <th className="p-4 font-medium text-right">Size</th>
-                      <th className="p-4 font-medium text-right">Entry</th>
-                      <th className="p-4 font-medium text-right">Mark</th>
-                      <th className="p-4 font-medium text-right">PnL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <AnimatePresence>
-                      {positions.map((pos, i) => (
-                        <motion.tr
-                          key={`${pos.symbol}-${i}`}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ delay: i * 0.05 }}
-                          className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                        >
-                          <td className="p-4 font-medium">{pos.symbol}</td>
-                          <td className="p-4">
-                            <GlowBadge
-                              variant={pos.side === 'LONG' ? 'success' : 'danger'}
-                            >
-                              {pos.side}
-                            </GlowBadge>
-                          </td>
-                          <td className="p-4 text-right font-mono">
-                            {Math.abs(pos.amount).toFixed(4)}
-                          </td>
-                          <td className="p-4 text-right font-mono">
-                            ${pos.entry_price.toFixed(2)}
-                          </td>
-                          <td className="p-4 text-right font-mono">
-                            ${pos.mark_price.toFixed(2)}
-                          </td>
-                          <td className="p-4 text-right">
-                            <div
-                              className={`font-mono font-medium ${
-                                pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'
-                              }`}
-                            >
-                              ${pos.pnl.toFixed(2)}
-                              <span className="text-xs ml-1 opacity-70">
-                                ({pos.pnl_percent >= 0 ? '+' : ''}
-                                {pos.pnl_percent.toFixed(2)}%)
-                              </span>
-                            </div>
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </AnimatePresence>
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <div className="p-4 lg:p-0">
+              <MobileCardTable<Position>
+                data={positions}
+                keyExtractor={(pos, i) => `${pos.symbol}-${i}`}
+                columns={[
+                  {
+                    key: 'symbol',
+                    label: 'Symbol',
+                    primary: true,
+                    render: (v) => <span className="font-medium">{v}</span>,
+                  },
+                  {
+                    key: 'side',
+                    label: 'Side',
+                    primary: true,
+                    render: (v) => (
+                      <GlowBadge variant={v === 'LONG' ? 'success' : 'danger'}>
+                        {v}
+                      </GlowBadge>
+                    ),
+                  },
+                  {
+                    key: 'pnl',
+                    label: 'PnL',
+                    primary: true,
+                    align: 'right',
+                    render: (v, pos) => (
+                      <span className={`font-mono font-medium ${v >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        ${v.toFixed(2)} ({pos.pnl_percent >= 0 ? '+' : ''}{pos.pnl_percent.toFixed(2)}%)
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'amount',
+                    label: 'Size',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">{Math.abs(v).toFixed(4)}</span>,
+                  },
+                  {
+                    key: 'entry_price',
+                    label: 'Entry',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                  },
+                  {
+                    key: 'mark_price',
+                    label: 'Mark',
+                    align: 'right',
+                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                  },
+                ]}
+                emptyState={
+                  <div className="p-12 text-center">
+                    <Activity className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No open positions</p>
+                    <p className="text-sm text-muted-foreground/60">
+                      Positions will appear here when the AI opens trades
+                    </p>
+                  </div>
+                }
+              />
+            </div>
           </GlassCard>
 
           {/* AI Decisions */}
@@ -427,8 +421,8 @@ export default function Dashboard() {
                               dec.action === 'BUY'
                                 ? 'rgba(34, 197, 94, 0.1)'
                                 : dec.action === 'SELL'
-                                ? 'rgba(239, 68, 68, 0.1)'
-                                : 'rgba(59, 130, 246, 0.1)'
+                                  ? 'rgba(239, 68, 68, 0.1)'
+                                  : 'rgba(59, 130, 246, 0.1)'
                             }
                           >
                             <div className="flex justify-between items-center mb-3">
@@ -438,10 +432,10 @@ export default function Dashboard() {
                                   dec.action === 'BUY'
                                     ? 'success'
                                     : dec.action === 'SELL'
-                                    ? 'danger'
-                                    : dec.action === 'CLOSE'
-                                    ? 'warning'
-                                    : 'secondary'
+                                      ? 'danger'
+                                      : dec.action === 'CLOSE'
+                                        ? 'warning'
+                                        : 'secondary'
                                 }
                                 glow
                               >
@@ -457,8 +451,8 @@ export default function Dashboard() {
                                 dec.confidence >= 70
                                   ? 'success'
                                   : dec.confidence >= 40
-                                  ? 'warning'
-                                  : 'danger'
+                                    ? 'warning'
+                                    : 'danger'
                               }
                             />
 

@@ -216,25 +216,28 @@ export default function Strategies() {
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex justify-between items-start gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <Layers className="w-8 h-8" />
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+            <Layers className="w-6 h-6 lg:w-8 lg:h-8" />
             Strategies
           </h1>
-          <p className="text-muted-foreground">Configure trading strategies and risk parameters</p>
+          <p className="text-sm lg:text-base text-muted-foreground">Configure trading strategies and risk parameters</p>
         </motion.div>
 
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={loadStrategies} className="glass">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={handleCreate} disabled={!defaultConfig}>
+          <Button onClick={handleCreate} disabled={!defaultConfig} className="hidden sm:flex">
             <Plus className="w-4 h-4 mr-2" />
             New Strategy
+          </Button>
+          <Button onClick={handleCreate} disabled={!defaultConfig} size="icon" className="sm:hidden">
+            <Plus className="w-4 h-4" />
           </Button>
         </div>
       </div>

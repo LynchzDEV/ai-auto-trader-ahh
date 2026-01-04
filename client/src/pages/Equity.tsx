@@ -205,18 +205,18 @@ export default function Equity() {
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <TrendingUp className="w-8 h-8" />
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+            <TrendingUp className="w-6 h-6 lg:w-8 lg:h-8" />
             Equity Charts
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm lg:text-base text-muted-foreground">
             Track portfolio performance over time
           </p>
         </motion.div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <Select value={selectedTrader} onValueChange={setSelectedTrader}>
-            <SelectTrigger className="w-[200px] glass">
+            <SelectTrigger className="flex-1 sm:w-[180px] glass">
               <SelectValue placeholder="Select trader" />
             </SelectTrigger>
             <SelectContent>

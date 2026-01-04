@@ -341,16 +341,16 @@ export default function Debate() {
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex justify-between items-start gap-4">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-bold text-gradient flex items-center gap-3">
-            <MessageSquare className="w-8 h-8" />
+          <h1 className="text-2xl lg:text-3xl font-bold text-gradient flex items-center gap-3">
+            <MessageSquare className="w-6 h-6 lg:w-8 lg:h-8" />
             Debate Arena
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm lg:text-base text-muted-foreground">
             Multi-AI consensus trading decisions
           </p>
         </motion.div>
@@ -361,9 +361,14 @@ export default function Debate() {
           </Button>
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="hidden sm:flex">
                 <Plus className="w-4 h-4 mr-2" />
                 New Debate
+              </Button>
+            </DialogTrigger>
+            <DialogTrigger asChild>
+              <Button size="icon" className="sm:hidden">
+                <Plus className="w-4 h-4" />
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl glass-card border-white/10">
