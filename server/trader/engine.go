@@ -78,14 +78,15 @@ type BracketOrderIDs struct {
 }
 
 type TradeLog struct {
-	Timestamp  time.Time
-	Symbol     string
-	Action     string
-	Decision   *ai.TradingDecision
-	RawAI      string
-	MarketData string
-	Error      string
-	CoTTrace   string // Chain of thought from AI reasoning
+	Timestamp   time.Time
+	Symbol      string
+	Action      string
+	Decision    *ai.TradingDecision
+	RawAI       string
+	MarketData  string
+	Error       string
+	CoTTrace    string  // Chain of thought from AI reasoning
+	RealizedPnL float64 // PnL realized when closing a position
 }
 
 // NewEngine creates a new trading engine with strategy support
@@ -324,6 +325,12 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 			decisionData["action"] = tradeLog.Decision.Action
 			decisionData["confidence"] = tradeLog.Decision.Confidence
 			decisionData["reasoning"] = tradeLog.Decision.Reasoning
+
+			// Include realized PnL if position was closed
+			if tradeLog.RealizedPnL != 0 {
+				decisionData["pnl"] = tradeLog.RealizedPnL
+				log.Printf("[%s][%s] Realized PnL: $%.2f", e.name, symbol, tradeLog.RealizedPnL)
+			}
 		}
 
 		allDecisions = append(allDecisions, decisionData)
@@ -426,8 +433,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	// Execute trade if confidence is high enough
 	minConfidence := float64(e.getMinConfidence())
 	if decision.Confidence >= minConfidence {
-		if err := e.executeTrade(ctx, symbol, decision, hasPosition, pos); err != nil {
+		realizedPnL, err := e.executeTrade(ctx, symbol, decision, hasPosition, pos)
+		if err != nil {
 			tradeLog.Error = fmt.Sprintf("trade execution failed: %v", err)
+		} else if realizedPnL != 0 {
+			tradeLog.RealizedPnL = realizedPnL
 		}
 	} else {
 		log.Printf("[%s][%s] Confidence too low (%.0f%% < %.0f%%), skipping trade",
@@ -437,17 +447,18 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	return tradeLog
 }
 
-func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.TradingDecision, hasPosition bool, currentPos *exchange.Position) error {
+// executeTrade executes the trade and returns realized PnL (if closing) and error
+func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.TradingDecision, hasPosition bool, currentPos *exchange.Position) (float64, error) {
 	// Get account info for position sizing
 	account, err := e.binance.GetAccountInfo(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get account info: %w", err)
+		return 0, fmt.Errorf("failed to get account info: %w", err)
 	}
 
 	// Get current price
 	ticker, err := e.binance.GetTicker(ctx, symbol)
 	if err != nil {
-		return fmt.Errorf("failed to get price: %w", err)
+		return 0, fmt.Errorf("failed to get price: %w", err)
 	}
 
 	// For open actions, apply all risk controls
@@ -458,14 +469,14 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		// 1. Check max positions
 		if err := e.enforceMaxPositions(); err != nil {
 			log.Printf("[%s][%s] %v, skipping new position", e.name, symbol, err)
-			return fmt.Errorf("skipped: %w", err)
+			return 0, fmt.Errorf("skipped: %w", err)
 		}
 
 		// 2. Validate risk-reward ratio if SL/TP percentages provided
 		if decision.StopLossPct > 0 && decision.TakeProfitPct > 0 {
 			if err := e.validateRiskRewardRatioPct(decision.StopLossPct, decision.TakeProfitPct); err != nil {
 				log.Printf("[%s][%s] %v, skipping trade", e.name, symbol, err)
-				return fmt.Errorf("skipped: %w", err)
+				return 0, fmt.Errorf("skipped: %w", err)
 			}
 		}
 	}
@@ -504,7 +515,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		// 5. Enforce minimum position size
 		if err := e.enforceMinPositionSize(positionSizeUSD, symbol); err != nil {
 			log.Printf("[%s][%s] %v, skipping trade", e.name, symbol, err)
-			return fmt.Errorf("skipped: %w", err)
+			return 0, fmt.Errorf("skipped: %w", err)
 		}
 	}
 
@@ -514,17 +525,17 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 	case "BUY", "open_long":
 		if hasPosition && currentPos.PositionAmt > 0 {
 			log.Printf("[%s][%s] Already in LONG position, skipping BUY", e.name, symbol)
-			return fmt.Errorf("skipped: already in LONG position")
+			return 0, fmt.Errorf("skipped: already in LONG position")
 		}
 		// Require explicit close of opposite position (matching NOFX behavior)
 		if hasPosition && currentPos.PositionAmt < 0 {
 			log.Printf("[%s][%s] Already has SHORT position, close it first before opening LONG", e.name, symbol)
-			return fmt.Errorf("skipped: %s already has SHORT position, close it first", symbol)
+			return 0, fmt.Errorf("skipped: %s already has SHORT position, close it first", symbol)
 		}
 		log.Printf("[%s][%s] Opening LONG: %.4f @ $%.2f (size: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, leverage)
 		if _, err := e.binance.PlaceOrder(ctx, symbol, "BUY", "MARKET", quantity, 0); err != nil {
-			return fmt.Errorf("failed to open long: %w", err)
+			return 0, fmt.Errorf("failed to open long: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "LONG")
 
@@ -537,17 +548,17 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 	case "SELL", "open_short":
 		if hasPosition && currentPos.PositionAmt < 0 {
 			log.Printf("[%s][%s] Already in SHORT position, skipping SELL", e.name, symbol)
-			return fmt.Errorf("skipped: already in SHORT position")
+			return 0, fmt.Errorf("skipped: already in SHORT position")
 		}
 		// Require explicit close of opposite position (matching NOFX behavior)
 		if hasPosition && currentPos.PositionAmt > 0 {
 			log.Printf("[%s][%s] Already has LONG position, close it first before opening SHORT", e.name, symbol)
-			return fmt.Errorf("skipped: %s already has LONG position, close it first", symbol)
+			return 0, fmt.Errorf("skipped: %s already has LONG position, close it first", symbol)
 		}
 		log.Printf("[%s][%s] Opening SHORT: %.4f @ $%.2f (size: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, leverage)
 		if _, err := e.binance.PlaceOrder(ctx, symbol, "SELL", "MARKET", quantity, 0); err != nil {
-			return fmt.Errorf("failed to open short: %w", err)
+			return 0, fmt.Errorf("failed to open short: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "SHORT")
 
@@ -560,7 +571,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 	case "CLOSE", "close_long", "close_short":
 		if !hasPosition {
 			log.Printf("[%s][%s] No position to close", e.name, symbol)
-			return fmt.Errorf("skipped: no position to close")
+			return 0, fmt.Errorf("skipped: no position to close")
 		}
 		side := "LONG"
 		if currentPos.PositionAmt < 0 {
@@ -572,7 +583,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		if currentPos.UnrealizedProfit < 0 {
 			log.Printf("[%s][%s] BLOCKED: AI tried to close %s position at loss ($%.2f). Letting SL/TP orders handle exit.",
 				e.name, symbol, side, currentPos.UnrealizedProfit)
-			return fmt.Errorf("blocked: refusing to close losing position (PnL: $%.2f), let SL/TP handle it", currentPos.UnrealizedProfit)
+			return 0, fmt.Errorf("blocked: refusing to close losing position (PnL: $%.2f), let SL/TP handle it", currentPos.UnrealizedProfit)
 		}
 
 		// SAFETY CHECK 2: Don't close positions with less than 3% profit
@@ -590,16 +601,22 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		if pnlPct < minProfitToClose {
 			log.Printf("[%s][%s] BLOCKED: AI tried to close %s position at only %.2f%% profit ($%.2f). Let TP order run to 6%% target.",
 				e.name, symbol, side, pnlPct, currentPos.UnrealizedProfit)
-			return fmt.Errorf("blocked: profit %.2f%% below %.2f%% threshold, let TP order reach target", pnlPct, minProfitToClose)
+			return 0, fmt.Errorf("blocked: profit %.2f%% below %.2f%% threshold, let TP order reach target", pnlPct, minProfitToClose)
 		}
 
+		// Capture realized PnL before closing
+		realizedPnL := currentPos.UnrealizedProfit
+
 		holdDuration := e.GetHoldDuration(symbol, side)
-		log.Printf("[%s][%s] Closing %s position: %.4f (held for %v, profit: $%.2f = %.2f%%)", e.name, symbol, side, currentPos.PositionAmt, holdDuration, currentPos.UnrealizedProfit, pnlPct)
+		log.Printf("[%s][%s] Closing %s position: %.4f (held for %v, profit: $%.2f = %.2f%%)", e.name, symbol, side, currentPos.PositionAmt, holdDuration, realizedPnL, pnlPct)
 		if _, err := e.binance.ClosePosition(ctx, symbol, currentPos.PositionAmt); err != nil {
-			return fmt.Errorf("failed to close position: %w", err)
+			return 0, fmt.Errorf("failed to close position: %w", err)
 		}
 		e.clearPositionTracking(symbol, side)
 		e.cancelBracketOrders(ctx, symbol)
+
+		// Return the realized PnL
+		return realizedPnL, nil
 
 	case "HOLD", "hold", "wait":
 		log.Printf("[%s][%s] Holding - no action taken", e.name, symbol)
@@ -608,7 +625,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		log.Printf("[%s][%s] Unknown action: %s", e.name, symbol, decision.Action)
 	}
 
-	return nil
+	return 0, nil
 }
 
 // GetStatus returns current engine status
