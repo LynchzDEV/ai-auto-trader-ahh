@@ -155,9 +155,23 @@ export default function History() {
       );
     }
 
-    // Action filter
+    // Action filter - handle various action name formats
     if (actionFilter !== 'all') {
-      filtered = filtered.filter((d) => d.action.toLowerCase() === actionFilter);
+      filtered = filtered.filter((d) => {
+        const action = d.action.toLowerCase();
+        switch (actionFilter) {
+          case 'buy':
+            return action === 'buy' || action === 'open_long';
+          case 'sell':
+            return action === 'sell' || action === 'open_short';
+          case 'close':
+            return action === 'close' || action === 'close_long' || action === 'close_short';
+          case 'hold':
+            return action === 'hold' || action === 'wait';
+          default:
+            return action === actionFilter;
+        }
+      });
     }
 
     // Sort
@@ -417,10 +431,12 @@ export default function History() {
                         <td className="p-4">
                           <GlowBadge
                             variant={
-                              decision.action?.toLowerCase() === 'buy'
+                              ['buy', 'open_long'].includes(decision.action?.toLowerCase())
                                 ? 'success'
-                                : decision.action?.toLowerCase() === 'sell'
+                                : ['sell', 'open_short'].includes(decision.action?.toLowerCase())
                                 ? 'danger'
+                                : ['close', 'close_long', 'close_short'].includes(decision.action?.toLowerCase())
+                                ? 'warning'
                                 : 'secondary'
                             }
                           >
@@ -451,10 +467,12 @@ export default function History() {
                           {decision.symbol}
                           <GlowBadge
                             variant={
-                              decision.action?.toLowerCase() === 'buy'
+                              ['buy', 'open_long'].includes(decision.action?.toLowerCase())
                                 ? 'success'
-                                : decision.action?.toLowerCase() === 'sell'
+                                : ['sell', 'open_short'].includes(decision.action?.toLowerCase())
                                 ? 'danger'
+                                : ['close', 'close_long', 'close_short'].includes(decision.action?.toLowerCase())
+                                ? 'warning'
                                 : 'secondary'
                             }
                           >
