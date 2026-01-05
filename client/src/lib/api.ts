@@ -52,6 +52,7 @@ export const updateStrategy = (id: string, data: any) => api.put(`/strategies/${
 export const deleteStrategy = (id: string) => api.delete(`/strategies/${id}`);
 export const activateStrategy = (id: string) => api.post(`/strategies/${id}/activate`);
 export const getDefaultConfig = () => api.get('/strategies/default-config');
+export const recommendPairs = () => api.post('/strategies/recommend-pairs'); // New function
 
 // Trader API
 export const getTraders = () => api.get('/traders');
@@ -96,4 +97,3 @@ export const getSettings = () => api.get('/settings');
 export const updateSettings = (data: any) => api.put('/settings', data);
 
 export default api;
-

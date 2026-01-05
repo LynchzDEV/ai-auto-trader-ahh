@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"auto-trader-ahh/backtest"
@@ -94,6 +96,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/strategies/", s.authMiddleware(s.handleStrategy))
 	mux.HandleFunc("/api/strategies/active", s.authMiddleware(s.handleActiveStrategy))
 	mux.HandleFunc("/api/strategies/default-config", s.authMiddleware(s.handleDefaultConfig))
+	mux.HandleFunc("/api/strategies/recommend-pairs", s.authMiddleware(s.handleRecommendPairs))
 
 	// Trader endpoints
 	mux.HandleFunc("/api/traders", s.authMiddleware(s.handleTraders))
@@ -352,6 +355,105 @@ func (s *Server) handleDefaultConfig(w http.ResponseWriter, r *http.Request) {
 
 	s.jsonResponse(w, store.DefaultStrategyConfig())
 }
+
+func (s *Server) handleRecommendPairs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// 1. Get Top Volume Coins (Raw Data)
+	tickers, err := s.binanceClient.Get24hTicker(context.Background())
+	if err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, "Failed to fetch market data: "+err.Error())
+		return
+	}
+
+	// 2. Get Account Info
+	account, err := s.binanceClient.GetAccountInfo(context.Background())
+	if err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, "Failed to fetch account info: "+err.Error())
+		return
+	}
+
+	// Filter and Sort Tickers (Top 30 by Volume) to limit prompt size
+	type MarketCoin struct {
+		Symbol      string
+		PriceChange float64
+		Volume      float64
+		QuoteVolume float64
+	}
+	var candidates []MarketCoin
+	for _, t := range tickers {
+		// Basic filter: USDT pairs, reasonable volume
+		if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" && t.QuoteVolume > 1000000 {
+			if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" {
+				continue
+			} // Skip stables
+			candidates = append(candidates, MarketCoin{
+				Symbol:      t.Symbol,
+				PriceChange: t.PriceChange,
+				Volume:      t.Volume,
+				QuoteVolume: t.QuoteVolume,
+			})
+		}
+	}
+	// Sort by Quote Volume
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].QuoteVolume > candidates[j].QuoteVolume })
+	if len(candidates) > 30 {
+		candidates = candidates[:30]
+	}
+
+	// 3. Construct AI Prompt
+	prompt := fmt.Sprintf(`You are a crypto trading expert. 
+My current balance: $%.2f
+Objective: Find the best 5-7 trading pairs for high-probability scalping/day-trading.
+Criteria: High liquidity, good volatility (but not insane/manipulated), clear trends.
+
+Here are the Top 30 pairs by 24h Volume:
+`, account.TotalWalletBalance)
+
+	for _, c := range candidates {
+		prompt += fmt.Sprintf("- %s: Vol=$%.0fM, Chg=%.2f%%\n", c.Symbol, c.QuoteVolume/1000000, c.PriceChange)
+	}
+
+	prompt += `
+Return ONLY a JSON array of strings with the selected 5-7 symbols. Example: ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+Result:`
+
+	// 4. Call AI
+	// Using CallWithMessages since GetCompletion is not available in interface
+	response, err := s.aiClient.CallWithMessages("You are a smart crypto trading assistant.", prompt)
+	if err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, "AI Request failed: "+err.Error())
+		return
+	}
+
+	// 5. Parse Response (Extract JSON array)
+	// Basic cleanup if AI adds markdown
+	jsonStr := response
+	if idx := strings.Index(jsonStr, "["); idx != -1 {
+		jsonStr = jsonStr[idx:]
+	}
+	if idx := strings.LastIndex(jsonStr, "]"); idx != -1 {
+		jsonStr = jsonStr[:idx+1]
+	}
+
+	var recommended []string
+	if err := json.Unmarshal([]byte(jsonStr), &recommended); err != nil {
+		// Fallback: manually split by comma if JSON parse fails (simple robustness)
+		// But giving error is safer
+		s.errorResponse(w, http.StatusInternalServerError, "Failed to parse AI response: "+err.Error())
+		return
+	}
+
+	s.jsonResponse(w, map[string]interface{}{"pairs": recommended})
+}
+
+// Helper methods for slice sorting and string parsing needed by above handler
+// We need to inject these strictly into the store/utils area or define inline if Go allows,
+// strictly Go doesn't allow inline func defs for types outside.
+// To keep it simple in this file, I'll use inline generic-ish sort or valid helper logic.
 
 // ============ TRADER ENDPOINTS ============
 

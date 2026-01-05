@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getStrategies, createStrategy, updateStrategy, deleteStrategy, getDefaultConfig } from '../lib/api';
+import { getStrategies, createStrategy, updateStrategy, deleteStrategy, getDefaultConfig, recommendPairs } from '../lib/api';
 import type { Strategy, StrategyConfig } from '../types';
 import {
   Plus,
@@ -18,6 +18,8 @@ import {
   Target,
   BarChart3,
   Zap,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -88,6 +90,7 @@ export default function Strategies() {
   const [loading, setLoading] = useState(true);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isFindingPairs, setIsFindingPairs] = useState(false);
   const [defaultConfig, setDefaultConfig] = useState<StrategyConfig | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     coinSource: true,
@@ -406,26 +409,63 @@ export default function Strategies() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Trading Pairs (comma or space separated)</Label>
-                    <Input
-                      key={editingStrategy.id + '-coins'}
-                      defaultValue={editingStrategy.config.coin_source.static_coins.join(', ')}
-                      onBlur={(e) => setEditingStrategy({
-                        ...editingStrategy,
-                        config: {
-                          ...editingStrategy.config,
-                          coin_source: {
-                            ...editingStrategy.config.coin_source,
-                            static_coins: e.target.value.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
-                          }
-                        }
-                      })}
-                      className="glass"
-                      placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
-                    />
-                  </div>
                 </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label>Trading Pairs</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-primary hover:text-primary/80"
+                      onClick={async () => {
+                        if (isFindingPairs || !editingStrategy) return;
+                        setIsFindingPairs(true);
+                        try {
+                          const res = await recommendPairs();
+                          if (res.data?.pairs) {
+                            setEditingStrategy({
+                              ...editingStrategy,
+                              config: {
+                                ...editingStrategy.config,
+                                coin_source: {
+                                  ...editingStrategy.config.coin_source,
+                                  static_coins: res.data.pairs
+                                }
+                              }
+                            });
+                            alert({ title: 'Smart Find', description: `Found ${res.data.pairs.length} optimal pairs!`, variant: 'success' });
+                          }
+                        } catch (err) {
+                          console.error(err);
+                          alert({ title: 'Error', description: 'Failed to find pairs', variant: 'danger' });
+                        } finally {
+                          setIsFindingPairs(false);
+                        }
+                      }}
+                      disabled={isFindingPairs}
+                    >
+                      {isFindingPairs ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                      Smart Find
+                    </Button>
+                  </div>
+                  <Input
+                    key={editingStrategy.id + '-coins'}
+                    value={editingStrategy.config.coin_source.static_coins.join(', ')}
+                    onChange={(e) => setEditingStrategy({
+                      ...editingStrategy,
+                      config: {
+                        ...editingStrategy.config,
+                        coin_source: {
+                          ...editingStrategy.config.coin_source,
+                          static_coins: e.target.value.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
+                        }
+                      }
+                    })}
+                    className="glass"
+                    placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
+                  />
+                </div>
+
               </CollapsibleSection>
 
               {/* Technical Indicators */}
@@ -746,9 +786,10 @@ export default function Strategies() {
                 </Button>
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
+          )
+          }
+        </DialogContent >
+      </Dialog >
+    </div >
   );
 }
