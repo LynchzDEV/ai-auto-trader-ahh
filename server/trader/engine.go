@@ -343,9 +343,37 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		e.mu.Unlock()
 	}
 
+	// Determine pairs to analyze (Optimize AI Token Usage)
+	var pairsToAnalyze []string
+
+	e.mu.RLock()
+	// Get max positions config
+	maxPositions := 3
+	if e.strategy != nil && e.strategy.Config.RiskControl.MaxPositions > 0 {
+		maxPositions = e.strategy.Config.RiskControl.MaxPositions
+	}
+
+	// Collect active positions
+	activeSymbols := make([]string, 0)
+	for _, pos := range e.positions {
+		if pos.PositionAmt != 0 {
+			activeSymbols = append(activeSymbols, pos.Symbol)
+		}
+	}
+	e.mu.RUnlock()
+
+	// Logic: If max positions reached, ONLY analyze open positions to save tokens
+	if len(activeSymbols) >= maxPositions {
+		log.Printf("[%s] Max positions reached (%d/%d). Analyzing OPEN positions only to save tokens.",
+			e.name, len(activeSymbols), maxPositions)
+		pairsToAnalyze = activeSymbols
+	} else {
+		pairsToAnalyze = e.getTradingPairs()
+	}
+
 	// Process each trading pair
 	allDecisions := make([]map[string]interface{}, 0)
-	for _, symbol := range e.getTradingPairs() {
+	for _, symbol := range pairsToAnalyze {
 		log.Printf("[%s] Analyzing %s...", e.name, symbol)
 
 		tradeLog := e.analyzeAndTrade(ctx, symbol)
@@ -617,10 +645,21 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			log.Printf("[%s][%s] Already in LONG position, skipping BUY", e.name, symbol)
 			return 0, fmt.Errorf("skipped: already in LONG position")
 		}
-		// Require explicit close of opposite position (matching NOFX behavior)
+		// Auto-Reverse: Close SHORT before opening LONG
 		if hasPosition && currentPos.PositionAmt < 0 {
-			log.Printf("[%s][%s] Already has SHORT position, close it first before opening LONG", e.name, symbol)
-			return 0, fmt.Errorf("skipped: %s already has SHORT position, close it first", symbol)
+			log.Printf("[%s][%s] Reversing position! Closing SHORT to open LONG...", e.name, symbol)
+			// Close the short position
+			// Amt is negative, so negate it to get positive quantity
+			closeQty := -currentPos.PositionAmt
+			if _, err := e.binance.PlaceOrder(ctx, symbol, "BUY", "MARKET", closeQty, 0, true); err != nil {
+				return 0, fmt.Errorf("failed to close short for reversal: %w", err)
+			}
+			// Clear internal tracking
+			e.clearPositionTracking(symbol, "SHORT")
+			e.mu.Lock()
+			delete(e.positions, symbol)
+			e.mu.Unlock()
+			hasPosition = false
 		}
 		log.Printf("[%s][%s] Opening LONG: %.4f @ $%.2f (size: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, leverage)
@@ -651,10 +690,20 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			log.Printf("[%s][%s] Already in SHORT position, skipping SELL", e.name, symbol)
 			return 0, fmt.Errorf("skipped: already in SHORT position")
 		}
-		// Require explicit close of opposite position (matching NOFX behavior)
+		// Auto-Reverse: Close LONG before opening SHORT
 		if hasPosition && currentPos.PositionAmt > 0 {
-			log.Printf("[%s][%s] Already has LONG position, close it first before opening SHORT", e.name, symbol)
-			return 0, fmt.Errorf("skipped: %s already has LONG position, close it first", symbol)
+			log.Printf("[%s][%s] Reversing position! Closing LONG to open SHORT...", e.name, symbol)
+			// Close the long position
+			closeQty := currentPos.PositionAmt
+			if _, err := e.binance.PlaceOrder(ctx, symbol, "SELL", "MARKET", closeQty, 0, true); err != nil {
+				return 0, fmt.Errorf("failed to close long for reversal: %w", err)
+			}
+			// Clear internal tracking
+			e.clearPositionTracking(symbol, "LONG")
+			e.mu.Lock()
+			delete(e.positions, symbol)
+			e.mu.Unlock()
+			hasPosition = false
 		}
 		log.Printf("[%s][%s] Opening SHORT: %.4f @ $%.2f (size: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, leverage)
