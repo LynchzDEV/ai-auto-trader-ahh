@@ -19,6 +19,18 @@ An advanced AI-powered cryptocurrency futures trading platform that leverages mu
 *   **📝 Live System Logs**: Real-time streaming of server logs directly to the frontend for easy debugging and monitoring.
 *   **🏆 Strategy Ranking**: Visual comparison of different strategy performances.
 
+## 🧠 How It Works
+
+The system operates on an automated loop that combines technical analysis with AI reasoning:
+
+1.  **Market Analysis**: Before consulting AI, the system calculates hard mathematical indicators (EMA trends, RSI levels, ATR volatility).
+2.  **AI Decision**: A structured prompt including account state, market data, and active positions is sent to the LLM (e.g., DeepSeek, Claude). The AI "thinks" (Chain of Thought) and outputs a JSON decision with confidence levels, stop-losses, and take-profits.
+3.  **Risk Validation**: A rigid validation layer strictly enforces a minimum 3:1 Reward-to-Risk ratio and position sizing limits. Even if the AI says "BUY", the math can veto it.
+4.  **Execution**: Validated trades are executed as "Bracket Orders" on Binance—simultaneously placing the Entry, Stop Loss, and Take Profit orders to ensure safety.
+
+For a deep dive into the math and logic, check out [trading_algo.md](trading_algo.md).
+
+
 ## 📂 Project Structure
 
 A high-level overview of the codebase structure:
