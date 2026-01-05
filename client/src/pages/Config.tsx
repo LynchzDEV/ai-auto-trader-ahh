@@ -524,94 +524,137 @@ export default function Config() {
               <GlassCard className="p-4">
                 <h3 className="font-medium mb-4">Exchange Settings</h3>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Exchange</Label>
-                      <Select
-                        value={editingTrader.exchange || 'binance'}
-                        onValueChange={(v) => setEditingTrader({ ...editingTrader, exchange: v })}
-                      >
-                        <SelectTrigger className="glass">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="binance">Binance Futures</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  {/* Binance Settings */}
+                  <div className="p-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-yellow-400">
+                      <Key className="w-4 h-4" />
+                      Binance Credentials
                     </div>
-                    <div className="flex items-center mt-6">
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          checked={editingTrader.config?.testnet ?? true}
-                          onCheckedChange={(v) => setEditingTrader({
+                    <p className="text-xs text-muted-foreground -mt-1">Leave empty to use global settings</p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Exchange</Label>
+                        <Select
+                          value={editingTrader.exchange || 'binance'}
+                          onValueChange={(v) => setEditingTrader({ ...editingTrader, exchange: v })}
+                        >
+                          <SelectTrigger className="glass">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="binance">Binance Futures</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center mt-6">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={editingTrader.config?.testnet ?? true}
+                            onCheckedChange={(v) => setEditingTrader({
+                              ...editingTrader,
+                              config: { ...editingTrader.config!, testnet: !!v }
+                            })}
+                          />
+                          <Label className="cursor-pointer">Use Testnet</Label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>API Key</Label>
+                      <div className="relative">
+                        <Input
+                          type={showSecrets['api_key'] ? 'text' : 'password'}
+                          value={editingTrader.config?.api_key || ''}
+                          onChange={(e) => setEditingTrader({
                             ...editingTrader,
-                            config: { ...editingTrader.config!, testnet: !!v }
+                            config: { ...editingTrader.config!, api_key: e.target.value }
                           })}
+                          className="glass pr-10"
+                          placeholder="Leave empty for global settings"
                         />
-                        <Label className="cursor-pointer">Use Testnet</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                          onClick={() => toggleShowSecret('api_key')}
+                        >
+                          {showSecrets['api_key'] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Secret Key</Label>
+                      <div className="relative">
+                        <Input
+                          type={showSecrets['secret_key'] ? 'text' : 'password'}
+                          value={editingTrader.config?.secret_key || ''}
+                          onChange={(e) => setEditingTrader({
+                            ...editingTrader,
+                            config: { ...editingTrader.config!, secret_key: e.target.value }
+                          })}
+                          className="glass pr-10"
+                          placeholder="Leave empty for global settings"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                          onClick={() => toggleShowSecret('secret_key')}
+                        >
+                          {showSecrets['secret_key'] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Duplicate API key warning */}
+                    {getDuplicateApiKeyWarning() && (
+                      <Alert className="border-yellow-500/30 bg-yellow-500/10">
+                        <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                        <AlertDescription className="text-yellow-200">
+                          {getDuplicateApiKeyWarning()}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+
+                  {/* OpenRouter Settings */}
+                  <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-blue-400">
+                      <Key className="w-4 h-4" />
+                      OpenRouter AI
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-1">Leave empty to use global settings</p>
+
+                    <div className="space-y-2">
+                      <Label>API Key</Label>
+                      <div className="relative">
+                        <Input
+                          type={showSecrets['openrouter_api_key'] ? 'text' : 'password'}
+                          value={editingTrader.config?.openrouter_api_key || ''}
+                          onChange={(e) => setEditingTrader({
+                            ...editingTrader,
+                            config: { ...editingTrader.config!, openrouter_api_key: e.target.value }
+                          })}
+                          className="glass pr-10"
+                          placeholder="Leave empty for global settings"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                          onClick={() => toggleShowSecret('openrouter_api_key')}
+                        >
+                          {showSecrets['openrouter_api_key'] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
                       </div>
                     </div>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>API Key</Label>
-                    <div className="relative">
-                      <Input
-                        type={showSecrets['api_key'] ? 'text' : 'password'}
-                        value={editingTrader.config?.api_key || ''}
-                        onChange={(e) => setEditingTrader({
-                          ...editingTrader,
-                          config: { ...editingTrader.config!, api_key: e.target.value }
-                        })}
-                        className="glass pr-10"
-                        placeholder="Your Binance API Key"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                        onClick={() => toggleShowSecret('api_key')}
-                      >
-                        {showSecrets['api_key'] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Secret Key</Label>
-                    <div className="relative">
-                      <Input
-                        type={showSecrets['secret_key'] ? 'text' : 'password'}
-                        value={editingTrader.config?.secret_key || ''}
-                        onChange={(e) => setEditingTrader({
-                          ...editingTrader,
-                          config: { ...editingTrader.config!, secret_key: e.target.value }
-                        })}
-                        className="glass pr-10"
-                        placeholder="Your Binance Secret Key"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                        onClick={() => toggleShowSecret('secret_key')}
-                      >
-                        {showSecrets['secret_key'] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Duplicate API key warning */}
-                  {getDuplicateApiKeyWarning() && (
-                    <Alert className="border-yellow-500/30 bg-yellow-500/10">
-                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                      <AlertDescription className="text-yellow-200">
-                        {getDuplicateApiKeyWarning()}
-                      </AlertDescription>
-                    </Alert>
-                  )}
                 </div>
               </GlassCard>
 

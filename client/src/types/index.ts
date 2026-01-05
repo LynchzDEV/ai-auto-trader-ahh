@@ -75,6 +75,9 @@ export interface TraderConfig {
   use_custom_model?: boolean;
   enable_reasoning?: boolean;
   reasoning_model?: string;
+  // Per-trader OpenRouter config (falls back to global if empty)
+  openrouter_api_key?: string;
+  openrouter_model?: string;
 }
 
 export interface Position {

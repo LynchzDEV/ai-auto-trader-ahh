@@ -58,11 +58,17 @@ func (m *EngineManager) Start(traderID string) error {
 		strategy, _ = m.strategyStore.GetActive()
 	}
 
-	// Create AI client (using config or trader-specific settings)
-	apiKey := m.cfg.OpenRouterAPIKey
-	model := m.cfg.OpenRouterModel
-	if trader.Config.AIModel != "" {
-		model = trader.Config.AIModel
+	// Create AI client (using trader-specific settings or fallback to global)
+	apiKey := trader.Config.OpenRouterAPIKey
+	if apiKey == "" {
+		apiKey = m.cfg.OpenRouterAPIKey
+	}
+	model := trader.Config.OpenRouterModel
+	if model == "" {
+		model = trader.Config.AIModel // Legacy field
+	}
+	if model == "" {
+		model = m.cfg.OpenRouterModel
 	}
 	aiClient := ai.NewClient(apiKey, model)
 
@@ -136,9 +142,9 @@ func (m *EngineManager) GetStatus(traderID string) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"running":  false,
+		"running":   false,
 		"trader_id": traderID,
-		"message":  "Trader not running",
+		"message":   "Trader not running",
 	}
 }
 
