@@ -631,12 +631,10 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			side = "SHORT"
 		}
 
-		// SAFETY CHECK: Don't close positions that are at a loss
-		// Let the stop-loss order on the exchange handle losing positions
+		// SAFETY CHECK: Warn when closing positions at a loss, but allow it (modified to match nofx behavior)
 		if currentPos.UnrealizedProfit < 0 {
-			log.Printf("[%s][%s] BLOCKED: AI tried to close %s position at loss ($%.2f). Letting SL/TP orders handle exit.",
+			log.Printf("[%s][%s] WARNING: AI closing %s position at loss ($%.2f). This is allowed now to preserve capital.",
 				e.name, symbol, side, currentPos.UnrealizedProfit)
-			return 0, fmt.Errorf("blocked: refusing to close losing position (PnL: $%.2f), let SL/TP handle it", currentPos.UnrealizedProfit)
 		}
 
 		// SAFETY CHECK 2: Don't close positions with less than 3% profit
@@ -650,9 +648,9 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			}
 		}
 
-		minProfitToClose := 3.0 // Minimum 3% profit to allow manual close
+		minProfitToClose := 1.0 // Minimum 1% profit to allow manual close (lowered from 3% to catch small moves)
 		if pnlPct < minProfitToClose {
-			log.Printf("[%s][%s] BLOCKED: AI tried to close %s position at only %.2f%% profit ($%.2f). Let TP order run to 6%% target.",
+			log.Printf("[%s][%s] BLOCKED: AI tried to close %s position at only %.2f%% profit ($%.2f). Let TP order run to target.",
 				e.name, symbol, side, pnlPct, currentPos.UnrealizedProfit)
 			return 0, fmt.Errorf("blocked: profit %.2f%% below %.2f%% threshold, let TP order reach target", pnlPct, minProfitToClose)
 		}
