@@ -1215,7 +1215,7 @@ func (e *Engine) syncTradeHistory(ctx context.Context) {
 
 	// If no previous trades, start from 24 hours ago
 	if lastTradeTime == 0 {
-		lastTradeTime = time.Now().Add(-24*time.Hour).UnixMilli()
+		lastTradeTime = time.Now().Add(-24 * time.Hour).UnixMilli()
 	} else {
 		// Add 1ms to avoid duplicates
 		lastTradeTime++
@@ -1319,6 +1319,11 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 func (e *Engine) placeBracketOrders(ctx context.Context, symbol string, isLong bool, entryPrice, slPct, tpPct float64) {
 	log.Printf("[%s][%s] Placing bracket orders: SL=%.1f%%, TP=%.1f%%, entry=$%.2f",
 		e.name, symbol, slPct, tpPct, entryPrice)
+
+	// CLEANUP: Cancel any existing open orders before placing new ones to avoid "order exists" errors (Code -4130)
+	if err := e.binance.CancelAllOrders(ctx, symbol); err != nil {
+		log.Printf("[%s][%s] Warning: failed to clear existing orders before brackets: %v", e.name, symbol, err)
+	}
 
 	// Retry up to 3 times
 	var slOrder, tpOrder *exchange.Order

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -116,17 +117,35 @@ func (s *TradeStore) GetByTrader(traderID string, limit int) ([]*Trade, error) {
 
 // GetLastTradeTime returns the timestamp of the most recent trade for a trader (in milliseconds)
 func (s *TradeStore) GetLastTradeTime(traderID string) (int64, error) {
-	var timestamp *time.Time
+	var timestampStr string
 	err := db.QueryRow(`
-		SELECT MAX(timestamp) FROM trades WHERE trader_id = ?
-	`, traderID).Scan(&timestamp)
+		SELECT COALESCE(MAX(timestamp), '') FROM trades WHERE trader_id = ?
+	`, traderID).Scan(&timestampStr)
+
 	if err != nil {
 		return 0, err
 	}
-	if timestamp == nil {
+	if timestampStr == "" {
 		return 0, nil
 	}
-	return timestamp.UnixMilli(), nil
+
+	// Parse timestamp (SQLite defaults to RFC3339 format usually, or whatever was inserted)
+	// Since we insert time.Time, the driver usually inserts "2006-01-02 15:04:05.999999999-07:00"
+	// We'll try standard parsing.
+	t, err := time.Parse(time.RFC3339, timestampStr)
+	if err != nil {
+		// Try alternative layout if RFC3339 fails (e.g. without timezone or space instead of T)
+		t, err = time.Parse("2006-01-02 15:04:05.999999999-07:00", timestampStr)
+		if err != nil {
+			// One last try for simple format
+			t, err = time.Parse("2006-01-02 15:04:05", timestampStr)
+			if err != nil {
+				return 0, fmt.Errorf("failed to parse timestamp %s: %w", timestampStr, err)
+			}
+		}
+	}
+
+	return t.UnixMilli(), nil
 }
 
 // GetTotalPnL returns the total realized PnL for a trader
