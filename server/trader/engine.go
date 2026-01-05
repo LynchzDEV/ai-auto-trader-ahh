@@ -574,12 +574,15 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			return 0, fmt.Errorf("skipped: %w", err)
 		}
 
-		// 2. Validate risk-reward ratio if SL/TP percentages provided
-		if decision.StopLossPct > 0 && decision.TakeProfitPct > 0 {
-			if err := e.validateRiskRewardRatioPct(decision.StopLossPct, decision.TakeProfitPct); err != nil {
-				log.Printf("[%s][%s] %v, skipping trade", e.name, symbol, err)
-				return 0, fmt.Errorf("skipped: %w", err)
-			}
+		// 2. Adjust and Validate SL/TP
+		// Apply auto-adjustment based on strategy config (fixes R:R mismatches)
+		slPct, tpPct := e.getSLTPPercentages(decision)
+		decision.StopLossPct = slPct
+		decision.TakeProfitPct = tpPct
+
+		if err := e.validateRiskRewardRatioPct(slPct, tpPct); err != nil {
+			log.Printf("[%s][%s] %v, skipping trade", e.name, symbol, err)
+			return 0, fmt.Errorf("skipped: %w", err)
 		}
 	}
 
@@ -1450,10 +1453,16 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 		tpPct = 6.0 // Default 6% take profit (3:1 ratio)
 	}
 
-	// Ensure minimum 2:1 ratio
-	if tpPct < slPct*2 {
-		tpPct = slPct * 3 // Force 3:1 ratio
-		log.Printf("[SL/TP] Adjusted TP to %.1f%% for 3:1 ratio (SL=%.1f%%)", tpPct, slPct)
+	// Ensure minimum risk-reward ratio from strategy
+	minRatio := 1.5
+	if e.strategy != nil && e.strategy.Config.RiskControl.MinRiskRewardRatio > 0 {
+		minRatio = e.strategy.Config.RiskControl.MinRiskRewardRatio
+	}
+
+	if tpPct < slPct*minRatio {
+		newTp := slPct * minRatio
+		log.Printf("[SL/TP] Adjusted TP to %.2f%% for %.1f:1 ratio (SL=%.1f%%, PrevTP=%.1f%%)", newTp, minRatio, slPct, tpPct)
+		tpPct = newTp
 	}
 
 	return slPct, tpPct
