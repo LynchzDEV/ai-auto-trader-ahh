@@ -493,6 +493,7 @@ export default function Strategies() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="1m">1 minute</SelectItem>
+                          <SelectItem value="3m">3 minutes</SelectItem>
                           <SelectItem value="5m">5 minutes</SelectItem>
                           <SelectItem value="15m">15 minutes</SelectItem>
                           <SelectItem value="1h">1 hour</SelectItem>
