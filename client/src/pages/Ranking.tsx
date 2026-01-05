@@ -133,11 +133,11 @@ const Bubble = ({
         <motion.div
             className="absolute cursor-grab active:cursor-grabbing"
             style={{
-                x: springX,
-                y: springY,
+                x: isDragging ? x : springX,
+                y: isDragging ? y : springY,
                 scale,
-                width: bubble.size,
-                height: bubble.size,
+                width: `${bubble.size}px`,
+                height: `${bubble.size}px`,
                 zIndex,
             }}
             drag
@@ -169,51 +169,52 @@ const Bubble = ({
         >
             <div
                 className={`
-rounded - full flex flex - col items - center justify - center
-transition - all duration - 300 relative select - none
+                    w-full h-full rounded-full flex flex-col items-center justify-center
+                    transition-all duration-300 relative select-none overflow-hidden
                     ${isSelected ? 'ring-2 ring-white/50 ring-offset-2 ring-offset-transparent' : ''}
-`}
+                `}
                 style={{
-                    width: `${bubble.size} px`,
-                    height: `${bubble.size} px`,
-                    minWidth: `${bubble.size} px`,
-                    minHeight: `${bubble.size} px`,
-                    borderRadius: '50%',
                     backgroundColor: bubble.color,
                     boxShadow: isDragging
-                        ? `0 10px 30px rgba(0, 0, 0, 0.5), 0 0 ${bubble.size / 2}px ${bubble.color} `
-                        : `0 0 ${bubble.size / 2}px ${bubble.color}, 0 4px 20px rgba(0, 0, 0, 0.4)`,
+                        ? `0 10px 30px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.2)`
+                        : `inset 0 0 20px rgba(0,0,0,0.2), 0 4px 10px rgba(0,0,0,0.3)`,
+                    // Enforce flex column via inline style to be safe
+                    display: 'flex',
+                    flexDirection: 'column',
                 }}
             >
+                {/* Glossy reflection effect */}
+                <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
+
                 {/* Content */}
                 <span
-                    className="font-bold text-white drop-shadow-lg text-center leading-tight pointer-events-none"
+                    className="font-bold text-white drop-shadow-md text-center leading-none pointer-events-none z-10"
                     style={{
-                        fontSize: `${Math.max(bubble.size / 5, 12)} px`,
-                        textShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                        fontSize: `${Math.max(bubble.size / 5, 12)}px`,
+                        marginBottom: '2px', // tiny gap
                     }}
                 >
                     {displaySymbol}
                 </span>
                 <span
-                    className="font-mono font-medium drop-shadow text-center text-white/90 pointer-events-none"
+                    className="font-mono font-medium drop-shadow-md text-center text-white/90 pointer-events-none z-10"
                     style={{
-                        fontSize: `${Math.max(bubble.size / 7, 9)} px`,
-                        textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                        fontSize: `${Math.max(bubble.size / 7, 10)}px`,
                     }}
                 >
                     ${bubble.pnl.toFixed(2)}
                 </span>
 
                 {/* Trade count badge */}
-                {bubble.size > 90 && (
+                {bubble.size > 80 && (
                     <span
-                        className="text-white/70 mt-0.5 text-center pointer-events-none"
+                        className="text-white/80 mt-1 text-center pointer-events-none z-10"
                         style={{
-                            fontSize: `${Math.max(bubble.size / 9, 8)} px`,
+                            fontSize: `${Math.max(bubble.size / 9, 9)}px`,
+                            lineHeight: 1,
                         }}
                     >
-                        {bubble.tradeCount} trades
+                        {bubble.tradeCount}t
                     </span>
                 )}
             </div>
