@@ -18,6 +18,7 @@ type Request struct {
 	FrequencyPenalty float64   `json:"frequency_penalty,omitempty"`
 	PresencePenalty  float64   `json:"presence_penalty,omitempty"`
 	Stop             []string  `json:"stop,omitempty"`
+	Stream           bool      `json:"stream,omitempty"`
 }
 
 // Usage represents token usage information
@@ -51,7 +52,12 @@ type AIClient interface {
 	GetProvider() string
 	// GetModel returns the model name
 	GetModel() string
+	// CallStream makes a streaming call
+	CallStream(req *Request, handler ChunkHandler) (*Response, error)
 }
+
+// ChunkHandler is called for each streaming chunk
+type ChunkHandler func(chunk string) error
 
 // TokenUsageCallback is called after each API call with usage info
 type TokenUsageCallback func(usage Usage, provider, model string)

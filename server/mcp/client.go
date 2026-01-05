@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -157,6 +158,33 @@ func (c *Client) CallWithRequest(req *Request) (*Response, error) {
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
+// CallStream implements AIClient - streams chunks to handler
+func (c *Client) CallStream(req *Request, handler ChunkHandler) (*Response, error) {
+	if req.Model == "" {
+		req.Model = c.config.Model
+	}
+	req.Stream = true
+
+	var lastErr error
+	for attempt := 1; attempt <= c.config.MaxRetries; attempt++ {
+		resp, err := c.doCallStream(req, handler)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			return nil, err
+		}
+
+		if attempt < c.config.MaxRetries {
+			time.Sleep(c.config.RetryDelay * time.Duration(attempt))
+		}
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
 // doCall makes a single API call
 func (c *Client) doCall(req *Request) (*Response, error) {
 	start := time.Now()
@@ -219,11 +247,107 @@ func (c *Client) doCall(req *Request) (*Response, error) {
 	return resp, nil
 }
 
+// doCallStream makes a streaming API call
+func (c *Client) doCallStream(req *Request, handler ChunkHandler) (*Response, error) {
+	start := time.Now()
+
+	// Build request based on provider
+	var httpReq *http.Request
+	var err error
+
+	switch c.config.Provider {
+	case ProviderAnthropic:
+		httpReq, err = c.buildAnthropicRequest(req)
+	default:
+		// OpenAI-compatible (OpenRouter, OpenAI, DeepSeek, etc.)
+		httpReq, err = c.buildOpenAIRequest(req)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+
+	// Verify stream flag
+	req.Stream = true
+
+	// Make request
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(httpResp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", httpResp.StatusCode, string(body))
+	}
+
+	// Handle streaming response
+	reader := bufio.NewReader(httpResp.Body)
+	var fullContent strings.Builder
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("stream read error: %w", err)
+		}
+
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data: ")) {
+			continue
+		}
+
+		data := bytes.TrimPrefix(line, []byte("data: "))
+		if string(data) == "[DONE]" {
+			break
+		}
+
+		// Simple SSE parsing for OpenAI-compatible
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			continue // Skip invalid JSON
+		}
+
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			content := chunk.Choices[0].Delta.Content
+			fullContent.WriteString(content)
+
+			// Invoke handler
+			if handler != nil {
+				if err := handler(content); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	resp := &Response{
+		Content:   fullContent.String(),
+		Duration:  time.Since(start),
+		Timestamp: time.Now(),
+		Model:     req.Model,
+		Provider:  c.config.Provider,
+	}
+
+	return resp, nil
+}
+
 // buildOpenAIRequest builds an OpenAI-compatible request
 func (c *Client) buildOpenAIRequest(req *Request) (*http.Request, error) {
 	payload := map[string]interface{}{
 		"model":    req.Model,
 		"messages": req.Messages,
+		"stream":   req.Stream,
 	}
 
 	if req.Temperature > 0 {
@@ -283,6 +407,7 @@ func (c *Client) buildAnthropicRequest(req *Request) (*http.Request, error) {
 		"model":      req.Model,
 		"messages":   messages,
 		"max_tokens": req.MaxTokens,
+		"stream":     req.Stream,
 	}
 
 	if systemPrompt != "" {
@@ -405,7 +530,7 @@ func isRetryableError(err error) bool {
 		"eof",
 		"timeout",
 		"connection reset",
-		"connection refused",
+		"connection refus",
 		"temporary failure",
 		"no such host",
 		"stream error",

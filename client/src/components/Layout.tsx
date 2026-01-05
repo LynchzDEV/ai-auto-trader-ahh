@@ -63,7 +63,7 @@ export default function Layout() {
       }
     };
 
-    eventSource.onerror = (err) => {
+    eventSource.onerror = () => {
       // Optional: retry logic or silent fail. EventSource auto-retries.
       // console.error('SSE Error:', err);
       eventSource.close();

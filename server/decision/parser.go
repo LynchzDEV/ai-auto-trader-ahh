@@ -46,7 +46,7 @@ func ParseFullDecisionResponse(aiResponse string, cfg *ValidationConfig) (*FullD
 // extractCoTTrace extracts chain of thought from AI response
 func extractCoTTrace(response string) string {
 	// Try <reasoning> tags first
-	if match := reReasoningTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
+	if match := reReasoningTag.FindStringSubmatch(response); len(match) > 1 {
 		return strings.TrimSpace(match[1])
 	}
 
@@ -73,7 +73,7 @@ func extractDecisions(response string) ([]Decision, error) {
 	var jsonPart string
 
 	// Try <decision> tag first
-	if match := reDecisionTag.FindStringSubmatch(s); match != nil && len(match) > 1 {
+	if match := reDecisionTag.FindStringSubmatch(s); len(match) > 1 {
 		jsonPart = strings.TrimSpace(match[1])
 	} else {
 		jsonPart = s
@@ -82,7 +82,7 @@ func extractDecisions(response string) ([]Decision, error) {
 	jsonPart = fixMissingQuotes(jsonPart)
 
 	// Try code fence extraction
-	if m := reJSONFence.FindStringSubmatch(jsonPart); m != nil && len(m) > 1 {
+	if m := reJSONFence.FindStringSubmatch(jsonPart); len(m) > 1 {
 		jsonContent := strings.TrimSpace(m[1])
 		jsonContent = compactArrayOpen(jsonContent)
 		jsonContent = fixMissingQuotes(jsonContent)

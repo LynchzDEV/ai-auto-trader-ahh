@@ -10,19 +10,19 @@ import (
 
 // Engine is the decision making engine that uses AI to make trading decisions
 type Engine struct {
-	client         mcp.AIClient
-	promptBuilder  *PromptBuilder
-	validationCfg  *ValidationConfig
-	lang           Language
+	client        mcp.AIClient
+	promptBuilder *PromptBuilder
+	validationCfg *ValidationConfig
+	lang          Language
 }
 
 // NewEngine creates a new decision engine
 func NewEngine(client mcp.AIClient, lang Language) *Engine {
 	return &Engine{
-		client:         client,
-		promptBuilder:  NewPromptBuilder(lang),
-		validationCfg:  DefaultValidationConfig(),
-		lang:           lang,
+		client:        client,
+		promptBuilder: NewPromptBuilder(lang),
+		validationCfg: DefaultValidationConfig(),
+		lang:          lang,
 	}
 }
 
@@ -51,12 +51,40 @@ func (e *Engine) MakeDecision(ctx *Context) (*FullDecision, error) {
 
 	// Call AI
 	start := time.Now()
-	response, err := e.client.CallWithMessages(systemPrompt, userPrompt)
+
+	req := &mcp.Request{
+		Model: e.client.GetModel(),
+		Messages: []mcp.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Temperature: 0.7,
+		MaxTokens:   4096,
+		Stream:      true,
+	}
+
+	fmt.Printf("[Decision] Requesting AI (streaming)... ")
+
+	// Stream handler to accumulate chunks and print them
+	var fullResponse string
+	handler := func(chunk string) error {
+		fullResponse += chunk
+		// Optional: Print chunks to stdout if you want to see them as they come
+		// fmt.Print(chunk)
+		return nil
+	}
+
+	responseObj, err := e.client.CallStream(req, handler)
 	duration := time.Since(start)
 
 	if err != nil {
 		return nil, fmt.Errorf("AI call failed: %w", err)
 	}
+
+	// Use content from response object which is built from stream
+	response := responseObj.Content
+
+	fmt.Printf("Done in %v\n", duration)
 
 	// Parse response
 	fullDecision, parseErr := ParseFullDecisionResponse(response, e.validationCfg)
