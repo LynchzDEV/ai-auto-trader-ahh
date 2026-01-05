@@ -2,10 +2,12 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -71,11 +73,38 @@ type TradingDecision struct {
 }
 
 func NewClient(apiKey, model string) *Client {
+	// Custom Dialer to force IPv4 and log connections
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Force IPv4 by using "tcp4"
+			conn, err := dialer.DialContext(ctx, "tcp4", addr)
+			if err != nil {
+				log.Printf("[OpenRouter] Dial failed to %s: %v", addr, err)
+				return nil, err
+			}
+			// Log the resolved IP address to help diagnose DNS/routing issues
+			log.Printf("[OpenRouter] Successfully established connection to %s (%s)", addr, conn.RemoteAddr().String())
+			return conn, nil
+		},
+		ForceAttemptHTTP2:     false, // Disable HTTP/2 to avoid potential framing/tunneling issues
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
 	return &Client{
 		apiKey: apiKey,
 		model:  model,
 		httpClient: &http.Client{
-			Timeout: 180 * time.Second, // 3 minutes for slower models
+			Timeout:   180 * time.Second, // 3 minutes for slower models
+			Transport: transport,
 		},
 	}
 }
