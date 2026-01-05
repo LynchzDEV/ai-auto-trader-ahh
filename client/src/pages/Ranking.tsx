@@ -128,17 +128,22 @@ function DraggableBubble({
         >
             <div
                 className={`
-          w-full h-full rounded-full flex flex-col items-center justify-center
-          transition-all duration-300 relative overflow-hidden
-          ${isSelected ? 'ring-2 ring-white/50 ring-offset-2 ring-offset-transparent' : ''}
-        `}
+                    rounded-full flex flex-col items-center justify-center
+                    transition-all duration-300 relative overflow-hidden
+                    ${isSelected ? 'ring-2 ring-white/50 ring-offset-2 ring-offset-transparent' : ''}
+                `}
                 style={{
+                    width: bubble.size,
+                    height: bubble.size,
+                    minWidth: bubble.size,
+                    minHeight: bubble.size,
+                    aspectRatio: '1 / 1',
                     background: `radial-gradient(circle at 30% 30%, ${bubble.color}40, ${bubble.color}80)`,
                     boxShadow: `
-            0 0 ${bubble.size / 3}px ${bubble.color}30,
-            inset 0 0 ${bubble.size / 4}px ${bubble.color}20,
-            0 4px 20px rgba(0,0,0,0.3)
-          `,
+                        0 0 ${bubble.size / 3}px ${bubble.color}30,
+                        inset 0 0 ${bubble.size / 4}px ${bubble.color}20,
+                        0 4px 20px rgba(0,0,0,0.3)
+                    `,
                 }}
             >
                 {/* Shine effect */}
@@ -149,25 +154,34 @@ function DraggableBubble({
                     }}
                 />
 
-                {/* Content */}
+                {/* Content - with text overflow protection */}
                 <span
-                    className="font-bold text-white drop-shadow-lg"
-                    style={{ fontSize: Math.max(bubble.size / 6, 10) }}
+                    className="font-bold text-white drop-shadow-lg text-center leading-tight truncate px-1"
+                    style={{
+                        fontSize: Math.max(bubble.size / 6, 10),
+                        maxWidth: bubble.size * 0.8,
+                    }}
                 >
                     {displaySymbol}
                 </span>
                 <span
-                    className={`font-mono font-medium drop-shadow ${bubble.pnl >= 0 ? 'text-green-100' : 'text-red-100'}`}
-                    style={{ fontSize: Math.max(bubble.size / 8, 8) }}
+                    className={`font-mono font-medium drop-shadow text-center truncate ${bubble.pnl >= 0 ? 'text-green-100' : 'text-red-100'}`}
+                    style={{
+                        fontSize: Math.max(bubble.size / 8, 8),
+                        maxWidth: bubble.size * 0.8,
+                    }}
                 >
                     ${bubble.pnl.toFixed(2)}
                 </span>
 
                 {/* Trade count badge */}
-                {bubble.size > 60 && (
+                {bubble.size > 80 && (
                     <span
-                        className="text-white/70 mt-0.5"
-                        style={{ fontSize: Math.max(bubble.size / 10, 7) }}
+                        className="text-white/70 mt-0.5 text-center truncate"
+                        style={{
+                            fontSize: Math.max(bubble.size / 10, 7),
+                            maxWidth: bubble.size * 0.8,
+                        }}
                     >
                         {bubble.tradeCount} trades
                     </span>
@@ -341,16 +355,158 @@ export default function Ranking() {
         });
     }, [profitBySymbol]);
 
+    // Physics simulation for collision detection
+    useEffect(() => {
+        if (bubbles.length < 2) return;
+
+        const SPACING = 8; // Gap between bubbles
+        const DAMPING = 0.85; // Velocity damping
+        const COLLISION_STRENGTH = 0.5; // How strongly bubbles push apart
+        const ATTRACTION_STRENGTH = 0.02; // How strongly bubbles attract to center
+        const CENTER_PULL = 0.005; // Pull toward container center
+
+        const simulatePhysics = () => {
+            setBubbles(prevBubbles => {
+                const newBubbles = prevBubbles.map(b => ({ ...b }));
+                const container = containerRef.current;
+                if (!container) return prevBubbles;
+
+                const { width, height } = container.getBoundingClientRect();
+
+                // Calculate center of mass (gravity well)
+                let totalMass = 0;
+                let comX = 0;
+                let comY = 0;
+                for (const b of newBubbles) {
+                    const mass = b.size;
+                    comX += (b.x + b.size / 2) * mass;
+                    comY += (b.y + b.size / 2) * mass;
+                    totalMass += mass;
+                }
+                comX /= totalMass;
+                comY /= totalMass;
+
+                // Apply attraction toward center of mass and container center
+                for (const bubble of newBubbles) {
+                    const cx = bubble.x + bubble.size / 2;
+                    const cy = bubble.y + bubble.size / 2;
+
+                    // Pull toward center of mass (clustering)
+                    const dxCom = comX - cx;
+                    const dyCom = comY - cy;
+                    const distCom = Math.sqrt(dxCom * dxCom + dyCom * dyCom);
+                    if (distCom > 1) {
+                        bubble.vx += (dxCom / distCom) * ATTRACTION_STRENGTH * bubble.size;
+                        bubble.vy += (dyCom / distCom) * ATTRACTION_STRENGTH * bubble.size;
+                    }
+
+                    // Gentle pull toward container center
+                    const containerCenterX = width / 2;
+                    const containerCenterY = height / 2;
+                    const dxCenter = containerCenterX - cx;
+                    const dyCenter = containerCenterY - cy;
+                    bubble.vx += dxCenter * CENTER_PULL;
+                    bubble.vy += dyCenter * CENTER_PULL;
+                }
+
+                // Check collisions between all pairs
+                for (let i = 0; i < newBubbles.length; i++) {
+                    for (let j = i + 1; j < newBubbles.length; j++) {
+                        const b1 = newBubbles[i];
+                        const b2 = newBubbles[j];
+
+                        // Calculate center positions
+                        const c1x = b1.x + b1.size / 2;
+                        const c1y = b1.y + b1.size / 2;
+                        const c2x = b2.x + b2.size / 2;
+                        const c2y = b2.y + b2.size / 2;
+
+                        // Calculate distance between centers
+                        const dx = c2x - c1x;
+                        const dy = c2y - c1y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        // Minimum distance (sum of radii + spacing)
+                        const minDistance = (b1.size + b2.size) / 2 + SPACING;
+
+                        if (distance < minDistance && distance > 0) {
+                            // Collision detected - push bubbles apart
+                            const overlap = minDistance - distance;
+                            const normalX = dx / distance;
+                            const normalY = dy / distance;
+
+                            // Move bubbles apart proportionally to their sizes
+                            const totalSize = b1.size + b2.size;
+                            const ratio1 = b2.size / totalSize;
+                            const ratio2 = b1.size / totalSize;
+
+                            const moveX = normalX * overlap * COLLISION_STRENGTH;
+                            const moveY = normalY * overlap * COLLISION_STRENGTH;
+
+                            newBubbles[i].x -= moveX * ratio1;
+                            newBubbles[i].y -= moveY * ratio1;
+                            newBubbles[j].x += moveX * ratio2;
+                            newBubbles[j].y += moveY * ratio2;
+
+                            // Add velocity for bounce effect
+                            newBubbles[i].vx -= moveX * 0.3;
+                            newBubbles[i].vy -= moveY * 0.3;
+                            newBubbles[j].vx += moveX * 0.3;
+                            newBubbles[j].vy += moveY * 0.3;
+                        }
+                    }
+                }
+
+                // Apply velocity and boundary constraints
+                for (const bubble of newBubbles) {
+                    // Apply velocity
+                    bubble.x += bubble.vx * 0.1;
+                    bubble.y += bubble.vy * 0.1;
+
+                    // Dampen velocity
+                    bubble.vx *= DAMPING;
+                    bubble.vy *= DAMPING;
+
+                    // Boundary constraints
+                    const padding = 10;
+                    if (bubble.x < padding) {
+                        bubble.x = padding;
+                        bubble.vx = Math.abs(bubble.vx) * 0.5;
+                    }
+                    if (bubble.x > width - bubble.size - padding) {
+                        bubble.x = width - bubble.size - padding;
+                        bubble.vx = -Math.abs(bubble.vx) * 0.5;
+                    }
+                    if (bubble.y < padding) {
+                        bubble.y = padding;
+                        bubble.vy = Math.abs(bubble.vy) * 0.5;
+                    }
+                    if (bubble.y > height - bubble.size - padding) {
+                        bubble.y = height - bubble.size - padding;
+                        bubble.vy = -Math.abs(bubble.vy) * 0.5;
+                    }
+                }
+
+                return newBubbles;
+            });
+        };
+
+        // Run physics simulation
+        const intervalId = setInterval(simulatePhysics, 16); // ~60fps
+
+        return () => clearInterval(intervalId);
+    }, [bubbles.length]);
+
     const handleDragEnd = useCallback((id: string, info: PanInfo) => {
-        // Apply velocity for momentum effect
+        // Apply velocity for momentum effect and trigger collision response
         setBubbles(prev => prev.map(b => {
             if (b.id === id) {
                 return {
                     ...b,
                     x: b.x + info.offset.x,
                     y: b.y + info.offset.y,
-                    vx: info.velocity.x,
-                    vy: info.velocity.y,
+                    vx: info.velocity.x * 0.3,
+                    vy: info.velocity.y * 0.3,
                 };
             }
             return b;
