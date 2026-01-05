@@ -65,15 +65,41 @@ interface Bubble {
     color: string;
 }
 
+// Curated palette of distinct, vibrant colors
+const SYMBOL_COLORS = [
+    '#FF6B6B', // Coral Red
+    '#4ECDC4', // Teal
+    '#45B7D1', // Sky Blue
+    '#96E6A1', // Mint Green
+    '#DDA0DD', // Plum
+    '#F7DC6F', // Sunflower
+    '#BB8FCE', // Lavender
+    '#85C1E9', // Light Blue
+    '#F8B500', // Golden Yellow
+    '#00D4AA', // Turquoise
+    '#FF8C42', // Orange
+    '#98D8C8', // Seafoam
+    '#C39BD3', // Orchid
+    '#7DCEA0', // Emerald
+    '#F1948A', // Salmon
+    '#76D7C4', // Aquamarine
+    '#F0B27A', // Peach
+    '#A9CCE3', // Powder Blue
+    '#D7BDE2', // Mauve
+    '#A3E4D7', // Pale Turquoise
+];
+
 // Physics simulation component for each bubble
 function DraggableBubble({
     bubble,
+    onDrag,
     onDragEnd,
     containerRef,
     selectedBubble,
     setSelectedBubble,
 }: {
     bubble: Bubble;
+    onDrag: (id: string, x: number, y: number) => void;
     onDragEnd: (id: string, info: PanInfo) => void;
     containerRef: React.RefObject<HTMLDivElement | null>;
     selectedBubble: string | null;
@@ -110,9 +136,14 @@ function DraggableBubble({
                 height: bubble.size,
             }}
             drag
-            dragMomentum
-            dragElastic={0.1}
+            dragMomentum={false}
+            dragElastic={0}
             dragConstraints={containerRef}
+            onDrag={(_, info) => {
+                const newX = bubble.x + info.offset.x;
+                const newY = bubble.y + info.offset.y;
+                onDrag(bubble.id, newX, newY);
+            }}
             onDragEnd={(_, info) => onDragEnd(bubble.id, info)}
             onClick={() => setSelectedBubble(isSelected ? null : bubble.id)}
             initial={{ scale: 0, opacity: 0 }}
@@ -145,20 +176,7 @@ function DraggableBubble({
                     `,
                 }}
             >
-                {/* Shine effect */}
-                <div
-                    className="absolute rounded-full"
-                    style={{
-                        top: '10%',
-                        left: '15%',
-                        width: '35%',
-                        height: '25%',
-                        background: 'linear-gradient(135deg, rgba(255,255,255,0.4), transparent)',
-                        borderRadius: '50%',
-                    }}
-                />
-
-                {/* Content - with text overflow protection */}
+                {/* Content */}
                 <span
                     className="font-bold text-white drop-shadow-lg text-center leading-tight"
                     style={{
@@ -280,10 +298,10 @@ export default function Ranking() {
             symbolMap.set(trade.symbol, existing);
         }
 
-        // Calculate win rates
+        // Calculate win rates (based on win+loss, not all trades - excludes breakeven)
         const results = Array.from(symbolMap.values()).map(s => ({
             ...s,
-            winRate: s.tradeCount > 0 ? (s.winCount / s.tradeCount) * 100 : 0,
+            winRate: (s.winCount + s.lossCount) > 0 ? (s.winCount / (s.winCount + s.lossCount)) * 100 : 0,
         }));
 
         return results.sort((a, b) => b.pnl - a.pnl);
@@ -324,21 +342,8 @@ export default function Ranking() {
             const x = centerX + Math.cos(angle) * radius * (0.5 + Math.random() * 0.5);
             const y = centerY + Math.sin(angle) * radius * (0.5 + Math.random() * 0.5);
 
-            // Generate unique color based on symbol name hash
-            const hashCode = (str: string) => {
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) {
-                    const char = str.charCodeAt(i);
-                    hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash; // Convert to 32bit integer
-                }
-                return Math.abs(hash);
-            };
-
-            const hue = hashCode(symbol.symbol) % 360;
-            const saturation = 60 + (hashCode(symbol.symbol + 'sat') % 25); // 60-85%
-            const lightness = symbol.pnl >= 0 ? 50 : 40; // Slightly darker for losses
-            const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+            // Use curated color palette for distinct colors
+            const color = SYMBOL_COLORS[index % SYMBOL_COLORS.length];
 
             return {
                 id: symbol.symbol,
@@ -510,6 +515,16 @@ export default function Ranking() {
 
         return () => clearInterval(intervalId);
     }, [bubbles.length]);
+
+    // Handle drag in real-time - update position and trigger collision
+    const handleDrag = useCallback((id: string, newX: number, newY: number) => {
+        setBubbles(prev => prev.map(b => {
+            if (b.id === id) {
+                return { ...b, x: newX, y: newY };
+            }
+            return b;
+        }));
+    }, []);
 
     const handleDragEnd = useCallback((id: string, info: PanInfo) => {
         // Apply velocity for momentum effect and trigger collision response
@@ -686,6 +701,7 @@ export default function Ranking() {
                             <DraggableBubble
                                 key={bubble.id}
                                 bubble={bubble}
+                                onDrag={handleDrag}
                                 onDragEnd={handleDragEnd}
                                 containerRef={containerRef}
                                 selectedBubble={selectedBubble}
