@@ -24,22 +24,46 @@ The system calculates the following technical indicators on the fly:
 
 #### A. Exponential Moving Average (EMA)
 Used for trend identification.
-$$ multiplier = \frac{2}{period + 1} $$
-$$ EMA_{today} = (Price_{today} \times multiplier) + (EMA_{yesterday} \times (1 - multiplier)) $$
+
+$$
+multiplier = \frac{2}{period + 1}
+$$
+
+$$
+EMA_{today} = (Price_{today} \times multiplier) + (EMA_{yesterday} \times (1 - multiplier))
+$$
+
 *   **EMA9**: Fast moving average (9 periods)
 *   **EMA21**: Slow moving average (21 periods)
 *   **Trend Logic**: If `EMA9 > EMA21`, the trend is **BULLISH**.
 
 #### B. Relative Strength Index (RSI)
 Used to detect overbought/oversold conditions.
-$$ RSI = 100 - \frac{100}{1 + RS} $$
-Where $$ RS = \frac{\text{Average Gain}}{\text{Average Loss}} $$ over 14 periods.
+
+$$
+RSI = 100 - \frac{100}{1 + RS}
+$$
+
+Where:
+
+$$
+RS = \frac{\text{Average Gain}}{\text{Average Loss}}
+$$
+
+(over 14 periods)
+
 *   **Condition**: RSI > 70 is **Overbought**, RSI < 30 is **Oversold**.
 
 #### C. Average True Range (ATR)_
 Used to measure volatility for stop-loss sizing.
-$$ TR = \max(High - Low, |High - Close_{prev}|, |Low - Close_{prev}|) $$
-$$ ATR = \frac{1}{n} \sum_{i=1}^{n} TR_i $$
+
+$$
+TR = \max(High - Low, |High - Close_{prev}|, |Low - Close_{prev}|)
+$$
+
+$$
+ATR = \frac{1}{n} \sum_{i=1}^{n} TR_i
+$$
 
 ---
 
@@ -78,9 +102,18 @@ This is the most critical safety layer. Even if the AI says "BUY", the code (`se
 
 ### A. Risk/Reward Ratio
 The system enforces a minimum **3:1** Reward-to-Risk ratio.
-$$ \text{Risk} = \frac{|Entry - StopLoss|}{Entry} $$
-$$ \text{Reward} = \frac{|TakeProfit - Entry|}{Entry} $$
-$$ \text{Ratio} = \frac{\text{Reward}}{\text{Risk}} $$
+
+$$
+\text{Risk} = \frac{|Entry - StopLoss|}{Entry}
+$$
+
+$$
+\text{Reward} = \frac{|TakeProfit - Entry|}{Entry}
+$$
+
+$$
+\text{Ratio} = \frac{\text{Reward}}{\text{Risk}}
+$$
 
 *   **Rule**: If `Ratio < 3.0`, the trade is **REJECTED** immediately.
 
@@ -121,8 +154,8 @@ The system mimics "Bracket Orders" (atomic Entry + SL + TP) by managing three se
 ```mermaid
 graph TD
     A[Trigger Analysis] --> B[Gather Market & Account Data]
-    B --> C[Compute Math Indicators (EMA/RSI/ATR)]
-    C --> D[Build Prompts (System & User)]
+    B --> C["Compute Math Indicators (EMA/RSI/ATR)"]
+    C --> D["Build Prompts (System & User)"]
     D --> E[Send to AI Model]
     E -->|Think & Decide| F[JSON Response]
     F --> G[Parse & Validate (Risk Math)]
