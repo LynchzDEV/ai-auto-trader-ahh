@@ -74,6 +74,10 @@ type Engine struct {
 	// SL/TP Order Tracking
 	bracketOrders      map[string]*BracketOrderIDs // key: symbol -> SL/TP order IDs
 	bracketOrdersMutex sync.RWMutex
+
+	// Dynamic Coin Source Cache
+	dynamicCoins       []string
+	lastDynamicRefresh time.Time
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -221,8 +225,35 @@ func (e *Engine) IsRunning() bool {
 }
 
 func (e *Engine) getTradingPairs() []string {
-	if e.strategy != nil && len(e.strategy.Config.CoinSource.StaticCoins) > 0 {
-		return e.strategy.Config.CoinSource.StaticCoins
+	if e.strategy != nil {
+		sourceType := e.strategy.Config.CoinSource.SourceType
+
+		// If dynamic source is selected
+		if sourceType == "volume_top" || sourceType == "oi_top" || sourceType == "dynamic" {
+			// Refresh cache if older than 5 minutes or empty
+			if time.Since(e.lastDynamicRefresh) > 5*time.Minute || len(e.dynamicCoins) == 0 {
+				log.Printf("[%s] Refreshing top volume coins...", e.name)
+				// Fetch top 20 coins
+				topCoins, err := e.binance.GetTopVolumeCoins(context.Background(), 20)
+				if err != nil {
+					log.Printf("[%s] Failed to fetch top coins, using previous list/static fallback: %v", e.name, err)
+					// Verify we have something to fall back to
+					if len(e.dynamicCoins) == 0 {
+						return e.strategy.Config.CoinSource.StaticCoins
+					}
+				} else {
+					e.dynamicCoins = topCoins
+					e.lastDynamicRefresh = time.Now()
+					log.Printf("[%s] Updated dynamic coin list: %v", e.name, e.dynamicCoins)
+				}
+			}
+			return e.dynamicCoins
+		}
+
+		// Fallback to static list
+		if len(e.strategy.Config.CoinSource.StaticCoins) > 0 {
+			return e.strategy.Config.CoinSource.StaticCoins
+		}
 	}
 	return e.cfg.TradingPairs
 }
