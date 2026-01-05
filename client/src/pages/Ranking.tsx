@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
+import { motion, useSpring, useTransform, MotionValue } from 'framer-motion';
+import * as d3 from 'd3-force';
 import {
     Trophy,
     Medal,
@@ -49,7 +50,7 @@ interface SymbolProfit {
     winRate: number;
 }
 
-interface Bubble {
+interface BubbleData {
     id: string;
     symbol: string;
     pnl: number;
@@ -58,12 +59,14 @@ interface Bubble {
     lossCount: number;
     winRate: number;
     size: number;
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
     color: string;
-    isDragging?: boolean;
+    // D3 properties
+    x?: number;
+    y?: number;
+    fx?: number | null;
+    fy?: number | null;
+    vx?: number;
+    vy?: number;
 }
 
 // Curated palette of distinct, vibrant colors
@@ -92,31 +95,24 @@ const SYMBOL_COLORS = [
 
 const Bubble = ({
     bubble,
+    x,
+    y,
     selectedBubble,
     setSelectedBubble,
     onDragStart,
     onDragEnd,
-    onDragUpdate,
     containerRef,
 }: {
-    bubble: Bubble;
+    bubble: BubbleData;
+    x: MotionValue<number>;
+    y: MotionValue<number>;
     selectedBubble: string | null;
     setSelectedBubble: (id: string | null) => void;
     onDragStart: (id: string) => void;
-    onDragEnd: (id: string, vx: number, vy: number) => void;
-    onDragUpdate: (id: string, x: number, y: number) => void;
+    onDragEnd: (id: string) => void;
     containerRef: React.RefObject<HTMLDivElement | null>;
 }) => {
-    const x = useMotionValue(bubble.x);
-    const y = useMotionValue(bubble.y);
-
-    // Sync MotionValues with state, but ONLY if not dragging to avoid fighting
-    useEffect(() => {
-        if (!bubble.isDragging) {
-            x.set(bubble.x);
-            y.set(bubble.y);
-        }
-    }, [bubble.x, bubble.y, bubble.isDragging, x, y]);
+    const [isDragging, setIsDragging] = useState(false);
 
     const springConfig = { damping: 20, stiffness: 300 };
     const springX = useSpring(x, springConfig);
@@ -128,7 +124,6 @@ const Bubble = ({
     );
 
     const isSelected = selectedBubble === bubble.id;
-    const isDragging = bubble.isDragging;
     const displaySymbol = bubble.symbol.replace('USDT', '');
 
     // Dynamic z-index: Selected > Dragging > Default
@@ -138,8 +133,8 @@ const Bubble = ({
         <motion.div
             className="absolute cursor-grab active:cursor-grabbing"
             style={{
-                x: isDragging ? x : springX, // Use raw x while dragging for responsiveness
-                y: isDragging ? y : springY,
+                x: springX,
+                y: springY,
                 scale,
                 width: bubble.size,
                 height: bubble.size,
@@ -147,14 +142,19 @@ const Bubble = ({
             }}
             drag
             dragConstraints={containerRef}
-            dragMomentum={false} // We handle momentum via physics engine
-            onDragStart={() => onDragStart(bubble.id)}
-            onDrag={() => {
-                // Update parent state for collision calculations
-                onDragUpdate(bubble.id, x.get(), y.get());
+            dragMomentum={false} // We let D3 handle momentum
+            onDragStart={() => {
+                setIsDragging(true);
+                onDragStart(bubble.id);
             }}
-            onDragEnd={(_, info) => {
-                onDragEnd(bubble.id, info.velocity.x, info.velocity.y);
+            onDrag={(_, info) => {
+                // Update MotionValue directly from drag gesture
+                x.set(x.get() + info.delta.x);
+                y.set(y.get() + info.delta.y);
+            }}
+            onDragEnd={() => {
+                setIsDragging(false);
+                onDragEnd(bubble.id);
             }}
             onClick={() => setSelectedBubble(isSelected ? null : bubble.id)}
             initial={{ scale: 0, opacity: 0 }}
@@ -169,27 +169,27 @@ const Bubble = ({
         >
             <div
                 className={`
-                    rounded-full flex flex-col items-center justify-center
-                    transition-all duration-300 relative select-none
+rounded - full flex flex - col items - center justify - center
+transition - all duration - 300 relative select - none
                     ${isSelected ? 'ring-2 ring-white/50 ring-offset-2 ring-offset-transparent' : ''}
-                `}
+`}
                 style={{
-                    width: `${bubble.size}px`,
-                    height: `${bubble.size}px`,
-                    minWidth: `${bubble.size}px`,
-                    minHeight: `${bubble.size}px`,
+                    width: `${bubble.size} px`,
+                    height: `${bubble.size} px`,
+                    minWidth: `${bubble.size} px`,
+                    minHeight: `${bubble.size} px`,
                     borderRadius: '50%',
                     backgroundColor: bubble.color,
                     boxShadow: isDragging
-                        ? `0 10px 30px rgba(0,0,0,0.5), 0 0 ${bubble.size / 2}px ${bubble.color}`
-                        : `0 0 ${bubble.size / 2}px ${bubble.color}, 0 4px 20px rgba(0,0,0,0.4)`,
+                        ? `0 10px 30px rgba(0, 0, 0, 0.5), 0 0 ${bubble.size / 2}px ${bubble.color} `
+                        : `0 0 ${bubble.size / 2}px ${bubble.color}, 0 4px 20px rgba(0, 0, 0, 0.4)`,
                 }}
             >
                 {/* Content */}
                 <span
                     className="font-bold text-white drop-shadow-lg text-center leading-tight pointer-events-none"
                     style={{
-                        fontSize: `${Math.max(bubble.size / 5, 12)}px`,
+                        fontSize: `${Math.max(bubble.size / 5, 12)} px`,
                         textShadow: '0 2px 4px rgba(0,0,0,0.5)',
                     }}
                 >
@@ -198,7 +198,7 @@ const Bubble = ({
                 <span
                     className="font-mono font-medium drop-shadow text-center text-white/90 pointer-events-none"
                     style={{
-                        fontSize: `${Math.max(bubble.size / 7, 9)}px`,
+                        fontSize: `${Math.max(bubble.size / 7, 9)} px`,
                         textShadow: '0 1px 3px rgba(0,0,0,0.5)',
                     }}
                 >
@@ -210,7 +210,7 @@ const Bubble = ({
                     <span
                         className="text-white/70 mt-0.5 text-center pointer-events-none"
                         style={{
-                            fontSize: `${Math.max(bubble.size / 9, 8)}px`,
+                            fontSize: `${Math.max(bubble.size / 9, 8)} px`,
                         }}
                     >
                         {bubble.tradeCount} trades
@@ -228,7 +228,7 @@ const Bubble = ({
                 >
                     <div className="glass-card p-3 min-w-[150px] text-center pointer-events-none">
                         <div className="font-semibold mb-1">{bubble.symbol}</div>
-                        <div className={`text-lg font-mono font-bold ${bubble.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        <div className={`text - lg font - mono font - bold ${bubble.pnl >= 0 ? 'text-green-400' : 'text-red-400'} `}>
                             ${bubble.pnl.toFixed(4)}
                         </div>
                         <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
@@ -248,9 +248,14 @@ export default function Ranking() {
     const [selectedTrader, setSelectedTrader] = useState<string>('');
     const [trades, setTrades] = useState<Trade[]>([]);
     const [loading, setLoading] = useState(true);
-    const [bubbles, setBubbles] = useState<Bubble[]>([]);
     const [selectedBubble, setSelectedBubble] = useState<string | null>(null);
+
+    // Refs
     const containerRef = useRef<HTMLDivElement>(null);
+    const simulationRef = useRef<d3.Simulation<BubbleData, undefined> | null>(null);
+
+    // Motion Values stored in a ref map to avoid re-renders
+    const motionValues = useRef<Map<string, { x: MotionValue<number>; y: MotionValue<number> }>>(new Map());
 
     useEffect(() => {
         loadTraders();
@@ -285,8 +290,10 @@ export default function Ranking() {
         }
     };
 
-    // Calculate profit by symbol
-    const profitBySymbol = useMemo((): SymbolProfit[] => {
+    // Calculate profit by symbol and prepare initial bubble data
+    const bubbles = useMemo((): BubbleData[] => {
+        if (!trades.length) return [];
+
         const symbolMap = new Map<string, SymbolProfit>();
 
         for (const trade of trades) {
@@ -308,270 +315,131 @@ export default function Ranking() {
             symbolMap.set(trade.symbol, existing);
         }
 
-        // Calculate win rates (based on win+loss, not all trades - excludes breakeven)
-        const results = Array.from(symbolMap.values()).map(s => ({
+        const stats = Array.from(symbolMap.values()).map(s => ({
             ...s,
             winRate: (s.winCount + s.lossCount) > 0 ? (s.winCount / (s.winCount + s.lossCount)) * 100 : 0,
-        }));
+        })).sort((a, b) => b.pnl - a.pnl);
 
-        return results.sort((a, b) => b.pnl - a.pnl);
-    }, [trades]);
-
-    const topSymbol = profitBySymbol[0];
-    const worstSymbol = profitBySymbol[profitBySymbol.length - 1];
-    const totalPnl = profitBySymbol.reduce((sum, s) => sum + s.pnl, 0);
-
-    // Initialize bubbles with physics positions
-    useEffect(() => {
-        if (!containerRef.current || profitBySymbol.length === 0) return;
-
-        const container = containerRef.current;
-        const { width, height } = container.getBoundingClientRect();
-
-        // Calculate size range based on absolute PnL values
-        const pnlValues = profitBySymbol.map(s => Math.abs(s.pnl));
+        const pnlValues = stats.map(s => Math.abs(s.pnl));
         const maxPnl = Math.max(...pnlValues, 0.01);
         const minPnl = Math.min(...pnlValues);
+        const minSize = 60;
+        const maxSize = 180;
 
-        const minSize = 50;
-        const maxSize = Math.min(width, height) / 3;
-
-        const newBubbles: Bubble[] = profitBySymbol.map((symbol, index) => {
-            // Normalize size based on PnL
-            const normalizedPnl = maxPnl === minPnl
-                ? 0.5
-                : (Math.abs(symbol.pnl) - minPnl) / (maxPnl - minPnl);
+        return stats.map((s, i) => {
+            const normalizedPnl = maxPnl === minPnl ? 0.5 : (Math.abs(s.pnl) - minPnl) / (maxPnl - minPnl);
             const size = minSize + normalizedPnl * (maxSize - minSize);
 
-            // Arrange in a circular pattern initially
-            const angle = (index / profitBySymbol.length) * Math.PI * 2;
-            const radius = Math.min(width, height) / 3;
-            const centerX = width / 2 - size / 2;
-            const centerY = height / 2 - size / 2;
-
-            const x = centerX + Math.cos(angle) * radius * (0.5 + Math.random() * 0.5);
-            const y = centerY + Math.sin(angle) * radius * (0.5 + Math.random() * 0.5);
-
-            // Use curated color palette for distinct colors
-            const color = SYMBOL_COLORS[index % SYMBOL_COLORS.length];
+            // Ensure MotionValues exist for this bubble
+            if (!motionValues.current.has(s.symbol)) {
+                motionValues.current.set(s.symbol, {
+                    x: new MotionValue(0),
+                    y: new MotionValue(0)
+                });
+            }
 
             return {
-                id: symbol.symbol,
-                symbol: symbol.symbol,
-                pnl: symbol.pnl,
-                tradeCount: symbol.tradeCount,
-                winCount: symbol.winCount,
-                lossCount: symbol.lossCount,
-                winRate: symbol.winRate,
+                id: s.symbol,
+                symbol: s.symbol,
+                pnl: s.pnl,
+                tradeCount: s.tradeCount,
+                winCount: s.winCount,
+                lossCount: s.lossCount,
+                winRate: s.winRate,
                 size,
-                x,
-                y,
-                vx: 0,
-                vy: 0,
-                color,
+                color: SYMBOL_COLORS[i % SYMBOL_COLORS.length],
+                x: 0, // Initial, will be set by sim
+                y: 0
             };
         });
+    }, [trades]);
 
-        setBubbles(newBubbles);
+    const topSymbol = bubbles[0];
+    const worstSymbol = bubbles[bubbles.length - 1];
+    const totalPnl = bubbles.reduce((sum, s) => sum + s.pnl, 0);
 
-        // Animate bubbles into place
-        newBubbles.forEach((bubble, index) => {
-            setTimeout(() => {
-                setBubbles(prev => prev.map(b =>
-                    b.id === bubble.id ? { ...b, x: bubble.x, y: bubble.y } : b
-                ));
-            }, index * 100);
-        });
-    }, [profitBySymbol]);
-
-    // Drag handlers
-    const handleDragStart = (id: string) => {
-        setBubbles(prev => prev.map(b =>
-            b.id === id ? { ...b, isDragging: true, vx: 0, vy: 0 } : b
-        ));
-    };
-
-    const handleDragUpdate = (id: string, x: number, y: number) => {
-        setBubbles(prev => prev.map(b =>
-            b.id === id ? { ...b, x, y } : b
-        ));
-    };
-
-    const handleDragEnd = (id: string, vx: number, vy: number) => {
-        setBubbles(prev => prev.map(b =>
-            b.id === id ? { ...b, isDragging: false, vx, vy } : b
-        ));
-    };
-
-    // Physics simulation
+    // Initialize D3 Simulation
     useEffect(() => {
-        if (bubbles.length < 2) return;
+        if (bubbles.length === 0 || !containerRef.current) return;
 
-        const SPACING = 8;
-        const DAMPING = 0.9;
-        const COLLISION_STRENGTH = 0.8;
-        const ATTRACTION_STRENGTH = 0.01;
-        const CENTER_PULL = 0.005;
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        const center = { x: width / 2, y: height / 2 };
 
-        const simulatePhysics = () => {
-            setBubbles(prevBubbles => {
-                const newBubbles = prevBubbles.map(b => ({ ...b }));
-                const container = containerRef.current;
-                if (!container) return prevBubbles;
+        // Initialize positions randomly around center if they are 0
+        bubbles.forEach((b) => {
+            if (b.x === 0 && b.y === 0) {
+                b.x = center.x + (Math.random() - 0.5) * 100;
+                b.y = center.y + (Math.random() - 0.5) * 100;
+            }
+        });
 
-                const { width, height } = container.getBoundingClientRect();
-
-                // 1. Calculate Center of Mass (excluding dragged bubbles from mass calculation for stability)
-                let totalMass = 0;
-                let comX = 0;
-                let comY = 0;
-                let validCount = 0;
-
-                for (const b of newBubbles) {
-                    if (!b.isDragging) {
-                        const mass = b.size;
-                        comX += (b.x + b.size / 2) * mass;
-                        comY += (b.y + b.size / 2) * mass;
-                        totalMass += mass;
-                        validCount++;
-                    }
-                }
-
-                if (validCount > 0) {
-                    comX /= totalMass;
-                    comY /= totalMass;
-                } else {
-                    comX = width / 2;
-                    comY = height / 2;
-                }
-
-                // 2. Apply Forces (Gravity, Center Pull)
-                for (const bubble of newBubbles) {
-                    if (bubble.isDragging) continue; // Skip physics forces for dragged bubble
-
-                    const cx = bubble.x + bubble.size / 2;
-                    const cy = bubble.y + bubble.size / 2;
-
-                    // Pull toward center of mass
-                    const dxCom = comX - cx;
-                    const dyCom = comY - cy;
-                    const distCom = Math.sqrt(dxCom * dxCom + dyCom * dyCom);
-
-                    if (distCom > 1) {
-                        bubble.vx += (dxCom / distCom) * ATTRACTION_STRENGTH * bubble.size;
-                        bubble.vy += (dyCom / distCom) * ATTRACTION_STRENGTH * bubble.size;
-                    }
-
-                    // Pull toward container center
-                    const dxCenter = (width / 2) - cx;
-                    const dyCenter = (height / 2) - cy;
-                    bubble.vx += dxCenter * CENTER_PULL;
-                    bubble.vy += dyCenter * CENTER_PULL;
-                }
-
-                // 3. Resolve Collisions
-                for (let i = 0; i < newBubbles.length; i++) {
-                    for (let j = i + 1; j < newBubbles.length; j++) {
-                        const b1 = newBubbles[i];
-                        const b2 = newBubbles[j];
-
-                        const c1x = b1.x + b1.size / 2;
-                        const c1y = b1.y + b1.size / 2;
-                        const c2x = b2.x + b2.size / 2;
-                        const c2y = b2.y + b2.size / 2;
-
-                        const dx = c2x - c1x;
-                        const dy = c2y - c1y;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-
-                        // If one is being dragged, give it a larger "push" radius (force field)
-                        const isDragInteraction = b1.isDragging || b2.isDragging;
-                        const collisionBuffer = isDragInteraction ? 30 : SPACING;
-                        const minDistance = (b1.size + b2.size) / 2 + collisionBuffer;
-
-                        if (distance < minDistance && distance > 0) {
-                            const overlap = minDistance - distance;
-                            const normalX = dx / distance;
-                            const normalY = dy / distance;
-
-                            // Mass-based reaction
-                            const totalSize = b1.size + b2.size;
-                            const r1 = b2.size / totalSize; // b1 moves proportional to b2's size
-                            const r2 = b1.size / totalSize;
-
-                            // Stronger force for drag interactions to feel responsive
-                            const force = overlap * (isDragInteraction ? 1.5 : COLLISION_STRENGTH); // Boost force for drag
-
-                            // Logic: If one is dragged, it has infinite mass (doesn't move), other moves full overlap
-                            if (b1.isDragging && !b2.isDragging) {
-                                // b1 static, b2 moves away aggressively
-                                newBubbles[j].x += normalX * overlap;
-                                newBubbles[j].y += normalY * overlap;
-                                // Impart significant velocity ("fling" or "knock" effect)
-                                newBubbles[j].vx += normalX * force * 0.8;
-                                newBubbles[j].vy += normalY * force * 0.8;
-                            } else if (!b1.isDragging && b2.isDragging) {
-                                // b2 static, b1 moves away aggressively
-                                newBubbles[i].x -= normalX * overlap;
-                                newBubbles[i].y -= normalY * overlap;
-                                newBubbles[i].vx -= normalX * force * 0.8;
-                                newBubbles[i].vy -= normalY * force * 0.8;
-                            } else if (!b1.isDragging && !b2.isDragging) {
-                                // Both move
-                                newBubbles[i].x -= normalX * overlap * r1;
-                                newBubbles[i].y -= normalY * overlap * r1;
-                                newBubbles[j].x += normalX * overlap * r2;
-                                newBubbles[j].y += normalY * overlap * r2;
-
-                                // Bounce
-                                newBubbles[i].vx -= normalX * force * 0.2;
-                                newBubbles[i].vy -= normalY * force * 0.2;
-                                newBubbles[j].vx += normalX * force * 0.2;
-                                newBubbles[j].vy += normalY * force * 0.2;
-                            }
+        const simulation = d3.forceSimulation<BubbleData>(bubbles)
+            .alpha(1)
+            .alphaDecay(0.01)
+            .velocityDecay(0.3)
+            .force('charge', d3.forceManyBody().strength(5))
+            .force('collide', d3.forceCollide()
+                .radius((d: any) => d.size / 2 + 5) // Padding
+                .strength(0.8)
+                .iterations(3)
+            )
+            .force('x', d3.forceX(center.x).strength(0.08))
+            .force('y', d3.forceY(center.y).strength(0.08))
+            .on('tick', () => {
+                bubbles.forEach(bubble => {
+                    const mvs = motionValues.current.get(bubble.id);
+                    if (mvs && bubble.x !== undefined && bubble.y !== undefined) {
+                        // Center the bubble (d3 x/y is center, div is top-left)
+                        // If not dragging (fx/fy not set), update UI from Sim
+                        if (bubble.fx === undefined || bubble.fx === null) {
+                            mvs.x.set(bubble.x - bubble.size / 2);
+                            mvs.y.set(bubble.y - bubble.size / 2);
+                        } else {
+                            // If dragging, update D3's internal x/y to match the MotionValue
+                            // This ensures D3's simulation state is consistent with the drag
+                            bubble.x = mvs.x.get() + bubble.size / 2;
+                            bubble.y = mvs.y.get() + bubble.size / 2;
                         }
                     }
-                }
-
-                // 4. Update Position & Boundaries
-                for (const bubble of newBubbles) {
-                    if (bubble.isDragging) continue;
-
-                    // Apply velocity
-                    bubble.x += bubble.vx * 0.1;
-                    bubble.y += bubble.vy * 0.1;
-
-                    // Damping
-                    bubble.vx *= DAMPING;
-                    bubble.vy *= DAMPING;
-
-                    // Boundaries
-                    const padding = 10;
-                    if (bubble.x < padding) {
-                        bubble.x = padding;
-                        bubble.vx = Math.abs(bubble.vx) * 0.5;
-                    }
-                    if (bubble.x > width - bubble.size - padding) {
-                        bubble.x = width - bubble.size - padding;
-                        bubble.vx = -Math.abs(bubble.vx) * 0.5;
-                    }
-                    if (bubble.y < padding) {
-                        bubble.y = padding;
-                        bubble.vy = Math.abs(bubble.vy) * 0.5;
-                    }
-                    if (bubble.y > height - bubble.size - padding) {
-                        bubble.y = height - bubble.size - padding;
-                        bubble.vy = -Math.abs(bubble.vy) * 0.5;
-                    }
-                }
-
-                return newBubbles;
+                });
             });
-        };
 
-        const intervalId = setInterval(simulatePhysics, 16);
-        return () => clearInterval(intervalId);
-    }, [bubbles.length]);
+        simulationRef.current = simulation;
+
+        return () => {
+            simulation.stop();
+        };
+    }, [bubbles]);
+
+    // Drag Handlers connecting to D3
+    const handleDragStart = (id: string) => {
+        if (!simulationRef.current) return;
+        simulationRef.current.alphaTarget(0.3).restart();
+
+        const node = simulationRef.current.nodes().find(n => n.id === id);
+        if (node) {
+            const mvs = motionValues.current.get(id);
+            if (mvs) {
+                // Pin the node to its current position
+                node.fx = mvs.x.get() + node.size / 2;
+                node.fy = mvs.y.get() + node.size / 2;
+                // Also update x/y to prevent jump
+                node.x = node.fx;
+                node.y = node.fy;
+            }
+        }
+    };
+
+    const handleDragEnd = (id: string) => {
+        if (!simulationRef.current) return;
+        simulationRef.current.alphaTarget(0);
+
+        const node = simulationRef.current.nodes().find(n => n.id === id);
+        if (node) {
+            node.fx = null;
+            node.fy = null;
+        }
+    };
 
     if (loading) {
         return (
@@ -610,7 +478,9 @@ export default function Ranking() {
                         Symbol Ranking
                     </h1>
                     <p className="text-sm lg:text-base text-muted-foreground">
-                        Drag bubbles around • Size = Profit magnitude
+                        Drag bubbles to interact • Size = Profit magnitude
+                        <br />
+                        <span className="text-xs opacity-70">Powered by d3-force physics</span>
                     </p>
                 </motion.div>
 
@@ -684,7 +554,7 @@ export default function Ranking() {
                 />
                 <StatCard
                     title="Symbols Traded"
-                    value={profitBySymbol.length}
+                    value={bubbles.length}
                     icon={Medal}
                     decimals={0}
                     delay={3}
@@ -693,7 +563,7 @@ export default function Ranking() {
 
             {/* Bubble Visualization */}
             <GlassCard className="flex-1 min-h-[500px] relative overflow-hidden" spotlight>
-                <div className="absolute top-4 left-4 z-10 flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-4 text-xs text-muted-foreground pointer-events-none">
                     <div className="flex items-center gap-1.5">
                         <div className="w-3 h-3 rounded-full bg-green-500/50" />
                         <span>Profit</span>
@@ -728,49 +598,54 @@ export default function Ranking() {
                             </div>
                         </div>
                     ) : (
-                        bubbles.map(bubble => (
-                            <Bubble
-                                key={bubble.id}
-                                bubble={bubble}
-                                selectedBubble={selectedBubble}
-                                setSelectedBubble={setSelectedBubble}
-                                onDragStart={handleDragStart}
-                                onDragEnd={handleDragEnd}
-                                onDragUpdate={handleDragUpdate}
-                                containerRef={containerRef}
-                            />
-                        ))
+                        bubbles.map(bubble => {
+                            const mvs = motionValues.current.get(bubble.id);
+                            if (!mvs) return null;
+                            return (
+                                <Bubble
+                                    key={bubble.id}
+                                    bubble={bubble}
+                                    x={mvs.x}
+                                    y={mvs.y}
+                                    selectedBubble={selectedBubble}
+                                    setSelectedBubble={setSelectedBubble}
+                                    onDragStart={handleDragStart}
+                                    onDragEnd={handleDragEnd}
+                                    containerRef={containerRef}
+                                />
+                            );
+                        })
                     )}
                 </div>
             </GlassCard>
 
-            {/* Leaderboard */}
+            {/* Leaderboard - Only show top 10 */}
             <GlassCard>
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <Medal className="w-5 h-5 text-amber-400" />
                     Leaderboard
                 </h3>
                 <div className="grid gap-2">
-                    {profitBySymbol.slice(0, 10).map((symbol, index) => (
+                    {bubbles.slice(0, 10).map((symbol, index) => (
                         <motion.div
                             key={symbol.symbol}
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: index * 0.05 }}
                             className={`
-                flex items-center justify-between p-3 rounded-lg transition-colors
-                ${selectedBubble === symbol.symbol ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'}
-              `}
+                                flex items-center justify-between p-3 rounded-lg transition-colors cursor-pointer
+                                ${selectedBubble === symbol.symbol ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'}
+                            `}
                             onClick={() => setSelectedBubble(symbol.symbol)}
                         >
                             <div className="flex items-center gap-3">
                                 <span className={`
-                  w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold
-                  ${index === 0 ? 'bg-amber-500/20 text-amber-400' :
+                                    w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold
+                                    ${index === 0 ? 'bg-amber-500/20 text-amber-400' :
                                         index === 1 ? 'bg-slate-300/20 text-slate-300' :
                                             index === 2 ? 'bg-amber-700/20 text-amber-600' :
                                                 'bg-white/10 text-muted-foreground'}
-                `}>
+                                `}>
                                     {index + 1}
                                 </span>
                                 <div>
