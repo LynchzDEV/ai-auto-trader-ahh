@@ -20,6 +20,7 @@ import {
   Zap,
   Sparkles,
   Loader2,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,7 @@ export default function Strategies() {
     riskControl: true,
     aiPrompt: false,
   });
+  const [coinInput, setCoinInput] = useState("");
   const { confirm, ConfirmDialog } = useConfirm();
   const { alert, AlertDialog } = useAlert();
 
@@ -425,7 +427,10 @@ export default function Strategies() {
                           const maxPos = editingStrategy.config.risk_control.max_positions || 3;
                           const targetCount = maxPos + 2;
 
-                          const res = await recommendPairs({ count: targetCount });
+                          const res = await recommendPairs({
+                            count: targetCount,
+                            turbo: editingStrategy.config.turbo_mode // Pass Turbo Mode
+                          });
                           if (res.data?.pairs) {
                             setEditingStrategy({
                               ...editingStrategy,
@@ -453,22 +458,73 @@ export default function Strategies() {
                       Smart Find
                     </Button>
                   </div>
-                  <Input
-                    key={editingStrategy.id + '-coins'}
-                    value={editingStrategy.config.coin_source.static_coins.join(', ')}
-                    onChange={(e) => setEditingStrategy({
-                      ...editingStrategy,
-                      config: {
-                        ...editingStrategy.config,
-                        coin_source: {
-                          ...editingStrategy.config.coin_source,
-                          static_coins: e.target.value.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
-                        }
-                      }
-                    })}
-                    className="glass"
-                    placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
-                  />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap gap-2 p-3 rounded-md border border-white/10 bg-white/5 min-h-[42px] focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+                      {editingStrategy.config.coin_source.static_coins.map((coin, idx) => (
+                        <GlowBadge key={coin + idx} variant="secondary" className="pl-2 pr-1 h-7 flex items-center gap-1 cursor-default hover:bg-white/20">
+                          {coin}
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const newCoins = [...editingStrategy.config.coin_source.static_coins];
+                              newCoins.splice(idx, 1);
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  coin_source: { ...editingStrategy.config.coin_source, static_coins: newCoins }
+                                }
+                              });
+                            }}
+                            className="p-1 rounded-full hover:bg-black/20 cursor-pointer transition-colors"
+                          >
+                            <X className="w-3 h-3 text-muted-foreground hover:text-red-400" />
+                          </div>
+                        </GlowBadge>
+                      ))}
+                      <input
+                        className="flex-1 bg-transparent border-none outline-none text-sm min-w-[120px] h-7 placeholder:text-muted-foreground/50"
+                        placeholder={editingStrategy.config.coin_source.static_coins.length === 0 ? "Type coin (e.g. BTCUSDT) & Enter..." : ""}
+                        value={coinInput}
+                        onChange={(e) => setCoinInput(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+                            e.preventDefault();
+                            const val = coinInput.trim().replace(/,/g, '');
+                            if (val) {
+                              if (!editingStrategy.config.coin_source.static_coins.includes(val)) {
+                                setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    coin_source: {
+                                      ...editingStrategy.config.coin_source,
+                                      static_coins: [...editingStrategy.config.coin_source.static_coins, val]
+                                    }
+                                  }
+                                });
+                              }
+                              setCoinInput('');
+                            }
+                          }
+                          if (e.key === 'Backspace' && !coinInput && editingStrategy.config.coin_source.static_coins.length > 0) {
+                            const newCoins = [...editingStrategy.config.coin_source.static_coins];
+                            newCoins.pop();
+                            setEditingStrategy({
+                              ...editingStrategy,
+                              config: {
+                                ...editingStrategy.config,
+                                coin_source: { ...editingStrategy.config.coin_source, static_coins: newCoins }
+                              }
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground px-1">
+                      Type symbol and press Enter, Space, or Comma to add. Click X or Backspace to remove.
+                    </p>
+                  </div>
                 </div>
 
               </CollapsibleSection>
@@ -530,22 +586,33 @@ export default function Strategies() {
                       />
                     </div>
 
-                    <label className="space-y-2 cursor-pointer group">
+                    <label className="space-y-2 cursor-pointer group col-span-1 sm:col-span-2">
                       <Label className="cursor-pointer group-hover:text-yellow-400 transition-colors flex items-center gap-2">
                         <Zap className="w-4 h-4 text-yellow-400" />
-                        Turbo Mode
+                        Turbo Mode (High Risk)
                       </Label>
                       <div className="flex items-center h-10 px-3 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
                         <Checkbox
                           checked={editingStrategy.config.turbo_mode}
-                          onCheckedChange={(c) => setEditingStrategy({
-                            ...editingStrategy,
-                            config: { ...editingStrategy.config, turbo_mode: !!c }
-                          })}
+                          onCheckedChange={async (c) => {
+                            if (c) {
+                              const ok = await confirm({
+                                title: '⚠️ ENABLE TURBO MODE? ⚠️',
+                                description: 'WARNING: This mode activates EXTREME RISK protocols. You could lose 80-90% of your wallet in exchange for high potential rewards. The bot will ignore standard safety patterns. Are you sure?',
+                                confirmText: 'I ACCEPT THE RISK',
+                                variant: 'danger',
+                              });
+                              if (!ok) return;
+                            }
+                            setEditingStrategy({
+                              ...editingStrategy,
+                              config: { ...editingStrategy.config, turbo_mode: !!c }
+                            });
+                          }}
                           className="mr-2 data-[state=checked]:bg-yellow-400 data-[state=checked]:border-yellow-400 data-[state=checked]:text-black"
                         />
                         <span className={`text-sm ${editingStrategy.config.turbo_mode ? 'text-yellow-400 font-bold' : 'text-muted-foreground'}`}>
-                          {editingStrategy.config.turbo_mode ? 'AGGRESSIVE' : 'Standard'}
+                          {editingStrategy.config.turbo_mode ? 'AGGRESSIVE (HIGH VOLATILITY)' : 'Standard Safety'}
                         </span>
                       </div>
                     </label>

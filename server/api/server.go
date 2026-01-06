@@ -362,9 +362,10 @@ func (s *Server) handleRecommendPairs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 0. Parse Request Body (Optional Count)
+	// 0. Parse Request Body
 	var req struct {
-		Count int `json:"count"`
+		Count int  `json:"count"`
+		Turbo bool `json:"turbo"`
 	}
 	if r.Body != nil {
 		json.NewDecoder(r.Body).Decode(&req)
@@ -388,7 +389,7 @@ func (s *Server) handleRecommendPairs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter and Sort Tickers (Top 30 by Volume) to limit prompt size
+	// Filter Tickers
 	type MarketCoin struct {
 		Symbol      string
 		PriceChange float64
@@ -398,32 +399,64 @@ func (s *Server) handleRecommendPairs(w http.ResponseWriter, r *http.Request) {
 	var candidates []MarketCoin
 	for _, t := range tickers {
 		// Basic filter: USDT pairs, reasonable volume
-		if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" && t.QuoteVolume > 1000000 {
-			if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" {
+		if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" {
+			// Skip stables
+			if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" || t.Symbol == "TUSDUSDT" || t.Symbol == "USDPUSDT" {
 				continue
-			} // Skip stables
-			candidates = append(candidates, MarketCoin{
-				Symbol:      t.Symbol,
-				PriceChange: t.PriceChange,
-				Volume:      t.Volume,
-				QuoteVolume: t.QuoteVolume,
-			})
+			}
+			// Only consider decent volume (>500k) to avoid total dead coins, even in turbo
+			if t.QuoteVolume > 500000 {
+				candidates = append(candidates, MarketCoin{
+					Symbol:      t.Symbol,
+					PriceChange: t.PriceChange,
+					Volume:      t.Volume,
+					QuoteVolume: t.QuoteVolume,
+				})
+			}
 		}
 	}
-	// Sort by Quote Volume
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].QuoteVolume > candidates[j].QuoteVolume })
-	if len(candidates) > 30 {
-		candidates = candidates[:30]
-	}
 
-	// 3. Construct AI Prompt
-	prompt := fmt.Sprintf(`You are a crypto trading expert. 
+	var prompt string
+	if req.Turbo {
+		// TURBO MODE: Sort by Volatility (Absolute Price Change)
+		sort.Slice(candidates, func(i, j int) bool {
+			absI := candidates[i].PriceChange
+			if absI < 0 {
+				absI = -absI
+			}
+			absJ := candidates[j].PriceChange
+			if absJ < 0 {
+				absJ = -absJ
+			}
+			return absI > absJ
+		})
+		if len(candidates) > 30 {
+			candidates = candidates[:30]
+		}
+
+		prompt = fmt.Sprintf(`You are a HIGH RISK crypto degen trader. 
+My current balance: $%.2f
+Objective: Find the %d MOST EXPLOSIVE trading pairs for aggressive scalping. I am willing to take extreme risks (80-90%% loss) for high rewards.
+Criteria: High Volatility, Momentum, Meme Coins, or Breakout candidates. Ignore safety.
+
+Here are the Top 30 pairs by Volatility (Price Change):
+`, account.TotalWalletBalance, targetCount)
+
+	} else {
+		// STANDARD MODE: Sort by Volume (Safety)
+		sort.Slice(candidates, func(i, j int) bool { return candidates[i].QuoteVolume > candidates[j].QuoteVolume })
+		if len(candidates) > 30 {
+			candidates = candidates[:30]
+		}
+
+		prompt = fmt.Sprintf(`You are a crypto trading expert. 
 My current balance: $%.2f
 Objective: Find the best %d trading pairs for high-probability scalping/day-trading.
 Criteria: High liquidity, good volatility (but not insane/manipulated), clear trends.
 
 Here are the Top 30 pairs by 24h Volume:
 `, account.TotalWalletBalance, targetCount)
+	}
 
 	for _, c := range candidates {
 		prompt += fmt.Sprintf("- %s: Vol=$%.0fM, Chg=%.2f%%\n", c.Symbol, c.QuoteVolume/1000000, c.PriceChange)
