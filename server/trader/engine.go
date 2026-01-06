@@ -320,6 +320,22 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		e.account = account
 		e.mu.Unlock()
 
+		// SAFETY: Emergency Shutdown Check
+		if e.strategy != nil && e.strategy.Config.RiskControl.EnableEmergencyShutdown {
+			minBal := e.strategy.Config.RiskControl.EmergencyMinBalance
+			if minBal <= 0 {
+				minBal = 60.0
+			}
+			// Check Equity (TotalMarginBalance)
+			if account.TotalMarginBalance <= minBal {
+				log.Printf("[%s] 🚨 EMERGENCY SHUTDOWN TRIGGERED! Equity $%.2f is below safety limit $%.2f. Stopping trading cycle.",
+					e.name, account.TotalMarginBalance, minBal)
+				// We return immediately to prevent any further trading actions (opening OR managed closing)
+				// Existing positions will rely on their hard SL/TP orders on the exchange.
+				return
+			}
+		}
+
 		// Save equity snapshot
 		e.equityStore.Save(&store.EquitySnapshot{
 			TraderID:      e.id,

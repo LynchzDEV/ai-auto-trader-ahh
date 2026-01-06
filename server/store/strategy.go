@@ -121,6 +121,10 @@ type RiskControlConfig struct {
 	// Drawdown monitoring thresholds
 	DrawdownCloseThreshold float64 `json:"drawdown_close_threshold"` // Close position if drawdown from peak exceeds this % (default: 40.0)
 	MinProfitForDrawdown   float64 `json:"min_profit_for_drawdown"`  // Only apply drawdown close when profit > this % (default: 5.0)
+
+	// SAFETY: Emergency Shutdown
+	EnableEmergencyShutdown bool    `json:"enable_emergency_shutdown"` // Stop trading if balance drops below limit
+	EmergencyMinBalance     float64 `json:"emergency_min_balance"`     // Minimum balance to keep trading (default: 60 USD)
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -178,6 +182,10 @@ func DefaultStrategyConfig() StrategyConfig {
 			// Drawdown monitoring
 			DrawdownCloseThreshold: 40.0, // Close at 40% drawdown from peak
 			MinProfitForDrawdown:   5.0,  // Only apply when profit > 5%
+
+			// Emergency Shutdown
+			EnableEmergencyShutdown: true,
+			EmergencyMinBalance:     60.0,
 		},
 		AI: AIConfig{
 			EnableReasoning: false,
