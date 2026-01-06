@@ -663,7 +663,26 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 	}
 
-	quantity := positionSizeUSD / ticker.Price
+	// IMPORTANT: positionSizeUSD is the MARGIN amount, not position value!
+	// With leverage, the actual position value = margin × leverage
+	actualPositionValue := positionSizeUSD * float64(leverage)
+	quantity := actualPositionValue / ticker.Price
+
+	log.Printf("[%s][%s] Position calculation: margin=$%.2f × %dx leverage = $%.2f position value → %.8f %s",
+		e.name, symbol, positionSizeUSD, leverage, actualPositionValue, quantity, symbol)
+
+	// VALIDATION: Ensure quantity meets minimum requirements after rounding
+	// Binance enforces minimum quantities per symbol (e.g., 0.001 BTC)
+	minQuantity := 0.001 // Default for BTC/ETH
+	if !isBTCETH(symbol) {
+		// For altcoins, calculate based on a reasonable minimum notional ($10)
+		minQuantity = 10.0 / ticker.Price
+	}
+
+	if quantity < minQuantity {
+		return 0, fmt.Errorf("skipped: quantity %.8f below minimum %.8f for %s (position $%.2f too small, increase position size)",
+			quantity, minQuantity, symbol, positionSizeUSD)
+	}
 
 	switch decision.Action {
 	case "BUY", "open_long":
@@ -1209,7 +1228,7 @@ func (e *Engine) enforceMinPositionSize(positionSizeUSD float64, symbol string) 
 			minSize = rc.MinPositionUSD
 		}
 		if minSize <= 0 {
-			minSize = 12.0 // Default $12 for BTC/ETH (matching NOFX)
+			minSize = 100.0 // Default $100 for BTC/ETH (ensures 0.001 BTC minimum even at $100k)
 		}
 	} else {
 		// Try new field first
