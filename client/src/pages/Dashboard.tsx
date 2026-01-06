@@ -24,10 +24,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlowBadge } from '@/components/ui/glow-badge';
-import { StatCard, MiniStat, ProgressStat } from '@/components/ui/stat-card';
+import { StatCard, MiniStat } from '@/components/ui/stat-card';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { useAlert } from '@/components/ui/confirm-modal';
 import { MobileCardTable } from '@/components/ui/mobile-card-table';
@@ -250,8 +249,8 @@ export default function Dashboard() {
                       transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedTrader(trader.id)}
                       className={`group cursor-pointer p-4 rounded-xl transition-all duration-200 ${selectedTrader === trader.id
-                          ? 'bg-primary/20 border border-primary/30'
-                          : 'bg-white/5 hover:bg-white/10 border border-transparent'
+                        ? 'bg-primary/20 border border-primary/30'
+                        : 'bg-white/5 hover:bg-white/10 border border-transparent'
                         }`}
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -395,28 +394,49 @@ export default function Dashboard() {
 
           {/* AI Decisions */}
           <GlassCard className="p-0 overflow-hidden">
-            <div className="p-4 border-b border-white/5">
-              <h2 className="font-semibold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                AI Decisions
-              </h2>
-              <p className="text-sm text-muted-foreground">Recent trading signals from AI</p>
+            <div className="p-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  AI Decisions
+                </h2>
+                <p className="text-sm text-muted-foreground">Recent trading signals from AI</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {status?.decisions && Object.values(status.decisions).filter((d: any) => d.action === 'BUY').length > 0 && (
+                  <span className="text-xs font-medium text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full border border-green-400/20">
+                    {Object.values(status.decisions).filter((d: any) => d.action === 'BUY').length} BUY
+                  </span>
+                )}
+                {status?.decisions && Object.values(status.decisions).filter((d: any) => d.action === 'SELL').length > 0 && (
+                  <span className="text-xs font-medium text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full border border-red-400/20">
+                    {Object.values(status.decisions).filter((d: any) => d.action === 'SELL').length} SELL
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex justify-between items-center text-xs text-muted-foreground">
+              <span>Recent signal analysis</span>
+              <span>{status?.decisions ? Object.keys(status.decisions).length : 0} active signals</span>
             </div>
 
             {status?.decisions && Object.keys(status.decisions).length > 0 ? (
-              <ScrollArea className="h-[250px] lg:h-[300px]">
-                <div className="p-4 space-y-3">
-                  <AnimatePresence>
+              <ScrollArea className="h-[450px]">
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <AnimatePresence mode="popLayout">
                     {Object.entries(status.decisions).map(
                       ([symbol, dec]: [string, any], index) => (
                         <motion.div
                           key={symbol}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
+                          layout
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ duration: 0.2, delay: index * 0.05 }}
+                          className="h-full"
                         >
                           <SpotlightCard
-                            className="p-4"
+                            className="p-4 h-full flex flex-col justify-between hover:border-primary/50 transition-colors"
                             spotlightColor={
                               dec.action === 'BUY'
                                 ? 'rgba(34, 197, 94, 0.1)'
@@ -425,42 +445,51 @@ export default function Dashboard() {
                                   : 'rgba(59, 130, 246, 0.1)'
                             }
                           >
-                            <div className="flex justify-between items-center mb-3">
-                              <span className="font-semibold">{symbol}</span>
-                              <GlowBadge
-                                variant={
-                                  dec.action === 'BUY'
-                                    ? 'success'
-                                    : dec.action === 'SELL'
-                                      ? 'danger'
-                                      : dec.action === 'CLOSE'
-                                        ? 'warning'
-                                        : 'secondary'
-                                }
-                                glow
-                              >
-                                {dec.action}
-                              </GlowBadge>
+                            <div>
+                              <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-lg">{symbol}</span>
+                                </div>
+                                <GlowBadge
+                                  variant={
+                                    dec.action === 'BUY'
+                                      ? 'success'
+                                      : dec.action === 'SELL'
+                                        ? 'danger'
+                                        : dec.action === 'CLOSE'
+                                          ? 'warning'
+                                          : 'secondary'
+                                  }
+                                  glow
+                                  className="font-bold"
+                                >
+                                  {dec.action}
+                                </GlowBadge>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 mb-3">
+                                <div className="bg-black/20 rounded p-1.5 text-center border border-white/5">
+                                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Confidence</div>
+                                  <div className={`font-mono font-medium ${dec.confidence >= 70 ? 'text-green-400' :
+                                    dec.confidence >= 40 ? 'text-yellow-400' : 'text-red-400'
+                                    }`}>
+                                    {dec.confidence}%
+                                  </div>
+                                </div>
+                                <div className="bg-black/20 rounded p-1.5 text-center border border-white/5">
+                                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Price</div>
+                                  <div className="font-mono text-muted-foreground">
+                                    ${dec.current_price?.toFixed(2) || '---'}
+                                  </div>
+                                </div>
+                              </div>
                             </div>
 
-                            <ProgressStat
-                              label="Confidence"
-                              value={dec.confidence}
-                              max={100}
-                              color={
-                                dec.confidence >= 70
-                                  ? 'success'
-                                  : dec.confidence >= 40
-                                    ? 'warning'
-                                    : 'danger'
-                              }
-                            />
-
-                            <Separator className="my-3 bg-white/5" />
-
-                            <p className="text-sm text-muted-foreground line-clamp-3">
-                              {dec.reasoning}
-                            </p>
+                            <div className="mt-2 text-sm text-muted-foreground/80 bg-white/5 p-2 rounded border border-white/5 flex-grow">
+                              <p className="line-clamp-3 italic">
+                                "{dec.reasoning}"
+                              </p>
+                            </div>
                           </SpotlightCard>
                         </motion.div>
                       )
@@ -479,10 +508,10 @@ export default function Dashboard() {
             )}
           </GlassCard>
         </div>
-      </div>
+      </div >
 
       {/* Alert Dialog */}
       {AlertDialog}
-    </div>
+    </div >
   );
 }
