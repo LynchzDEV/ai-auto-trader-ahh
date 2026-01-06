@@ -311,8 +311,8 @@ CRITICAL RULES FOR stop_loss_pct AND take_profit_pct:
 - These are PERCENTAGES from entry price (e.g., 2.0 means 2%)
 - stop_loss_pct: How far price can move against you before stopping out (1-5%)
 - take_profit_pct: Target profit percentage (3-15%)
-- MUST maintain at least 1.5:1 reward-to-risk ratio (take_profit_pct >= 1.5 * stop_loss_pct)
-- Example: stop_loss_pct=2.0, take_profit_pct=3.0 gives 1.5:1 ratio
+- MUST maintain at least 3:1 reward-to-risk ratio (take_profit_pct >= 3.0 * stop_loss_pct)
+- Example: stop_loss_pct=2.0, take_profit_pct=6.0 gives 3:1 ratio
 
 Trading Rules:
 - BUY: Open a long position (bullish)
