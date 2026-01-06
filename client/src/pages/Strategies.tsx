@@ -529,6 +529,26 @@ export default function Strategies() {
                         className="glass"
                       />
                     </div>
+
+                    <label className="space-y-2 cursor-pointer group">
+                      <Label className="cursor-pointer group-hover:text-yellow-400 transition-colors flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-yellow-400" />
+                        Turbo Mode
+                      </Label>
+                      <div className="flex items-center h-10 px-3 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
+                        <Checkbox
+                          checked={editingStrategy.config.turbo_mode}
+                          onCheckedChange={(c) => setEditingStrategy({
+                            ...editingStrategy,
+                            config: { ...editingStrategy.config, turbo_mode: !!c }
+                          })}
+                          className="mr-2 data-[state=checked]:bg-yellow-400 data-[state=checked]:border-yellow-400 data-[state=checked]:text-black"
+                        />
+                        <span className={`text-sm ${editingStrategy.config.turbo_mode ? 'text-yellow-400 font-bold' : 'text-muted-foreground'}`}>
+                          {editingStrategy.config.turbo_mode ? 'AGGRESSIVE' : 'Standard'}
+                        </span>
+                      </div>
+                    </label>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:gap-4 mt-4">

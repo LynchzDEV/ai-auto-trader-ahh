@@ -456,6 +456,17 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 
 	// Format data for AI
 	formattedData := e.dataProvider.FormatForAI(marketData)
+
+	// Inject Turbo Mode instructions
+	if e.strategy != nil && e.strategy.Config.TurboMode {
+		formattedData += "\n\n*** TURBO MODE: HIGH FREQUENCY SCALPING ***\n"
+		formattedData += "- EXECUTION STYLE: Aggressive. Do not wait for perfect confirmation.\n"
+		formattedData += "- STRATEGY: Chase Momentum & Volatility. Focus on Volume Spikes.\n"
+		formattedData += "- PERMISSION: You are authorized to ignore conservative safety filters if Price Action is strong.\n"
+		formattedData += "- ENTRY: Enter immediately on Candle Close if trend aligns. Don't hesitate.\n"
+		formattedData += "- GOAL: Capture quick moves. Activity > Passivity.\n"
+	}
+
 	tradeLog.MarketData = formattedData
 
 	// Add account info

@@ -39,6 +39,9 @@ type StrategyConfig struct {
 
 	// Trading interval in minutes
 	TradingInterval int `json:"trading_interval"`
+
+	// Turbo Mode (Aggressive)
+	TurboMode bool `json:"turbo_mode"`
 }
 
 // AIConfig defines AI model settings
@@ -71,13 +74,13 @@ type IndicatorConfig struct {
 	EnableVolume bool `json:"enable_volume"`
 
 	// Indicator periods
-	EMAPeriods  []int `json:"ema_periods"`  // e.g., [9, 21]
-	RSIPeriod   int   `json:"rsi_period"`   // e.g., 14
-	ATRPeriod   int   `json:"atr_period"`   // e.g., 14
-	BOLLPeriod  int   `json:"boll_period"`  // e.g., 20
-	MACDFast    int   `json:"macd_fast"`    // e.g., 12
-	MACDSlow    int   `json:"macd_slow"`    // e.g., 26
-	MACDSignal  int   `json:"macd_signal"`  // e.g., 9
+	EMAPeriods []int `json:"ema_periods"` // e.g., [9, 21]
+	RSIPeriod  int   `json:"rsi_period"`  // e.g., 14
+	ATRPeriod  int   `json:"atr_period"`  // e.g., 14
+	BOLLPeriod int   `json:"boll_period"` // e.g., 20
+	MACDFast   int   `json:"macd_fast"`   // e.g., 12
+	MACDSlow   int   `json:"macd_slow"`   // e.g., 26
+	MACDSignal int   `json:"macd_signal"` // e.g., 9
 }
 
 // RiskControlConfig defines risk management rules
@@ -90,17 +93,17 @@ type RiskControlConfig struct {
 	MaxPositionPercent float64 `json:"max_position_percent"` // Legacy: % of balance per position
 
 	// NEW: Leverage limits (separate for BTC/ETH vs altcoins)
-	BTCETHMaxLeverage  int `json:"btc_eth_max_leverage"`  // Max leverage for BTC/ETH (default: 10)
-	AltcoinMaxLeverage int `json:"altcoin_max_leverage"`  // Max leverage for altcoins (default: 20)
+	BTCETHMaxLeverage  int `json:"btc_eth_max_leverage"` // Max leverage for BTC/ETH (default: 10)
+	AltcoinMaxLeverage int `json:"altcoin_max_leverage"` // Max leverage for altcoins (default: 20)
 
 	// NEW: Position value ratios (position size = equity * ratio)
-	BTCETHMaxPositionValueRatio  float64 `json:"btc_eth_max_position_value_ratio"`  // Max position value ratio for BTC/ETH (default: 5.0)
+	BTCETHMaxPositionValueRatio  float64 `json:"btc_eth_max_position_value_ratio"` // Max position value ratio for BTC/ETH (default: 5.0)
 	AltcoinMaxPositionValueRatio float64 `json:"altcoin_max_position_value_ratio"` // Max position value ratio for altcoins (default: 1.0)
 
 	// Minimum position sizes
-	MinPositionSize      float64 `json:"min_position_size"`        // Min position size for altcoins (default: 12 USDT)
+	MinPositionSize       float64 `json:"min_position_size"`         // Min position size for altcoins (default: 12 USDT)
 	MinPositionSizeBTCETH float64 `json:"min_position_size_btc_eth"` // Min position size for BTC/ETH (default: 60 USDT)
-	MinPositionUSD       float64 `json:"min_position_usd"`          // Legacy: single min for all (fallback)
+	MinPositionUSD        float64 `json:"min_position_usd"`          // Legacy: single min for all (fallback)
 
 	// Margin and buffer
 	MaxMarginUsage float64 `json:"max_margin_usage"` // Max % of balance in margin (default: 90)
@@ -111,9 +114,9 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"` // Min TP/SL ratio (default: 3.0)
 
 	// Daily loss and drawdown limits
-	MaxDailyLossPct  float64 `json:"max_daily_loss_pct"`  // Max daily loss % before stopping (default: 5.0)
-	MaxDrawdownPct   float64 `json:"max_drawdown_pct"`    // Max drawdown % from peak to close position (default: 40.0)
-	StopTradingMins  int     `json:"stop_trading_mins"`   // Minutes to pause after daily loss triggered (default: 60)
+	MaxDailyLossPct float64 `json:"max_daily_loss_pct"` // Max daily loss % before stopping (default: 5.0)
+	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`   // Max drawdown % from peak to close position (default: 40.0)
+	StopTradingMins int     `json:"stop_trading_mins"`  // Minutes to pause after daily loss triggered (default: 60)
 
 	// Drawdown monitoring thresholds
 	DrawdownCloseThreshold float64 `json:"drawdown_close_threshold"` // Close position if drawdown from peak exceeds this % (default: 40.0)
