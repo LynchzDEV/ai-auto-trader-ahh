@@ -28,7 +28,7 @@ The system operates on an automated loop that combines technical analysis with A
 3.  **Risk Validation**: A rigid validation layer strictly enforces a minimum 3:1 Reward-to-Risk ratio and position sizing limits. Even if the AI says "BUY", the math can veto it.
 4.  **Execution**: Validated trades are executed as "Bracket Orders" on Binance—simultaneously placing the Entry, Stop Loss, and Take Profit orders to ensure safety.
 
-For a deep dive into the math and logic, check out [trading_algo.md](trading_algo.md).
+For a deep dive into the math and logic, check out [TRADING_ALGO.md](TRADING_ALGO.md).
 
 
 ## 📂 Project Structure
