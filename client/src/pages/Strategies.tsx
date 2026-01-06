@@ -586,7 +586,7 @@ export default function Strategies() {
                       />
                     </div>
 
-                    <label className="space-y-2 cursor-pointer group col-span-1 sm:col-span-2">
+                    <label className="space-y-2 cursor-pointer group col-span-full">
                       <Label className="cursor-pointer group-hover:text-yellow-400 transition-colors flex items-center gap-2">
                         <Zap className="w-4 h-4 text-yellow-400" />
                         Turbo Mode (High Risk)
