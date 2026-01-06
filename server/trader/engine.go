@@ -795,10 +795,10 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		// 3. ALLOW taking profits early (>1.5% price rise = +30% equity at 20x)
 
 		const (
-			allowCutLossThreshold   = -1.2 // Relaxed from -0.5: Only cut if loss > 1.2% (gives room to breathe)
-			blockNoiseFloorPct      = -1.2 // Noise floor matches cut threshold
-			minProfitToClose        = 1.0  // Relaxed from 1.5: Secure profit earlier if needed
-			highConfidenceThreshold = 90.0 // Stricter: Require 90% confidence to override noise block
+			allowCutLossThreshold   = -0.7 // Adjusted: Cut if loss > 0.7% (tighter than 1.2, looser than 0.5)
+			blockNoiseFloorPct      = -0.7 // Matches cut threshold
+			minProfitToClose        = 0.5  // Profit > 0.5% to close
+			highConfidenceThreshold = 85.0 // Require 85% confidence to override
 		)
 
 		isHighConfidence := decision.Confidence >= highConfidenceThreshold

@@ -126,11 +126,11 @@ $$
 ### C. PnL Protections (Smart Loss Management V2)
 To prevent "death by a thousand cuts" in choppy markets while still allowing safe exits:
 
-1.  **Relaxed Cut-Loss**: The bot is **allowed** to cut a loss early ONLY if `PnL < -1.2%`.
-    *   *Why*: At 20x leverage, -1.2% price = -24% equity. We allow room for noise.
-2.  **Noise Filter**: Between **-1.2%** and **+1.0%** PnL, closing is **BLOCKED** to prevent panic selling in noise.
-3.  **Confidence Override**: If AI Confidence > **90%**, it can override the noise filter (rare).
-4.  **Profit Taking**: Can close early if `Profit > 1.0%`.
+1.  **Relaxed Cut-Loss**: The bot is **allowed** to cut a loss early ONLY if `PnL < -0.7%`.
+    *   *Why*: At 20x leverage, -0.7% price = -14% equity. We allow room for noise.
+2.  **Noise Filter**: Between **-0.7%** and **+0.5%** PnL, closing is **BLOCKED** to prevent panic selling in noise.
+3.  **Confidence Override**: If AI Confidence > **85%**, it can override the noise filter (rare).
+4.  **Profit Taking**: Can close early if `Profit > 0.5%`.
 
 ---
 
