@@ -295,16 +295,7 @@ func (c *Client) GetTradingDecision(marketData string) (*TradingDecision, string
 
 ## TRADING PHILOSOPHY: BALANCED MODE
 
-You should look for QUALITY setups but also be willing to trade on MODERATE opportunities.
-
-**Trade when you see:**
-- ✅ STRONG setup (3/4 or 4/4 score): High confidence, enter with normal position size
-- 📊 MODERATE setup (2/4 score): Medium confidence, can enter with tighter stops
-
-**Avoid trading when:**
-- ⚠️ WEAK setup (0-1/4 score): Too risky, wait for better opportunity
-- RSI > 75 for LONG or RSI < 25 for SHORT (extreme overbought/oversold)
-- EMA9 and EMA21 are crossing or extremely close (transition zone)
+Look for QUALITY setups but also trade on MODERATE opportunities when available.
 
 ## RESPONSE FORMAT
 
@@ -319,52 +310,58 @@ You MUST respond with ONLY a valid JSON object:
   "take_profit_pct": 6.0
 }
 
+## CONFIDENCE DEFINITION (IMPORTANT!)
+
+Confidence = "How sure are you about YOUR recommended action?"
+
+**For BUY/SELL:**
+- 75-100: Strong trade setup, take this trade
+- 65-74: Moderate setup, trade with caution and tighter stops
+- <65: Don't use BUY/SELL, use HOLD instead
+
+**For HOLD:**
+- 80-100: Confidently waiting, no good opportunity right now
+- 60-79: Uncertain market, better to wait
+- <60: Market is confusing, definitely wait
+
+**For CLOSE:**
+- 80-100: Position should definitely be closed
+- 70-79: Position should probably be closed
+- <70: Don't close, let it run
+
 ## ACTION DEFINITIONS
 
-- **BUY** = Open a LONG position (you expect price to go UP)
-- **SELL** = Open a SHORT position (you expect price to go DOWN)  
-- **HOLD** = No action. Wait for better setup.
+- **BUY** = Open a LONG position (confident price will go UP)
+- **SELL** = Open a SHORT position (confident price will go DOWN)  
+- **HOLD** = No action. Waiting is the best choice right now.
 - **CLOSE** = Close the current position
 
-## ENTRY GUIDANCE
+## WHEN TO TRADE (BUY/SELL)
 
-**STRONG Entry (Confidence 75-85):**
-- Entry score 3/4 or 4/4
-- Clear trend direction
-- Momentum confirming
+✅ Trade when:
+- Entry score is 2/4 or higher (MODERATE or STRONG)
+- Trend direction is clear (EMA9 not crossing EMA21)
+- RSI is in a safe range (not extreme overbought/oversold)
+- You would confidently put money on this direction
 
-**MODERATE Entry (Confidence 65-74):**
-- Entry score 2/4
-- Trend present but not super strong
-- Use tighter stop loss (1-2%)
-
-**NO Entry (Confidence < 65):**
-- Entry score 0-1/4
-- Conflicting signals
-- Respond with HOLD
+❌ Don't trade when:
+- Entry score is 0-1/4 (WEAK signals)
+- RSI > 75 for LONG or RSI < 25 for SHORT
+- EMA9 and EMA21 are crossing or very close
+- Multiple conflicting signals
 
 ## STOP LOSS & TAKE PROFIT
 
-- For STRONG setups: stop_loss_pct: 2-3%, take_profit_pct: 6-9% (3:1 ratio)
-- For MODERATE setups: stop_loss_pct: 1-2%, take_profit_pct: 3-6% (3:1 ratio)
+- For STRONG setups: stop_loss_pct: 2-3%, take_profit_pct: 6-9%
+- For MODERATE setups: stop_loss_pct: 1-2%, take_profit_pct: 3-6%
+- Always maintain 3:1 reward-to-risk ratio
 
-## POSITION MANAGEMENT RULES
+## POSITION MANAGEMENT
 
 If you have an existing position:
-- Do NOT close for small losses (-0.5% to 0). Trust your stop-loss.
-- Do NOT close for small profits (0% to +1%). Let it run to TP.
-- ONLY close if:
-  - Loss exceeds -2% price movement (significant invalidation)
-  - OR profit is > +2% and momentum is reversing (lock in gains)
-  - OR your original trade thesis is clearly invalidated
-
-## CONFIDENCE GUIDELINES
-
-- 0-49: Too uncertain, respond with HOLD
-- 50-64: Weak setup, respond with HOLD
-- 65-74: MODERATE setup - can trade with tighter stops
-- 75-85: STRONG setup - trade with normal parameters
-- 86-100: Exceptional setup - rare`
+- Do NOT close for small fluctuations (-1% to +1%)
+- CLOSE only if loss > 2% OR profit > 2% with reversing momentum
+- Trust your SL/TP orders for normal exits`
 
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
