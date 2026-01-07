@@ -42,6 +42,9 @@ type StrategyConfig struct {
 
 	// Turbo Mode (Aggressive)
 	TurboMode bool `json:"turbo_mode"`
+
+	// Simple Mode (v1.4.7 style - disables extra features for cleaner trades)
+	SimpleMode bool `json:"simple_mode"`
 }
 
 // AIConfig defines AI model settings
@@ -189,7 +192,7 @@ func DefaultStrategyConfig() StrategyConfig {
 			// AI thresholds
 			MinConfidence:                70,
 			MinRiskRewardRatio:           3.0,  // Minimum 3:1 reward/risk
-			HighConfidenceCloseThreshold: 85.0, // Min confidence to close in noise zone
+			HighConfidenceCloseThreshold: 95.0, // Raised from 85: Require very high confidence to close in noise zone
 
 			// Daily loss and drawdown
 			MaxDailyLossPct:           15.0,  // Stop trading after 15% daily loss (better for high leverage)

@@ -16,6 +16,7 @@ export interface StrategyConfig {
   custom_prompt: string;
   trading_interval: number;
   turbo_mode: boolean;
+  simple_mode?: boolean;
 }
 
 export interface AIConfig {

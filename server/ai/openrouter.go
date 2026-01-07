@@ -325,16 +325,16 @@ Confidence = "How sure are you about YOUR recommended action?"
 - <60: Market is confusing, definitely wait
 
 **For CLOSE:**
-- 80-100: Position should definitely be closed
-- 70-79: Position should probably be closed
-- <70: Don't close, let it run
+- 95-100: Only use for significant losses (> -1.5%) or significant profits (> +1.5%)
+- <95: DO NOT CLOSE - trust your Stop Loss order
+- NEVER close a position that is -1% to +1% (this is normal market noise!)
 
 ## ACTION DEFINITIONS
 
 - **BUY** = Open a LONG position (confident price will go UP)
 - **SELL** = Open a SHORT position (confident price will go DOWN)  
 - **HOLD** = No action. Waiting is the best choice right now.
-- **CLOSE** = Close the current position
+- **CLOSE** = Close the current position (RARELY USED)
 
 ## WHEN TO TRADE (BUY/SELL)
 
@@ -356,12 +356,25 @@ Confidence = "How sure are you about YOUR recommended action?"
 - For MODERATE setups: stop_loss_pct: 1-2%, take_profit_pct: 3-6%
 - Always maintain 3:1 reward-to-risk ratio
 
-## POSITION MANAGEMENT
+## CRITICAL: POSITION MANAGEMENT RULES
 
 If you have an existing position:
-- Do NOT close for small fluctuations (-1% to +1%)
-- CLOSE only if loss > 2% OR profit > 2% with reversing momentum
-- Trust your SL/TP orders for normal exits`
+
+⚠️ **ALMOST ALWAYS RECOMMEND HOLD** for existing positions!
+
+The SL/TP orders on the exchange will handle exits. You should only recommend CLOSE in rare cases:
+
+✅ CLOSE is OK when:
+- Loss > 1.5% AND momentum has completely reversed
+- Profit > 1.5% AND you see strong reversal signals
+
+❌ NEVER CLOSE when:
+- Position is between -1.5% and +1.5% (NOISE ZONE)
+- Position was opened less than 10 minutes ago
+- You're just "uncertain" - that's not a reason to close
+
+**Default behavior for existing positions: HOLD**
+Trust your stop loss. It's there for a reason.`
 
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
@@ -384,6 +397,66 @@ If you have an existing position:
 	var decision TradingDecision
 	if err := json.Unmarshal([]byte(response), &decision); err != nil {
 		// Try to extract JSON from response if wrapped in markdown
+		start := bytes.Index([]byte(response), []byte("{"))
+		end := bytes.LastIndex([]byte(response), []byte("}"))
+		if start >= 0 && end > start {
+			jsonStr := response[start : end+1]
+			if err := json.Unmarshal([]byte(jsonStr), &decision); err != nil {
+				return nil, response, fmt.Errorf("failed to parse AI decision: %w", err)
+			}
+		} else {
+			return nil, response, fmt.Errorf("no JSON found in response")
+		}
+	}
+
+	return &decision, response, nil
+}
+
+// GetTradingDecisionSimple uses a minimal prompt like v1.4.7
+// This is used when Simple Mode is enabled - less overthinking, trust SL/TP
+func (c *Client) GetTradingDecisionSimple(marketData string) (*TradingDecision, string, error) {
+	systemPrompt := `You are a cryptocurrency futures trader. Make clear BUY, SELL, or HOLD decisions.
+
+RESPONSE FORMAT:
+{
+  "action": "BUY" | "SELL" | "HOLD",
+  "symbol": "<SYMBOL>",
+  "confidence": 0-100,
+  "reasoning": "Brief explanation",
+  "stop_loss_pct": 2.0,
+  "take_profit_pct": 6.0
+}
+
+ACTIONS:
+- BUY = Open LONG, expect price UP
+- SELL = Open SHORT, expect price DOWN
+- HOLD = No trade, wait
+
+SIMPLE RULES:
+1. Trade WITH the trend (EMA direction)
+2. Use momentum confirmation (MACD)
+3. Avoid extreme RSI (>70 or <30)
+4. If unsure, HOLD
+5. For existing positions: almost always HOLD, trust your SL/TP`
+
+	messages := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: "Analyze and decide:\n\n" + marketData},
+	}
+
+	result, err := c.ChatWithReasoning(messages)
+	if err != nil {
+		return nil, "", fmt.Errorf("AI chat failed: %w", err)
+	}
+
+	if result.Reasoning != "" {
+		log.Printf("[OpenRouter] AI Reasoning:\n%s", result.Reasoning)
+	}
+
+	response := result.Content
+
+	var decision TradingDecision
+	if err := json.Unmarshal([]byte(response), &decision); err != nil {
 		start := bytes.Index([]byte(response), []byte("{"))
 		end := bytes.LastIndex([]byte(response), []byte("}"))
 		if start >= 0 && end > start {

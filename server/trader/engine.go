@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -524,12 +525,21 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 		log.Printf("[%s][%s] Reasoning mode enabled, expecting chain-of-thought output", e.name, symbol)
 	}
 
-	// Get AI decision
-	decision, rawResponse, err := e.aiClient.GetTradingDecision(formattedData)
+	// Get AI decision - use simple prompt in Simple Mode
+	var decision *ai.TradingDecision
+	var rawResponse string
+	var aiErr error
+
+	if e.strategy != nil && e.strategy.Config.SimpleMode {
+		log.Printf("[%s][%s] 🌿 SIMPLE MODE: Using v1.4.7-style minimal prompt", e.name, symbol)
+		decision, rawResponse, aiErr = e.aiClient.GetTradingDecisionSimple(formattedData)
+	} else {
+		decision, rawResponse, aiErr = e.aiClient.GetTradingDecision(formattedData)
+	}
 	tradeLog.RawAI = rawResponse
 
-	if err != nil {
-		tradeLog.Error = fmt.Sprintf("AI decision failed: %v", err)
+	if aiErr != nil {
+		tradeLog.Error = fmt.Sprintf("AI decision failed: %v", aiErr)
 		if e.notifier != nil {
 			e.notifier.Broadcast(events.Event{
 				Type:      events.TypeError,
@@ -789,48 +799,72 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			}
 		}
 
-		// SMART LOSS MANAGEMENT V2: Tighter thresholds + Confidence Override
-		// 1. ALLOW cutting losses early (-0.5% price drop = -10% equity at 20x)
-		// 2. BLOCK noise (-0.5% to +1.5%) UNLESS confidence is high (>80%)
-		// 3. ALLOW taking profits early (>1.5% price rise = +30% equity at 20x)
+		// SMART LOSS MANAGEMENT V3: Stricter protection against premature exits
+		// The AI was closing at -0.76% with 90% confidence, losing $298.
+		// We need to be MORE protective of positions in the noise zone.
+		//
+		// Rules:
+		// 1. SIGNIFICANT LOSS (< -1.5%): Allow close immediately
+		// 2. NOISE ZONE (-1.5% to +1.5%): BLOCK most closes
+		//    - Only allow if confidence >= 95% (very rare)
+		//    - AND position has been open > 10 minutes (not brand new)
+		// 3. PROFIT ZONE (> +1.5%): Allow close to lock in gains
 
 		const (
-			allowCutLossThreshold = -1.2 // Relaxed from -0.5: Only cut if loss > 1.2% (gives room to breathe)
-			blockNoiseFloorPct    = -1.2 // Noise floor matches cut threshold
-			minProfitToClose      = 1.0  // Relaxed from 1.5: Secure profit earlier if needed
+			significantLossThreshold = -1.5 // Only allow close if loss > 1.5% (was -1.2%)
+			noiseZoneCeiling         = 1.5  // Profit needs to be > 1.5% to close
+			minHoldBeforeClose       = 10   // Minutes: position must be open at least 10 mins before AI can close
 		)
 
-		// Get high confidence threshold from config (default 85%)
-		highConfidenceThreshold := 85.0
+		// Get high confidence threshold from config (default 95% for noise zone override)
+		highConfidenceThreshold := 95.0
 		if e.strategy != nil && e.strategy.Config.RiskControl.HighConfidenceCloseThreshold > 0 {
 			highConfidenceThreshold = e.strategy.Config.RiskControl.HighConfidenceCloseThreshold
 		}
 
 		isHighConfidence := decision.Confidence >= highConfidenceThreshold
+		holdDuration := e.GetHoldDuration(symbol, side)
+		holdMins := holdDuration.Minutes()
+		isNewPosition := holdMins < float64(minHoldBeforeClose)
 
-		// Case 1: Significant loss - ALLOW
-		if pnlPct < allowCutLossThreshold {
-			log.Printf("[%s][%s] ✅ ALLOWING early exit: Loss is %.2f%% (threshold: %.2f%%). Cutting before SL hit.",
-				e.name, symbol, pnlPct, allowCutLossThreshold)
+		// Case 1: Significant loss - ALLOW (but log warning if position is new)
+		if pnlPct < significantLossThreshold {
+			if isNewPosition {
+				log.Printf("[%s][%s] ⚠️ WARNING: Closing NEW position at loss (%.2f%% in %.1f mins). Consider if SL is too tight.",
+					e.name, symbol, pnlPct, holdMins)
+			}
+			log.Printf("[%s][%s] ✅ ALLOWING loss cut: Loss %.2f%% exceeds threshold %.2f%%.",
+				e.name, symbol, pnlPct, significantLossThreshold)
 			// Continue to close...
-		} else if isHighConfidence {
-			// Case 1b: High Confidence Override - ALLOW
-			log.Printf("[%s][%s] ⚡ OVERRIDE: High confidence (%.1f%%) allows closing in noise zone (PnL: %.2f%%).",
-				e.name, symbol, decision.Confidence, pnlPct)
+		} else if pnlPct >= noiseZoneCeiling {
+			// Case 2: Good profit - ALLOW (taking profits)
+			log.Printf("[%s][%s] ✅ ALLOWING profit take: Profit %.2f%% exceeds threshold %.2f%%.",
+				e.name, symbol, pnlPct, noiseZoneCeiling)
 			// Continue to close...
-		} else if pnlPct < minProfitToClose {
-			// Case 2: Noise Zone - BLOCK
-			log.Printf("[%s][%s] ❌ BLOCKED: Cannot close in noise zone (PnL: %.2f%%). Confidence %.1f%% too low for override.",
-				e.name, symbol, pnlPct, decision.Confidence)
-			return 0, fmt.Errorf("blocked: PnL %.2f%% in noise zone (need >%.1f%% profit OR >%.0f%% confidence)",
-				pnlPct, minProfitToClose, highConfidenceThreshold)
+		} else {
+			// Case 3: NOISE ZONE (-1.5% to +1.5%) - BLOCK unless very high confidence
+			if isNewPosition {
+				// NEW positions in noise zone: ALWAYS block, no override
+				log.Printf("[%s][%s] ❌ BLOCKED: Position too new (%.1f mins) and in noise zone (PnL: %.2f%%). Let it develop.",
+					e.name, symbol, holdMins, pnlPct)
+				return 0, fmt.Errorf("blocked: position only %.1f mins old, in noise zone (%.2f%%). Wait for development", holdMins, pnlPct)
+			} else if isHighConfidence {
+				// OLDER positions with very high confidence: Allow override (rare)
+				log.Printf("[%s][%s] ⚡ OVERRIDE: High confidence (%.1f%%) allows closing in noise zone (PnL: %.2f%%, held %.1f mins).",
+					e.name, symbol, decision.Confidence, pnlPct, holdMins)
+				// Continue to close...
+			} else {
+				// OLDER positions without high confidence: BLOCK
+				log.Printf("[%s][%s] ❌ BLOCKED: Cannot close in noise zone (PnL: %.2f%%). Need %.0f%% confidence, got %.1f%%.",
+					e.name, symbol, pnlPct, highConfidenceThreshold, decision.Confidence)
+				return 0, fmt.Errorf("blocked: PnL %.2f%% in noise zone (need >%.1f%% profit OR >%.0f%% confidence)",
+					pnlPct, noiseZoneCeiling, highConfidenceThreshold)
+			}
 		}
-		// Case 3: Good profit - ALLOW
 
 		// Capture realized PnL before closing
 		realizedPnL := currentPos.UnrealizedProfit
 
-		holdDuration := e.GetHoldDuration(symbol, side)
 		log.Printf("[%s][%s] Closing %s position: %.4f (held for %v, profit: $%.2f = %.2f%%)", e.name, symbol, side, currentPos.PositionAmt, holdDuration, realizedPnL, pnlPct)
 		if _, err := e.binance.ClosePosition(ctx, symbol, currentPos.PositionAmt); err != nil {
 			return 0, fmt.Errorf("failed to close position: %w", err)
@@ -1591,16 +1625,51 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 	log.Printf("[%s][%s] Cancelling bracket orders: SL_ID=%d, TP_ID=%d",
 		e.name, symbol, bracket.StopLossOrderID, bracket.TakeProfitOrderID)
 
-	// Cancel both orders (ignore errors - they may have been filled)
+	slFilled := false
+	tpFilled := false
+
+	// Cancel SL order
 	if bracket.StopLossOrderID > 0 {
 		if err := e.binance.CancelOrder(ctx, symbol, bracket.StopLossOrderID); err != nil {
-			log.Printf("[%s][%s] SL cancel (may be filled): %v", e.name, symbol, err)
+			errStr := err.Error()
+			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") {
+				slFilled = true
+				log.Printf("[%s][%s] 🔴 SL order was ALREADY FILLED by exchange (Order ID: %d)",
+					e.name, symbol, bracket.StopLossOrderID)
+			} else {
+				log.Printf("[%s][%s] SL cancel error: %v", e.name, symbol, err)
+			}
+		} else {
+			log.Printf("[%s][%s] ✅ SL order cancelled successfully", e.name, symbol)
 		}
 	}
+
+	// Cancel TP order
 	if bracket.TakeProfitOrderID > 0 {
 		if err := e.binance.CancelOrder(ctx, symbol, bracket.TakeProfitOrderID); err != nil {
-			log.Printf("[%s][%s] TP cancel (may be filled): %v", e.name, symbol, err)
+			errStr := err.Error()
+			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") {
+				tpFilled = true
+				log.Printf("[%s][%s] 🟢 TP order was ALREADY FILLED by exchange (Order ID: %d)",
+					e.name, symbol, bracket.TakeProfitOrderID)
+			} else {
+				log.Printf("[%s][%s] TP cancel error: %v", e.name, symbol, err)
+			}
+		} else {
+			log.Printf("[%s][%s] ✅ TP order cancelled successfully", e.name, symbol)
 		}
+	}
+
+	// Summary
+	if slFilled && !tpFilled {
+		log.Printf("[%s][%s] ⚠️ STOP LOSS HIT: Position was closed by exchange SL order",
+			e.name, symbol)
+	} else if tpFilled && !slFilled {
+		log.Printf("[%s][%s] 🎯 TAKE PROFIT HIT: Position closed at target profit",
+			e.name, symbol)
+	} else if slFilled && tpFilled {
+		log.Printf("[%s][%s] ⚠️ Both SL and TP orders were filled (unusual - check order history)",
+			e.name, symbol)
 	}
 }
 
@@ -1771,6 +1840,13 @@ func (e *Engine) startDrawdownMonitor(ctx context.Context) {
 // checkPositionDrawdown checks if any positions should be closed due to drawdown
 func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 	if e.strategy == nil {
+		return
+	}
+
+	// SIMPLE MODE: Skip all advanced risk management, trust SL/TP on exchange
+	if e.strategy.Config.SimpleMode {
+		// In Simple Mode, we don't do trailing stops, smart cuts, or max hold
+		// Just let the exchange SL/TP orders handle everything
 		return
 	}
 

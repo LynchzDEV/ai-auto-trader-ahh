@@ -18,6 +18,7 @@ import {
   Target,
   BarChart3,
   Zap,
+  Leaf,
   Sparkles,
   Loader2,
   X,
@@ -606,7 +607,7 @@ export default function Strategies() {
                             }
                             setEditingStrategy({
                               ...editingStrategy,
-                              config: { ...editingStrategy.config, turbo_mode: !!c }
+                              config: { ...editingStrategy.config, turbo_mode: !!c, simple_mode: false }
                             });
                           }}
                           className="mr-2 data-[state=checked]:bg-yellow-400 data-[state=checked]:border-yellow-400 data-[state=checked]:text-black"
@@ -615,6 +616,31 @@ export default function Strategies() {
                           {editingStrategy.config.turbo_mode ? 'AGGRESSIVE (HIGH VOLATILITY)' : 'Standard Safety'}
                         </span>
                       </div>
+                    </label>
+
+                    <label className="space-y-2 cursor-pointer group col-span-full">
+                      <Label className="cursor-pointer group-hover:text-green-400 transition-colors flex items-center gap-2">
+                        <Leaf className="w-4 h-4 text-green-400" />
+                        Simple Mode (v1.4.7 Style)
+                      </Label>
+                      <div className="flex items-center h-10 px-3 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
+                        <Checkbox
+                          checked={editingStrategy.config.simple_mode ?? false}
+                          onCheckedChange={(c) => {
+                            setEditingStrategy({
+                              ...editingStrategy,
+                              config: { ...editingStrategy.config, simple_mode: !!c, turbo_mode: false }
+                            });
+                          }}
+                          className="mr-2 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-black"
+                        />
+                        <span className={`text-sm ${editingStrategy.config.simple_mode ? 'text-green-400 font-bold' : 'text-muted-foreground'}`}>
+                          {editingStrategy.config.simple_mode ? 'SIMPLE: No trailing stop, no smart cut, trust SL/TP' : 'Standard Features'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground pl-1">
+                        Disables trailing stop, smart loss cut, max hold duration. Lets trades run to SL/TP targets.
+                      </p>
                     </label>
                   </div>
 
