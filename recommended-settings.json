@@ -1,0 +1,69 @@
+{
+    "name": "Conservative v1.4.7 Style",
+    "config": {
+        "coin_source": {
+            "source_type": "static",
+            "static_coins": [
+                "BTCUSDT",
+                "ETHUSDT"
+            ]
+        },
+        "indicators": {
+            "primary_timeframe": "5m",
+            "kline_count": 100,
+            "enable_ema": true,
+            "enable_macd": true,
+            "enable_rsi": true,
+            "enable_atr": false,
+            "enable_boll": false,
+            "enable_volume": false,
+            "ema_periods": [
+                9,
+                21
+            ],
+            "rsi_period": 14,
+            "atr_period": 14,
+            "boll_period": 20,
+            "macd_fast": 12,
+            "macd_slow": 26,
+            "macd_signal": 9
+        },
+        "risk_control": {
+            "max_positions": 2,
+            "max_leverage": 10,
+            "min_confidence": 75,
+            "max_position_pct": 20,
+            "min_position_usd": 50,
+            "min_position_btc_eth": 60,
+            "min_risk_reward_ratio": 3.0,
+            "high_confidence_close_threshold": 95,
+            "max_daily_loss_pct": 10,
+            "stop_trading_minutes": 60,
+            "close_positions_on_daily_loss": false,
+            "max_drawdown_pct": 30,
+            "enable_emergency_shutdown": true,
+            "emergency_min_balance": 80,
+            "enable_trailing_stop": false,
+            "trailing_stop_activate_pct": 2.0,
+            "trailing_stop_distance_pct": 1.0,
+            "enable_max_hold": false,
+            "max_hold_duration_mins": 360,
+            "enable_smart_loss_cut": false,
+            "smart_loss_time_mins": 60,
+            "smart_loss_threshold": -2.0,
+            "min_profit_for_drawdown": 5.0,
+            "drawdown_close_threshold": 50
+        },
+        "ai": {
+            "enable_reasoning": true,
+            "reasoning_model": "deepseek/deepseek-v3.2"
+        },
+        "custom_prompt": "Conservative trading: Only take high-quality setups. Trust SL/TP orders.",
+        "trading_interval": 5,
+        "turbo_mode": false,
+        "simple_mode": true
+    },
+    "exportedAt": "2026-01-07T18:00:00Z",
+    "version": "1.0",
+    "description": "Conservative settings based on v1.4.7 style. Lower leverage (10x), smaller positions (20%), Simple Mode enabled to disable trailing stop and smart loss cut."
+}

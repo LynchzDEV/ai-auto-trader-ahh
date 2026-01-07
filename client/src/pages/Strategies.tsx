@@ -22,6 +22,8 @@ import {
   Sparkles,
   Loader2,
   X,
+  Download,
+  Upload,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -193,6 +195,65 @@ export default function Strategies() {
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Export strategy config to JSON file
+  const handleExport = () => {
+    if (!editingStrategy) return;
+    const exportData = {
+      name: editingStrategy.name,
+      config: editingStrategy.config,
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `strategy-${editingStrategy.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert({
+      title: 'Exported!',
+      description: 'Strategy settings downloaded as JSON file.',
+    });
+  };
+
+  // Import strategy config from JSON file
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const importData = JSON.parse(text);
+        if (!importData.config) {
+          throw new Error('Invalid strategy file: missing config');
+        }
+        if (editingStrategy) {
+          setEditingStrategy({
+            ...editingStrategy,
+            config: { ...editingStrategy.config, ...importData.config },
+          });
+          alert({
+            title: 'Imported!',
+            description: `Settings from "${importData.name || file.name}" applied. Review and save.`,
+          });
+        }
+      } catch (err: any) {
+        alert({
+          title: 'Import Failed',
+          description: err.message || 'Failed to parse JSON file',
+          variant: 'danger',
+        });
+      }
+    };
+    input.click();
   };
 
   if (loading) {
@@ -1252,14 +1313,26 @@ export default function Strategies() {
               </CollapsibleSection>
 
               {/* Actions */}
-              <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => { setEditingStrategy(null); setIsCreating(false); }}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSave}>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Strategy
-                </Button>
+              <div className="flex justify-between gap-3 pt-4">
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleExport} title="Export settings to JSON">
+                    <Download className="w-4 h-4 mr-1" />
+                    Export
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleImport} title="Import settings from JSON">
+                    <Upload className="w-4 h-4 mr-1" />
+                    Import
+                  </Button>
+                </div>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={() => { setEditingStrategy(null); setIsCreating(false); }}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSave}>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Strategy
+                  </Button>
+                </div>
               </div>
             </div>
           )
