@@ -434,7 +434,7 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 
 	// Check if daily loss limit has been exceeded
 	if e.checkDailyLoss() {
-		e.triggerTradingPause()
+		e.triggerTradingPause(ctx)
 	}
 
 	// Sync trade history from Binance (captures SL/TP fills)
@@ -1662,7 +1662,7 @@ func (e *Engine) checkDailyLoss() bool {
 }
 
 // triggerTradingPause pauses trading for the configured duration
-func (e *Engine) triggerTradingPause() {
+func (e *Engine) triggerTradingPause(ctx context.Context) {
 	if e.strategy == nil {
 		return
 	}
@@ -1676,7 +1676,50 @@ func (e *Engine) triggerTradingPause() {
 	e.stopUntil = time.Now().Add(time.Duration(pauseMins) * time.Minute)
 	e.mu.Unlock()
 
-	log.Printf("[%s] Trading paused until %s", e.name, e.stopUntil.Format(time.RFC3339))
+	log.Printf("[%s] 🛑 Trading paused until %s due to daily loss limit", e.name, e.stopUntil.Format(time.RFC3339))
+
+	// Check if we should close all positions
+	if e.strategy.Config.RiskControl.ClosePositionsOnDailyLoss {
+		log.Printf("[%s] 🔴 CLOSING ALL POSITIONS due to daily loss limit...", e.name)
+		e.closeAllPositions(ctx, "daily loss limit reached")
+	}
+}
+
+// closeAllPositions closes all open positions
+func (e *Engine) closeAllPositions(ctx context.Context, reason string) {
+	e.mu.RLock()
+	positions := make([]*exchange.Position, 0)
+	for _, pos := range e.positions {
+		if pos.PositionAmt != 0 {
+			positions = append(positions, pos)
+		}
+	}
+	e.mu.RUnlock()
+
+	if len(positions) == 0 {
+		log.Printf("[%s] No open positions to close", e.name)
+		return
+	}
+
+	log.Printf("[%s] Closing %d position(s): %s", e.name, len(positions), reason)
+
+	for _, pos := range positions {
+		side := "LONG"
+		if pos.PositionAmt < 0 {
+			side = "SHORT"
+		}
+
+		log.Printf("[%s][%s] Closing %s position: %.4f (reason: %s)",
+			e.name, pos.Symbol, side, pos.PositionAmt, reason)
+
+		if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+			log.Printf("[%s][%s] Failed to close position: %v", e.name, pos.Symbol, err)
+		} else {
+			log.Printf("[%s][%s] ✅ Position closed successfully", e.name, pos.Symbol)
+			e.clearPositionTracking(pos.Symbol, side)
+			e.cancelBracketOrders(ctx, pos.Symbol)
+		}
+	}
 }
 
 // resetDailyPnLIfNeeded resets daily P&L tracking at the start of a new day

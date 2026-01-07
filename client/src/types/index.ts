@@ -57,6 +57,7 @@ export interface RiskControlConfig {
   max_daily_loss_pct?: number;
   max_drawdown_pct?: number;
   stop_trading_mins?: number;
+  close_positions_on_daily_loss?: boolean;
   enable_emergency_shutdown?: boolean;
   emergency_min_balance?: number;
   // Trailing Stop Loss

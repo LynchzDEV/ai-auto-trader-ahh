@@ -114,9 +114,10 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"` // Min TP/SL ratio (default: 3.0)
 
 	// Daily loss and drawdown limits
-	MaxDailyLossPct float64 `json:"max_daily_loss_pct"` // Max daily loss % before stopping (default: 5.0)
-	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`   // Max drawdown % from peak to close position (default: 40.0)
-	StopTradingMins int     `json:"stop_trading_mins"`  // Minutes to pause after daily loss triggered (default: 60)
+	MaxDailyLossPct           float64 `json:"max_daily_loss_pct"`            // Max daily loss % before stopping (default: 5.0)
+	MaxDrawdownPct            float64 `json:"max_drawdown_pct"`              // Max drawdown % from peak to close position (default: 40.0)
+	StopTradingMins           int     `json:"stop_trading_mins"`             // Minutes to pause after daily loss triggered (default: 60)
+	ClosePositionsOnDailyLoss bool    `json:"close_positions_on_daily_loss"` // Close all positions when daily loss limit hit (default: false)
 
 	// Drawdown monitoring thresholds
 	DrawdownCloseThreshold float64 `json:"drawdown_close_threshold"` // Close position if drawdown from peak exceeds this % (default: 40.0)
@@ -189,9 +190,10 @@ func DefaultStrategyConfig() StrategyConfig {
 			MinRiskRewardRatio: 3.0, // Minimum 3:1 reward/risk
 
 			// Daily loss and drawdown
-			MaxDailyLossPct: 15.0, // Stop trading after 15% daily loss (better for high leverage)
-			MaxDrawdownPct:  40.0, // Max drawdown threshold
-			StopTradingMins: 30,   // Pause 30 mins after trigger
+			MaxDailyLossPct:           15.0,  // Stop trading after 15% daily loss (better for high leverage)
+			MaxDrawdownPct:            40.0,  // Max drawdown threshold
+			StopTradingMins:           30,    // Pause 30 mins after trigger
+			ClosePositionsOnDailyLoss: false, // Don't auto-close positions by default
 
 			// Drawdown monitoring
 			DrawdownCloseThreshold: 40.0, // Close at 40% drawdown from peak

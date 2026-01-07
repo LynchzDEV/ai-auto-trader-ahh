@@ -818,6 +818,27 @@ export default function Strategies() {
                       />
                     </div>
 
+                    <label className="flex items-center gap-3 p-3 rounded-lg bg-orange-400/5 border border-orange-400/20 cursor-pointer hover:bg-orange-400/10 transition-colors col-span-full">
+                      <Checkbox
+                        checked={editingStrategy.config.risk_control.close_positions_on_daily_loss ?? false}
+                        onCheckedChange={(c) => setEditingStrategy({
+                          ...editingStrategy,
+                          config: {
+                            ...editingStrategy.config,
+                            risk_control: {
+                              ...editingStrategy.config.risk_control,
+                              close_positions_on_daily_loss: !!c
+                            }
+                          }
+                        })}
+                        className="data-[state=checked]:bg-orange-400 data-[state=checked]:border-orange-400 data-[state=checked]:text-black"
+                      />
+                      <div>
+                        <span className="font-medium text-orange-300">Close Positions on Daily Loss</span>
+                        <p className="text-xs text-muted-foreground">Auto-close ALL positions when daily loss limit is hit</p>
+                      </div>
+                    </label>
+
                     <div className="space-y-2">
                       <Label>Max Drawdown %</Label>
                       <Input
