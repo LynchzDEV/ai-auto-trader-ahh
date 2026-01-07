@@ -127,44 +127,145 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 	if data.BTCPrice > 0 {
 		sb.WriteString("--- Global Market Context (BTC) ---\n")
 		sb.WriteString(fmt.Sprintf("BTC Price: $%.2f\n", data.BTCPrice))
-		sb.WriteString(fmt.Sprintf("BTC 24h Change: %.2f%%\n\n", data.BTCChange24h))
+		sb.WriteString(fmt.Sprintf("BTC 24h Change: %.2f%%\n", data.BTCChange24h))
+		// Add BTC context warning
+		if data.BTCChange24h < -2 {
+			sb.WriteString("⚠️ WARNING: BTC is BEARISH. Avoid LONG entries unless very confident.\n")
+		} else if data.BTCChange24h > 2 {
+			sb.WriteString("✅ BTC is BULLISH. LONG entries have tailwind.\n")
+		}
+		sb.WriteString("\n")
 	}
 
 	sb.WriteString("--- Technical Indicators ---\n")
 	sb.WriteString(fmt.Sprintf("EMA 9: $%.2f\n", data.EMA9))
 	sb.WriteString(fmt.Sprintf("EMA 21: $%.2f\n", data.EMA21))
-	sb.WriteString(fmt.Sprintf("EMA Trend: %s\n", map[bool]string{true: "BULLISH (EMA9 > EMA21)", false: "BEARISH (EMA9 < EMA21)"}[data.EMA9 > data.EMA21]))
+
+	// Calculate trend strength
+	emaSpread := ((data.EMA9 - data.EMA21) / data.EMA21) * 100
+	if data.EMA9 > data.EMA21 {
+		sb.WriteString(fmt.Sprintf("EMA Trend: BULLISH (EMA9 > EMA21 by %.2f%%)\n", emaSpread))
+		if emaSpread > 1.0 {
+			sb.WriteString("📈 Strong bullish trend. Good for LONG.\n")
+		} else if emaSpread < 0.3 {
+			sb.WriteString("⚠️ Weak/sideways. Trend may reverse. HOLD recommended.\n")
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf("EMA Trend: BEARISH (EMA9 < EMA21 by %.2f%%)\n", -emaSpread))
+		if emaSpread < -1.0 {
+			sb.WriteString("📉 Strong bearish trend. Good for SHORT.\n")
+		} else if emaSpread > -0.3 {
+			sb.WriteString("⚠️ Weak/sideways. Trend may reverse. HOLD recommended.\n")
+		}
+	}
+
+	// RSI with entry guidance
 	sb.WriteString(fmt.Sprintf("RSI (14): %.2f", data.RSI))
 	if data.RSI > 70 {
-		sb.WriteString(" [OVERBOUGHT]\n")
+		sb.WriteString(" [OVERBOUGHT ⚠️ DO NOT LONG]\n")
+	} else if data.RSI > 65 {
+		sb.WriteString(" [HIGH - Risky for LONG entry]\n")
 	} else if data.RSI < 30 {
-		sb.WriteString(" [OVERSOLD]\n")
+		sb.WriteString(" [OVERSOLD ⚠️ DO NOT SHORT]\n")
+	} else if data.RSI < 35 {
+		sb.WriteString(" [LOW - Risky for SHORT entry]\n")
+	} else if data.RSI > 50 && data.RSI < 65 {
+		sb.WriteString(" [BULLISH NEUTRAL - OK for LONG]\n")
+	} else if data.RSI < 50 && data.RSI > 35 {
+		sb.WriteString(" [BEARISH NEUTRAL - OK for SHORT]\n")
 	} else {
 		sb.WriteString(" [NEUTRAL]\n")
 	}
+
 	sb.WriteString(fmt.Sprintf("MACD: %.4f\n", data.MACD))
 	sb.WriteString(fmt.Sprintf("MACD Signal: %.4f\n", data.MACDSignal))
 	sb.WriteString(fmt.Sprintf("MACD Histogram: %.4f", data.MACDHist))
-	if data.MACDHist > 0 {
-		sb.WriteString(" [BULLISH]\n")
+	if data.MACDHist > 0 && data.MACD > data.MACDSignal {
+		sb.WriteString(" [BULLISH MOMENTUM ✅]\n")
+	} else if data.MACDHist < 0 && data.MACD < data.MACDSignal {
+		sb.WriteString(" [BEARISH MOMENTUM ✅]\n")
 	} else {
-		sb.WriteString(" [BEARISH]\n")
+		sb.WriteString(" [WEAKENING/TRANSITIONING ⚠️]\n")
 	}
 	sb.WriteString(fmt.Sprintf("ATR (14): %.4f (Volatility: %.2f%%)\n\n", data.ATR, (data.ATR/data.CurrentPrice)*100))
 
-	sb.WriteString(fmt.Sprintf("--- Overall Trend: %s ---\n\n", data.Trend))
+	// Overall trend assessment
+	sb.WriteString(fmt.Sprintf("--- Overall Trend: %s ---\n", data.Trend))
+	if data.Trend == "NEUTRAL" {
+		sb.WriteString("⚠️ SIDEWAYS MARKET: NO CLEAR TREND. HOLDING IS RECOMMENDED.\n")
+	}
+	sb.WriteString("\n")
 
-	// Recent price action (all candles from kline_count setting)
-	sb.WriteString(fmt.Sprintf("--- Recent Price Action (Last %d Candles) ---\n", len(data.Klines)))
-	for i := 0; i < len(data.Klines); i++ {
+	// Entry quality summary
+	sb.WriteString("--- ENTRY QUALITY CHECK ---\n")
+	longScore := 0
+	shortScore := 0
+
+	if data.EMA9 > data.EMA21 {
+		longScore++
+	} else {
+		shortScore++
+	}
+	if data.RSI > 45 && data.RSI < 65 {
+		longScore++
+	}
+	if data.RSI > 35 && data.RSI < 55 {
+		shortScore++
+	}
+	if data.MACDHist > 0 {
+		longScore++
+	} else {
+		shortScore++
+	}
+	if data.BTCChange24h > 0 {
+		longScore++
+	} else {
+		shortScore++
+	}
+
+	sb.WriteString(fmt.Sprintf("LONG Score: %d/4 | SHORT Score: %d/4\n", longScore, shortScore))
+	if longScore >= 3 {
+		sb.WriteString("✅ CONDITIONS FAVOR LONG ENTRY\n")
+	} else if shortScore >= 3 {
+		sb.WriteString("✅ CONDITIONS FAVOR SHORT ENTRY\n")
+	} else {
+		sb.WriteString("❌ MIXED SIGNALS - RECOMMEND HOLD\n")
+	}
+	sb.WriteString("\n")
+
+	// Recent price action (last 10 candles only for clarity)
+	candleCount := len(data.Klines)
+	if candleCount > 10 {
+		candleCount = 10
+	}
+	sb.WriteString(fmt.Sprintf("--- Recent Price Action (Last %d Candles) ---\n", candleCount))
+	startIdx := len(data.Klines) - candleCount
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	for i := startIdx; i < len(data.Klines); i++ {
 		k := data.Klines[i]
 		change := ((k.Close - k.Open) / k.Open) * 100
 		candle := "GREEN"
 		if k.Close < k.Open {
 			candle = "RED"
 		}
-		sb.WriteString(fmt.Sprintf("  O:%.2f H:%.2f L:%.2f C:%.2f [%s %.2f%%]\n",
-			k.Open, k.High, k.Low, k.Close, candle, change))
+		// Calculate wick percentage (rejection indicator)
+		bodySize := k.Close - k.Open
+		if bodySize < 0 {
+			bodySize = -bodySize
+		}
+		totalRange := k.High - k.Low
+		wickPct := 0.0
+		if totalRange > 0 {
+			wickPct = ((totalRange - bodySize) / totalRange) * 100
+		}
+		wickWarning := ""
+		if wickPct > 60 {
+			wickWarning = " [HIGH WICK ⚠️]"
+		}
+		sb.WriteString(fmt.Sprintf("  O:%.2f H:%.2f L:%.2f C:%.2f [%s %.2f%%]%s\n",
+			k.Open, k.High, k.Low, k.Close, candle, change, wickWarning))
 	}
 
 	return sb.String()
