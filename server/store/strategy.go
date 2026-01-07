@@ -110,8 +110,9 @@ type RiskControlConfig struct {
 	MarginBuffer   float64 `json:"margin_buffer"`    // Safety buffer multiplier (default: 0.98 = use 98% of max)
 
 	// AI decision thresholds
-	MinConfidence      int     `json:"min_confidence"`        // Min AI confidence to trade (default: 70)
-	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"` // Min TP/SL ratio (default: 3.0)
+	MinConfidence                int     `json:"min_confidence"`                  // Min AI confidence to trade (default: 70)
+	MinRiskRewardRatio           float64 `json:"min_risk_reward_ratio"`           // Min TP/SL ratio (default: 3.0)
+	HighConfidenceCloseThreshold float64 `json:"high_confidence_close_threshold"` // Min confidence to close in noise zone (default: 85)
 
 	// Daily loss and drawdown limits
 	MaxDailyLossPct           float64 `json:"max_daily_loss_pct"`            // Max daily loss % before stopping (default: 5.0)
@@ -186,8 +187,9 @@ func DefaultStrategyConfig() StrategyConfig {
 			MarginBuffer:   0.98, // Use 98% of max affordable
 
 			// AI thresholds
-			MinConfidence:      70,
-			MinRiskRewardRatio: 3.0, // Minimum 3:1 reward/risk
+			MinConfidence:                70,
+			MinRiskRewardRatio:           3.0,  // Minimum 3:1 reward/risk
+			HighConfidenceCloseThreshold: 85.0, // Min confidence to close in noise zone
 
 			// Daily loss and drawdown
 			MaxDailyLossPct:           15.0,  // Stop trading after 15% daily loss (better for high leverage)

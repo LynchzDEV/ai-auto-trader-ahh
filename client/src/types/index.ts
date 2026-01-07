@@ -55,6 +55,7 @@ export interface RiskControlConfig {
   min_position_size_btc_eth?: number;
   min_confidence: number;
   min_risk_reward_ratio: number;
+  high_confidence_close_threshold?: number;
   max_daily_loss_pct?: number;
   max_drawdown_pct?: number;
   stop_trading_mins?: number;

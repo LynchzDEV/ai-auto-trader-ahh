@@ -801,6 +801,24 @@ export default function Strategies() {
                         className="glass"
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Close Confidence %</Label>
+                      <Input
+                        type="number"
+                        step="1"
+                        value={editingStrategy.config.risk_control.high_confidence_close_threshold ?? 85}
+                        onChange={(e) => setEditingStrategy({
+                          ...editingStrategy,
+                          config: {
+                            ...editingStrategy.config,
+                            risk_control: { ...editingStrategy.config.risk_control, high_confidence_close_threshold: parseFloat(e.target.value) }
+                          }
+                        })}
+                        className="glass"
+                        placeholder="Default: 85"
+                      />
+                      <p className="text-xs text-muted-foreground">Min confidence to close in noise zone</p>
+                    </div>
 
                     <div className="space-y-2">
                       <Label>Max Daily Loss %</Label>
