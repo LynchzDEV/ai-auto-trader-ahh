@@ -682,7 +682,7 @@ export default function Strategies() {
                     <label className="space-y-2 cursor-pointer group col-span-full">
                       <Label className="cursor-pointer group-hover:text-green-400 transition-colors flex items-center gap-2">
                         <Leaf className="w-4 h-4 text-green-400" />
-                        Simple Mode (v1.4.7 Style)
+                        Simple Mode (Recommended)
                       </Label>
                       <div className="flex items-center h-10 px-3 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
                         <Checkbox
@@ -696,11 +696,11 @@ export default function Strategies() {
                           className="mr-2 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-black"
                         />
                         <span className={`text-sm ${editingStrategy.config.simple_mode ? 'text-green-400 font-bold' : 'text-muted-foreground'}`}>
-                          {editingStrategy.config.simple_mode ? 'SIMPLE: No trailing stop, no smart cut, trust SL/TP' : 'Standard Features'}
+                          {editingStrategy.config.simple_mode ? 'ENABLED: Trust SL/TP, no early exits' : 'Standard Features'}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground pl-1">
-                        Disables trailing stop, smart loss cut, max hold duration. Lets trades run to SL/TP targets.
+                        Disables trailing stop and smart loss cut. Lets trades run to their SL/TP targets without interference.
                       </p>
                     </label>
                   </div>

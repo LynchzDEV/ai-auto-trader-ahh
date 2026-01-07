@@ -1,5 +1,5 @@
 {
-    "name": "Conservative v1.4.7 Style",
+    "name": "Conservative Settings",
     "config": {
         "coin_source": {
             "source_type": "static",
@@ -65,7 +65,7 @@
         "turbo_mode": false,
         "simple_mode": true
     },
-    "exportedAt": "2026-01-07T18:30:00Z",
+    "exportedAt": "2026-01-07T18:42:00Z",
     "version": "1.1",
-    "description": "Conservative settings v1.1: Multi-TF confirmation (5m+15m), 85% min confidence, 10x leverage, Simple Mode enabled."
+    "description": "Conservative settings with Multi-TF confirmation (5m+15m), 85% min confidence, 10x leverage, Simple Mode enabled."
 }
