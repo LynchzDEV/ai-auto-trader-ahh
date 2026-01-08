@@ -45,6 +45,9 @@ type StrategyConfig struct {
 
 	// Simple Mode (v1.4.7 style - disables extra features for cleaner trades)
 	SimpleMode bool `json:"simple_mode"`
+
+	// Trading Mode: "strategy" (default) or "copy_trade"
+	TradingMode string `json:"trading_mode"`
 }
 
 // AIConfig defines AI model settings
@@ -157,6 +160,7 @@ func DefaultStrategyConfig() StrategyConfig {
 			SourceType:  "static",
 			StaticCoins: []string{"BTCUSDT", "ETHUSDT"},
 		},
+		TradingMode: "strategy",
 		Indicators: IndicatorConfig{
 			PrimaryTimeframe: "5m",
 			KlineCount:       100,

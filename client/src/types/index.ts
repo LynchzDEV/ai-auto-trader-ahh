@@ -17,6 +17,7 @@ export interface StrategyConfig {
   trading_interval: number;
   turbo_mode: boolean;
   simple_mode?: boolean;
+  trading_mode?: 'strategy' | 'copy_trade';
 }
 
 export interface AIConfig {

@@ -336,6 +336,11 @@ export default function Strategies() {
                       <GlowBadge variant={strategy.is_active ? 'success' : 'secondary'}>
                         {strategy.is_active ? 'Active' : 'Inactive'}
                       </GlowBadge>
+                      {strategy.config.trading_mode === 'copy_trade' && (
+                        <GlowBadge variant="purple" dot>
+                          Copy Trading
+                        </GlowBadge>
+                      )}
                     </div>
                     <p className="text-muted-foreground text-sm mb-3">
                       {strategy.description || 'No description'}
@@ -448,6 +453,50 @@ export default function Strategies() {
                   />
                 </div>
               </div>
+
+              {/* Trading Mode */}
+              <GlassCard className="p-4 bg-indigo-500/5 border-indigo-500/20">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 rounded-lg bg-indigo-500/20">
+                    <Activity className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Trading Mode</h3>
+                    <p className="text-sm text-muted-foreground">Select how this strategy operates</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Mode</Label>
+                    <Select
+                      value={editingStrategy.config.trading_mode || 'strategy'}
+                      onValueChange={(v) => setEditingStrategy({
+                        ...editingStrategy,
+                        config: {
+                          ...editingStrategy.config,
+                          // @ts-ignore
+                          trading_mode: v
+                        }
+                      })}
+                    >
+                      <SelectTrigger className="glass">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="strategy">AI Trading Strategy (Standard)</SelectItem>
+                        <SelectItem value="copy_trade">Binance Copy Trading</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center">
+                    <p className="text-xs text-muted-foreground">
+                      {editingStrategy.config.trading_mode === 'copy_trade'
+                        ? "⚠️ In Copy Trading mode, the bot will NOT execute its own signals. It will only monitor your copy trading account status and positions."
+                        : "Standard mode uses the AI Engine to analyze markets and execute trades based on your configuration."}
+                    </p>
+                  </div>
+                </div>
+              </GlassCard>
 
               {/* Coin Source */}
               <CollapsibleSection title="Coin Source" icon={Target} isExpanded={expandedSections.coinSource} onToggle={() => toggleSection('coinSource')}>

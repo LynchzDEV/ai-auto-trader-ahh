@@ -325,6 +325,12 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		return
 	}
 
+	// Check Trading Mode: If Copy Trading is enabled, switch to monitoring mode
+	if e.strategy != nil && e.strategy.Config.TradingMode == "copy_trade" {
+		e.runCopyTradingCycle(ctx)
+		return
+	}
+
 	// Update account info
 	account, err := e.binance.GetAccountInfo(ctx)
 	if err != nil {

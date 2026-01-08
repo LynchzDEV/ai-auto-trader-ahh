@@ -19,6 +19,7 @@ import (
 const (
 	BinanceMainnetURL = "https://fapi.binance.com"
 	BinanceTestnetURL = "https://testnet.binancefuture.com"
+	BinanceAPIBaseURL = "https://api.binance.com"
 )
 
 type BinanceClient struct {
