@@ -193,3 +193,31 @@ func (m *EngineManager) GetRunningTraders() []string {
 func (m *EngineManager) GetHub() *events.Hub {
 	return m.hub
 }
+
+// ReloadStrategyForTraders reloads a strategy from the database and pushes it to all
+// running engines that use that strategy. This allows live config updates without restart.
+func (m *EngineManager) ReloadStrategyForTraders(strategyID string) error {
+	// Load fresh strategy from database
+	strategy, err := m.strategyStore.Get(strategyID)
+	if err != nil {
+		return fmt.Errorf("failed to load strategy %s: %w", strategyID, err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Push to all running engines that use this strategy
+	updatedCount := 0
+	for _, engine := range m.engines {
+		if engine.GetStrategyID() == strategyID {
+			engine.SetStrategy(strategy)
+			updatedCount++
+		}
+	}
+
+	if updatedCount > 0 {
+		log.Printf("[Manager] Reloaded strategy %s for %d running trader(s)", strategyID, updatedCount)
+	}
+
+	return nil
+}

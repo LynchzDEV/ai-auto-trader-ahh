@@ -319,6 +319,12 @@ func (s *Server) handleStrategy(w http.ResponseWriter, r *http.Request) {
 			s.errorResponse(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+
+		// Push updated strategy to running engines (live reload)
+		if err := s.engineManager.ReloadStrategyForTraders(id); err != nil {
+			log.Printf("Warning: failed to reload strategy for running traders: %v", err)
+		}
+
 		s.jsonResponse(w, strategy)
 
 	case "DELETE":

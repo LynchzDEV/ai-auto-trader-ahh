@@ -238,6 +238,50 @@ func (e *Engine) IsRunning() bool {
 	return e.running
 }
 
+// SetStrategy updates the engine's strategy configuration at runtime.
+// This allows live updates without restarting the engine.
+func (e *Engine) SetStrategy(strategy *store.Strategy) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if strategy == nil {
+		return
+	}
+
+	oldSimpleMode := false
+	oldTrailingStop := false
+	if e.strategy != nil {
+		oldSimpleMode = e.strategy.Config.SimpleMode
+		oldTrailingStop = e.strategy.Config.RiskControl.EnableTrailingStop
+	}
+
+	e.strategy = strategy
+
+	// Log important changes
+	newSimpleMode := strategy.Config.SimpleMode
+	newTrailingStop := strategy.Config.RiskControl.EnableTrailingStop
+
+	if oldSimpleMode != newSimpleMode {
+		log.Printf("[%s] Strategy updated: SimpleMode changed from %v to %v", e.name, oldSimpleMode, newSimpleMode)
+	}
+	if oldTrailingStop != newTrailingStop {
+		log.Printf("[%s] Strategy updated: TrailingStop changed from %v to %v", e.name, oldTrailingStop, newTrailingStop)
+	}
+
+	log.Printf("[%s] Strategy config reloaded successfully", e.name)
+}
+
+// GetStrategyID returns the current strategy ID
+func (e *Engine) GetStrategyID() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.strategy != nil {
+		return e.strategy.ID
+	}
+	return ""
+}
+
 func (e *Engine) getTradingPairs() []string {
 	if e.strategy != nil {
 		sourceType := e.strategy.Config.CoinSource.SourceType
