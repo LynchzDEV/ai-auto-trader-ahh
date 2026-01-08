@@ -1345,7 +1345,7 @@ func (e *Engine) enforceMinPositionSize(positionSizeUSD float64, symbol string) 
 			minSize = rc.MinPositionUSD
 		}
 		if minSize <= 0 {
-			minSize = 100.0 // Default $100 for BTC/ETH (ensures 0.001 BTC minimum even at $100k)
+			minSize = 10.0 // Default $10 for BTC/ETH (adjusted for small account)
 		}
 	} else {
 		// Try new field first
@@ -1355,7 +1355,7 @@ func (e *Engine) enforceMinPositionSize(positionSizeUSD float64, symbol string) 
 			minSize = rc.MinPositionUSD
 		}
 		if minSize <= 0 {
-			minSize = 12.0 // Default $12 for altcoins
+			minSize = 10.0 // Default $10 for altcoins
 		}
 	}
 
