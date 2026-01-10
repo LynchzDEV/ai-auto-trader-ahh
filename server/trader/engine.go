@@ -844,9 +844,16 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		e.mu.Unlock()
 
 		// Place bracket orders (SL/TP) on exchange
+		// If trailing stop is enabled, only place SL - let TSL handle profits
 		slPct, tpPct := e.getSLTPPercentages(decision)
-		if slPct > 0 && tpPct > 0 {
-			e.placeBracketOrders(ctx, symbol, true, ticker.Price, slPct, tpPct)
+		if slPct > 0 {
+			if e.strategy.Config.RiskControl.EnableTrailingStop {
+				// Only place SL, TSL will handle profit-taking
+				log.Printf("[%s][%s] Trailing stop enabled - placing SL only, TSL will handle profits", e.name, symbol)
+				e.placeStopLossOnly(ctx, symbol, true, ticker.Price, slPct)
+			} else if tpPct > 0 {
+				e.placeBracketOrders(ctx, symbol, true, ticker.Price, slPct, tpPct)
+			}
 		}
 
 	case "SELL", "open_short":
@@ -878,9 +885,16 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		e.mu.Unlock()
 
 		// Place bracket orders (SL/TP) on exchange
+		// If trailing stop is enabled, only place SL - let TSL handle profits
 		slPct, tpPct := e.getSLTPPercentages(decision)
-		if slPct > 0 && tpPct > 0 {
-			e.placeBracketOrders(ctx, symbol, false, ticker.Price, slPct, tpPct)
+		if slPct > 0 {
+			if e.strategy.Config.RiskControl.EnableTrailingStop {
+				// Only place SL, TSL will handle profit-taking
+				log.Printf("[%s][%s] Trailing stop enabled - placing SL only, TSL will handle profits", e.name, symbol)
+				e.placeStopLossOnly(ctx, symbol, false, ticker.Price, slPct)
+			} else if tpPct > 0 {
+				e.placeBracketOrders(ctx, symbol, false, ticker.Price, slPct, tpPct)
+			}
 		}
 
 	case "CLOSE", "close_long", "close_short":
@@ -1737,6 +1751,78 @@ func (e *Engine) placeBracketOrders(ctx context.Context, symbol string, isLong b
 
 	log.Printf("[%s][%s] Bracket orders placed: SL_ID=%d, TP_ID=%d",
 		e.name, symbol, slOrder.OrderID, tpOrder.OrderID)
+}
+
+// placeStopLossOnly places ONLY a stop-loss order (no take-profit)
+// Used when trailing stop is enabled - TSL handles profit-taking, exchange SL protects downside
+func (e *Engine) placeStopLossOnly(ctx context.Context, symbol string, isLong bool, entryPrice, slPct float64) {
+	log.Printf("[%s][%s] Placing SL only: SL=%.1f%%, entry=$%.2f (TSL will handle profits)",
+		e.name, symbol, slPct, entryPrice)
+
+	// CLEANUP: Cancel any existing open orders before placing new ones
+	if err := e.binance.CancelAllOrders(ctx, symbol); err != nil {
+		log.Printf("[%s][%s] Warning: failed to clear existing orders before SL: %v", e.name, symbol, err)
+	}
+
+	// Calculate SL price
+	var slPrice float64
+	var closeSide string
+	if isLong {
+		closeSide = "SELL"
+		slPrice = entryPrice * (1 - slPct/100) // SL below entry for long
+	} else {
+		closeSide = "BUY"
+		slPrice = entryPrice * (1 + slPct/100) // SL above entry for short
+	}
+
+	// Retry up to 3 times
+	var slOrder *exchange.Order
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		slOrder, err = e.binance.PlaceStopLoss(ctx, symbol, closeSide, 0, slPrice)
+		if err == nil {
+			break
+		}
+		log.Printf("[%s][%s] SL order attempt %d failed: %v", e.name, symbol, attempt, err)
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+
+	if err != nil {
+		// CRITICAL: Failed to place SL after all retries - close position for safety
+		log.Printf("[%s][%s] CRITICAL: Failed to place SL after 3 attempts. Closing position for safety!", e.name, symbol)
+		positions, posErr := e.binance.GetPositions(ctx)
+		if posErr != nil {
+			log.Printf("[%s][%s] ERROR: Cannot get positions to close: %v", e.name, symbol, posErr)
+			return
+		}
+		for _, pos := range positions {
+			if pos.Symbol == symbol && pos.PositionAmt != 0 {
+				if _, closeErr := e.binance.ClosePosition(ctx, symbol, pos.PositionAmt); closeErr != nil {
+					log.Printf("[%s][%s] ERROR: Failed to close unprotected position: %v", e.name, symbol, closeErr)
+				} else {
+					log.Printf("[%s][%s] Closed unprotected position for safety", e.name, symbol)
+				}
+				break
+			}
+		}
+		return
+	}
+
+	// Store SL order ID for tracking (no TP)
+	e.bracketOrdersMutex.Lock()
+	e.bracketOrders[symbol] = &BracketOrderIDs{
+		StopLossOrderID:   slOrder.OrderID,
+		TakeProfitOrderID: 0, // No TP when TSL is enabled
+		EntryPrice:        entryPrice,
+		StopLossPct:       slPct,
+		TakeProfitPct:     0,
+	}
+	e.bracketOrdersMutex.Unlock()
+
+	log.Printf("[%s][%s] SL order placed: SL_ID=%d (TSL will handle profits)",
+		e.name, symbol, slOrder.OrderID)
 }
 
 // cancelOrphanedOrders cancels any orphaned SL/TP orders for a symbol before opening a new position
