@@ -766,11 +766,11 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 	maxAffordablePositionSize := e.account.AvailableBalance / marginFactor
 
 	if positionSizeUSD > maxAffordablePositionSize {
-		// Use 98% of max to leave buffer for price fluctuation
-		adjustedSize := maxAffordablePositionSize * 0.98
-		log.Printf("[%s][%s] ⚠️ Position size $%.2f exceeds max affordable $%.2f, auto-reducing to $%.2f",
-			e.name, symbol, positionSizeUSD, maxAffordablePositionSize, adjustedSize)
-		positionSizeUSD = adjustedSize
+		// Cap at max affordable - margin buffer will be applied later via applyMarginBuffer()
+		// NOTE: Do NOT multiply by 0.98 here as that would double-apply the buffer
+		log.Printf("[%s][%s] ⚠️ Position size $%.2f exceeds max affordable $%.2f, capping to max",
+			e.name, symbol, positionSizeUSD, maxAffordablePositionSize)
+		positionSizeUSD = maxAffordablePositionSize
 	}
 
 	if isOpenAction && !hasPosition {
@@ -838,15 +838,36 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 		e.setPositionFirstSeen(symbol, "LONG")
 
-		// Use actual fill price from order response, fallback to ticker price
+		// Use actual fill data from order response
 		entryPrice := ticker.Price
 		filledQty := quantity
-		if openOrder != nil && openOrder.AvgPrice > 0 {
-			entryPrice = openOrder.AvgPrice
-			if openOrder.ExecutedQty > 0 {
-				filledQty = openOrder.ExecutedQty
+		if openOrder != nil {
+			// Verify order was filled
+			if openOrder.Status != "FILLED" {
+				log.Printf("[%s][%s] ⚠️ LONG order status is %s (not FILLED), verifying position...",
+					e.name, symbol, openOrder.Status)
+				// Query actual position from Binance to get real fill data
+				if positions, err := e.binance.GetPositions(ctx); err == nil {
+					for _, pos := range positions {
+						if pos.Symbol == symbol && pos.PositionAmt > 0 {
+							filledQty = pos.PositionAmt
+							entryPrice = pos.EntryPrice
+							log.Printf("[%s][%s] Position verified from exchange: qty=%.4f, entry=$%.4f",
+								e.name, symbol, filledQty, entryPrice)
+							break
+						}
+					}
+				}
+			} else if openOrder.AvgPrice > 0 {
+				entryPrice = openOrder.AvgPrice
+				if openOrder.ExecutedQty > 0 {
+					filledQty = openOrder.ExecutedQty
+				}
+				log.Printf("[%s][%s] LONG filled: price=$%.4f, qty=%.4f", e.name, symbol, entryPrice, filledQty)
 			}
-			log.Printf("[%s][%s] LONG filled: price=$%.4f, qty=%.4f", e.name, symbol, entryPrice, filledQty)
+		} else {
+			log.Printf("[%s][%s] ⚠️ No order response, using expected values: price=$%.4f, qty=%.4f",
+				e.name, symbol, entryPrice, filledQty)
 		}
 
 		// Update positions map with actual fill data
@@ -891,15 +912,36 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 		e.setPositionFirstSeen(symbol, "SHORT")
 
-		// Use actual fill price from order response, fallback to ticker price
+		// Use actual fill data from order response
 		entryPrice := ticker.Price
 		filledQty := quantity
-		if openOrder != nil && openOrder.AvgPrice > 0 {
-			entryPrice = openOrder.AvgPrice
-			if openOrder.ExecutedQty > 0 {
-				filledQty = openOrder.ExecutedQty
+		if openOrder != nil {
+			// Verify order was filled
+			if openOrder.Status != "FILLED" {
+				log.Printf("[%s][%s] ⚠️ SHORT order status is %s (not FILLED), verifying position...",
+					e.name, symbol, openOrder.Status)
+				// Query actual position from Binance to get real fill data
+				if positions, err := e.binance.GetPositions(ctx); err == nil {
+					for _, pos := range positions {
+						if pos.Symbol == symbol && pos.PositionAmt < 0 {
+							filledQty = -pos.PositionAmt // Convert to positive
+							entryPrice = pos.EntryPrice
+							log.Printf("[%s][%s] Position verified from exchange: qty=%.4f, entry=$%.4f",
+								e.name, symbol, filledQty, entryPrice)
+							break
+						}
+					}
+				}
+			} else if openOrder.AvgPrice > 0 {
+				entryPrice = openOrder.AvgPrice
+				if openOrder.ExecutedQty > 0 {
+					filledQty = openOrder.ExecutedQty
+				}
+				log.Printf("[%s][%s] SHORT filled: price=$%.4f, qty=%.4f", e.name, symbol, entryPrice, filledQty)
 			}
-			log.Printf("[%s][%s] SHORT filled: price=$%.4f, qty=%.4f", e.name, symbol, entryPrice, filledQty)
+		} else {
+			log.Printf("[%s][%s] ⚠️ No order response, using expected values: price=$%.4f, qty=%.4f",
+				e.name, symbol, entryPrice, filledQty)
 		}
 
 		// Update positions map with actual fill data
@@ -1767,26 +1809,45 @@ func (e *Engine) placeBracketOrders(ctx context.Context, symbol string, isLong b
 	}
 
 	if err != nil {
-		// CRITICAL: Failed to place protection orders after all retries
-		// Close the position immediately to prevent unprotected exposure
-		log.Printf("[%s][%s] CRITICAL: Failed to place bracket orders after 3 attempts. Closing position for safety!", e.name, symbol)
+		// CRITICAL: Failed to place bracket orders after all retries
+		// Instead of closing immediately (which can lock in losses during volatility),
+		// try to place an emergency stop-loss with wider parameters
+		log.Printf("[%s][%s] ⚠️ Bracket orders failed after 3 attempts. Trying emergency SL...", e.name, symbol)
 
-		// Get current position to close it
-		positions, posErr := e.binance.GetPositions(ctx)
-		if posErr != nil {
-			log.Printf("[%s][%s] ERROR: Cannot get positions to close: %v", e.name, symbol, posErr)
-			return
+		// Calculate emergency SL at wider level (1.5x the normal SL distance)
+		emergencySLPct := slPct * 1.5
+		if emergencySLPct > 10.0 {
+			emergencySLPct = 10.0 // Cap at 10% to limit potential loss
 		}
 
-		for _, pos := range positions {
-			if pos.Symbol == symbol && pos.PositionAmt != 0 {
-				if _, closeErr := e.binance.ClosePosition(ctx, symbol, pos.PositionAmt); closeErr != nil {
-					log.Printf("[%s][%s] ERROR: Failed to close unprotected position: %v", e.name, symbol, closeErr)
-				} else {
-					log.Printf("[%s][%s] Closed unprotected position for safety", e.name, symbol)
-				}
-				break
+		closeSide := "SELL"
+		var slPrice float64
+		if isLong {
+			slPrice = entryPrice * (1 - emergencySLPct/100)
+		} else {
+			closeSide = "BUY"
+			slPrice = entryPrice * (1 + emergencySLPct/100)
+		}
+
+		slOrder, slErr := e.binance.PlaceStopLoss(ctx, symbol, closeSide, 0, slPrice)
+		if slErr != nil {
+			log.Printf("[%s][%s] 🔴 Emergency SL also failed: %v", e.name, symbol, slErr)
+			log.Printf("[%s][%s] Position is UNPROTECTED! Software trailing stop will monitor.", e.name, symbol)
+			// Don't close immediately - the software trailing stop (checkPositionDrawdown)
+			// will monitor this position every 10 seconds and can close it if needed
+			// This is safer than closing at potentially bad timing
+		} else {
+			log.Printf("[%s][%s] 🟡 Emergency SL placed at $%.2f (%.1f%% from entry)", e.name, symbol, slPrice, emergencySLPct)
+			// Store the emergency SL for tracking
+			e.bracketOrdersMutex.Lock()
+			e.bracketOrders[symbol] = &BracketOrderIDs{
+				StopLossOrderID:   slOrder.OrderID,
+				TakeProfitOrderID: 0, // No TP
+				EntryPrice:        entryPrice,
+				StopLossPct:       emergencySLPct,
+				TakeProfitPct:     0,
 			}
+			e.bracketOrdersMutex.Unlock()
 		}
 		return
 	}
@@ -1932,35 +1993,39 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 	slFilled := false
 	tpFilled := false
 
-	// Cancel SL order
+	// Cancel SL order (using CancelAlgoOrder since SL/TP are algo orders)
 	if bracket.StopLossOrderID > 0 {
-		if err := e.binance.CancelOrder(ctx, symbol, bracket.StopLossOrderID); err != nil {
+		if err := e.binance.CancelAlgoOrder(ctx, symbol, bracket.StopLossOrderID); err != nil {
 			errStr := err.Error()
-			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") {
+			// Check for "order not found" or already filled/cancelled
+			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") ||
+				strings.Contains(errStr, "Order does not exist") || strings.Contains(errStr, "-20123") {
 				slFilled = true
-				log.Printf("[%s][%s] 🔴 SL order was ALREADY FILLED by exchange (Order ID: %d)",
+				log.Printf("[%s][%s] 🔴 SL order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
 					e.name, symbol, bracket.StopLossOrderID)
 			} else {
 				log.Printf("[%s][%s] SL cancel error: %v", e.name, symbol, err)
 			}
 		} else {
-			log.Printf("[%s][%s] ✅ SL order cancelled successfully", e.name, symbol)
+			log.Printf("[%s][%s] ✅ SL algo order cancelled successfully", e.name, symbol)
 		}
 	}
 
-	// Cancel TP order
+	// Cancel TP order (using CancelAlgoOrder since SL/TP are algo orders)
 	if bracket.TakeProfitOrderID > 0 {
-		if err := e.binance.CancelOrder(ctx, symbol, bracket.TakeProfitOrderID); err != nil {
+		if err := e.binance.CancelAlgoOrder(ctx, symbol, bracket.TakeProfitOrderID); err != nil {
 			errStr := err.Error()
-			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") {
+			// Check for "order not found" or already filled/cancelled
+			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") ||
+				strings.Contains(errStr, "Order does not exist") || strings.Contains(errStr, "-20123") {
 				tpFilled = true
-				log.Printf("[%s][%s] 🟢 TP order was ALREADY FILLED by exchange (Order ID: %d)",
+				log.Printf("[%s][%s] 🟢 TP order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
 					e.name, symbol, bracket.TakeProfitOrderID)
 			} else {
 				log.Printf("[%s][%s] TP cancel error: %v", e.name, symbol, err)
 			}
 		} else {
-			log.Printf("[%s][%s] ✅ TP order cancelled successfully", e.name, symbol)
+			log.Printf("[%s][%s] ✅ TP algo order cancelled successfully", e.name, symbol)
 		}
 	}
 
@@ -2237,10 +2302,10 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		// 1. TRAILING STOP LOSS - Lock in profits
 		// =====================================================================
 		if rc.EnableTrailingStop {
+			// activatePct: Set to 0 to activate immediately from entry (aggressive)
+			// Set to positive value (e.g., 1.0) to only activate after reaching that profit %
 			activatePct := rc.TrailingStopActivatePct
-			if activatePct <= 0 {
-				activatePct = 1.0
-			}
+			// NOTE: We don't override activatePct <= 0 anymore - 0 means immediate activation
 			trailDistPct := rc.TrailingStopDistancePct
 			if trailDistPct <= 0 {
 				trailDistPct = 0.5
@@ -2251,7 +2316,8 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
 			// Check if trailing stop should activate
-			if peakPnL >= activatePct {
+			// If activatePct is 0 or negative, activate immediately from entry
+			if activatePct <= 0 || peakPnL >= activatePct {
 				// Calculate trailing stop level
 				trailingStopLevel := peakPnL - trailDistPct
 
@@ -2442,17 +2508,29 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 				}
 				log.Printf("[%s] Position closed: %s %s", e.name, symbol, side)
 
-				// Clear tracking data (need to release lock temporarily)
+				// Clear tracking data
 				key := getPositionKey(symbol, side)
 				delete(e.positionFirstSeenTime, key)
 
-				// Clear peak P&L (handled outside lock)
-				go e.ClearPeakPnL(symbol, side)
+				// Clear peak P&L synchronously to prevent race condition
+				// where a new position could inherit stale peak P&L
+				e.ClearPeakPnL(symbol, side)
 			}
 		}
 	}
 
-	e.positions = newPositions
+	// MERGE positions instead of replacing to prevent race conditions:
+	// If executeTrade() just opened a position and added it to e.positions,
+	// we don't want to lose that update. Binance data is authoritative for
+	// existing positions, but we preserve local state for positions not yet
+	// visible on exchange (due to API latency).
+	for symbol, newPos := range newPositions {
+		e.positions[symbol] = newPos
+	}
+	// NOTE: We don't remove positions that aren't in newPositions here.
+	// A locally-opened position might not be visible on Binance yet due to
+	// API latency. The trading cycle's fresh fetch at the start handles
+	// authoritative position state. This sync is for background updates only.
 
 	// Update account info
 	account, err := e.binance.GetAccountInfo(ctx)

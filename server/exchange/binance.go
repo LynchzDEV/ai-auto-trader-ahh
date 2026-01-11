@@ -730,16 +730,16 @@ func (c *BinanceClient) PlaceBracketOrders(ctx context.Context, symbol string, i
 	// Place take-profit
 	tpOrder, err := c.PlaceTakeProfit(ctx, symbol, closeSide, 0, tpPrice)
 	if err != nil {
-		// If TP fails, cancel the SL order to avoid orphaned orders
-		log.Printf("[Binance] Take-profit failed, cancelling stop-loss order %d", slOrder.OrderID)
-		_ = c.CancelOrder(ctx, symbol, slOrder.OrderID)
+		// If TP fails, cancel the SL algo order to avoid orphaned orders
+		log.Printf("[Binance] Take-profit failed, cancelling stop-loss algo order %d", slOrder.OrderID)
+		_ = c.CancelAlgoOrder(ctx, symbol, slOrder.OrderID)
 		return nil, nil, fmt.Errorf("failed to place take-profit: %w", err)
 	}
 
 	return slOrder, tpOrder, nil
 }
 
-// CancelOrder cancels a specific order by ID
+// CancelOrder cancels a specific regular order by ID
 func (c *BinanceClient) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	params := url.Values{}
 	params.Set("symbol", symbol)
@@ -752,6 +752,24 @@ func (c *BinanceClient) CancelOrder(ctx context.Context, symbol string, orderID 
 	}
 
 	log.Printf("[Binance] Cancelled order %d for %s", orderID, symbol)
+	return nil
+}
+
+// CancelAlgoOrder cancels a specific algo order (SL/TP) by AlgoID
+// IMPORTANT: Algo orders (placed via /fapi/v1/algoOrder) must be cancelled
+// using this method, not CancelOrder which uses regular order API
+func (c *BinanceClient) CancelAlgoOrder(ctx context.Context, symbol string, algoID int64) error {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("algoId", strconv.FormatInt(algoID, 10))
+
+	_, err := c.doRequest(ctx, "DELETE", "/fapi/v1/algoOrder", params, true)
+	if err != nil {
+		log.Printf("[Binance] Failed to cancel algo order %d: %v", algoID, err)
+		return err
+	}
+
+	log.Printf("[Binance] Cancelled algo order %d for %s", algoID, symbol)
 	return nil
 }
 
