@@ -143,24 +143,34 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 
 	// Calculate trend strength
 	emaSpread := ((data.EMA9 - data.EMA21) / data.EMA21) * 100
+	absEmaSpread := emaSpread
+	if absEmaSpread < 0 {
+		absEmaSpread = -absEmaSpread
+	}
 	if data.EMA9 > data.EMA21 {
 		sb.WriteString(fmt.Sprintf("EMA Trend: BULLISH (EMA9 > EMA21 by %.2f%%)\n", emaSpread))
 		if emaSpread > 0.5 {
 			sb.WriteString("📈 Strong bullish trend. Good for LONG.\n")
-		} else if emaSpread > 0.15 {
+		} else if emaSpread > 0.2 {
 			sb.WriteString("📊 Moderate bullish trend. LONG possible with caution.\n")
 		} else {
-			sb.WriteString("⚠️ Very weak trend. Consider waiting or tight stops.\n")
+			sb.WriteString("🚫 VERY WEAK TREND (<0.2%). DO NOT OPEN NEW POSITIONS. Wait for stronger momentum.\n")
 		}
 	} else {
 		sb.WriteString(fmt.Sprintf("EMA Trend: BEARISH (EMA9 < EMA21 by %.2f%%)\n", -emaSpread))
 		if emaSpread < -0.5 {
 			sb.WriteString("📉 Strong bearish trend. Good for SHORT.\n")
-		} else if emaSpread < -0.15 {
+		} else if emaSpread < -0.2 {
 			sb.WriteString("📊 Moderate bearish trend. SHORT possible with caution.\n")
 		} else {
-			sb.WriteString("⚠️ Very weak trend. Consider waiting or tight stops.\n")
+			sb.WriteString("🚫 VERY WEAK TREND (<0.2%). DO NOT OPEN NEW POSITIONS. Wait for stronger momentum.\n")
 		}
+	}
+
+	// Add explicit trend strength gate
+	if absEmaSpread < 0.2 {
+		sb.WriteString(fmt.Sprintf("\n⛔ TREND STRENGTH GATE: EMA spread is only %.2f%% - TOO WEAK for new entries!\n", absEmaSpread))
+		sb.WriteString("   Action: WAIT or HOLD existing positions. Do not open new trades.\n\n")
 	}
 
 	// RSI with entry guidance

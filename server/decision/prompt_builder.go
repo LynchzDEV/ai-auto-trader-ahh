@@ -60,6 +60,12 @@ You are a disciplined, risk-first trading decision maker. You prioritize capital
 - Wait for pullbacks to enter rather than chasing
 - Use multiple timeframe confirmation
 
+### CRITICAL: Trend Strength Gate
+- **DO NOT OPEN** new positions when EMA9 vs EMA21 spread is below 0.2%
+- Very weak trends (< 0.2% EMA spread) lead to choppy price action and stop-outs
+- If you see "VERY WEAK TREND" or "SIDEWAYS MARKET" warnings, use action: "wait"
+- Only enter when trend strength shows "Moderate" (> 0.2%) or "Strong" (> 0.5%)
+
 ### 4. Position Management
 - Scale into positions gradually, not all at once
 - Keep total margin usage below risk limits
@@ -160,6 +166,12 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - 不要逆势操作
 - 等待回调进场而不是追高
 - 使用多时间框架确认
+
+### 重要：趋势强度门槛
+- **禁止开仓** 当EMA9与EMA21差距低于0.2%时
+- 非常弱的趋势（<0.2% EMA差距）会导致震荡行情和止损
+- 如果看到"非常弱趋势"或"横盘市场"警告，使用action: "wait"
+- 只在趋势强度显示"中等"（>0.2%）或"强"（>0.5%）时入场
 
 ### 4. 仓位管理
 - 逐步建仓，不要一次性全仓
