@@ -2,98 +2,100 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v3.33.0] - 2026-01-12
+## [v3.37.0] - 2026-01-13
 
 ### Added
 - **Smart Find Auto-Refresh**: New toggle (Turbo Mode only) that automatically cycles Smart Find at configurable intervals (30min, 1hr, 2hr, 4hr) to discover new risky symbols. Analyzes open positions first, then finds 2x max_positions symbols. (#9349c5f)
 
-## [v3.32.0] - 2026-01-12
+## [v3.36.10] - 2026-01-12
 
 ### Fixed
 - **Trailing Stop & Drawdown**: Use raw price % instead of ROE for trailing stop and drawdown calculations for more accurate profit tracking. (#093cdef)
 
-## [v3.31.0] - 2026-01-11
+## [v3.36.9] - 2026-01-11
 
 ### Fixed
 - **Dynamic Noise Zone Config**: Use dynamic noise zone config values in AI prompts instead of hardcoded values. (#3dcaac8)
 
-## [v3.30.0] - 2026-01-11
+## [v3.36.8] - 2026-01-11
 
 ### Fixed
 - **Critical PnL Bug**: Fixed critical PnL calculation bug that was causing massive churn loss. (#28b0f58)
 
-## [v3.29.0] - 2026-01-10
+## [v3.36.7] - 2026-01-10
 
 ### Fixed
 - **Critical Engine Bugs**: Fixed critical engine bugs causing potential losses. (#12218f1)
+
+## [v3.36.6] - 2026-01-10
+
+### Fixed
 - **Noise Zone UI**: Refined Noise Zone Protection UI and layout. (#918b2a4)
 
-## [v3.28.0] - 2026-01-10
+## [v3.36.5] - 2026-01-10
 
 ### Fixed
 - **Algo Order Handling**: Handle algo order cancellations and emergency SLs properly. (#5c0719d)
+
+## [v3.36.4] - 2026-01-10
+
+### Fixed
 - **Trend Strength Gate**: Add trend strength gate to prevent entries in weak/sideways markets. (#d35fc8f)
 
-## [v3.27.0] - 2026-01-09
+## [v3.36.3] - 2026-01-09
 
 ### Fixed
 - **High Priority Bugs**: Fixed high priority bugs with comprehensive test suite. (#da48585)
+
+## [v3.36.2] - 2026-01-09
+
+### Fixed
 - **Critical Trading Bugs**: Fixed critical bugs causing trading losses. (#5148d7a)
+
+## [v3.36.1] - 2026-01-09
+
+### Fixed
 - **P&L Calculation**: Remove leverage multiplier from risk monitoring P&L calculation. (#747fe8c)
 
-## [v3.26.0] - 2026-01-09
+## [v3.36.0] - 2026-01-09
 
 ### Added
 - **Skip Exchange TP**: Skip exchange TP order when trailing stop is enabled - let TSL handle profits instead. (#cbece43)
 
+## [v3.35.1] - 2026-01-09
+
 ### Fixed
 - **Input Validation**: Allow negative numbers in Smart Loss Cut and Noise Zone inputs. (#a8c8385)
 
-## [v3.25.0] - 2026-01-08
+## [v3.35.0] - 2026-01-08
 
 ### Added
 - **Noise Zone Protection UI**: Add configurable Noise Zone Protection settings in the UI. (#b1764a5)
 
+## [v3.34.1] - 2026-01-08
+
 ### Fixed
 - **Simple Mode + Trailing Stop**: Simple Mode now works correctly with Trailing Stop and other features. Redesigned to only disable automatic drawdown protection. (#97bfb36)
 
-## [v3.24.0] - 2026-01-08
+## [v3.34.0] - 2026-01-08
 
 ### Added
-- **Risk Settings Logging**: Added detailed logging that shows which risk management features are active (Trailing Stop, Max Hold Duration, Smart Loss Cut, Emergency Shutdown) once per minute per trader. (#303c19c)
 - **Live Strategy Reload**: Strategy configuration changes now apply immediately to running traders without requiring a restart. (#0c402e2)
 
-## [v3.23.0] - 2026-01-07
+## [v3.33.2] - 2026-01-07
+
+### Fixed
+- **Copy Trading Testnet**: Mock Copy Trading status on Testnet. (#5f66f9c)
+
+## [v3.33.1] - 2026-01-07
+
+### Changed
+- **Copy Trading UI**: Hidden irrelevant strategy settings when Copy Trading mode is active. (#40175a7)
+
+## [v3.33.0] - 2026-01-07
 
 ### Added
 - **Copy Trading Support**: Added "Binance Copy Trading" mode to strategies. In this mode, the bot acts as a monitor for a copy trading portfolio without executing independent AI trades. (#25e8b00)
-- **Trader Configuration**:
-  - Implemented per-trader OpenRouter API key and customized model selection. (#2ba362b)
-  - Added drag-and-drop reordering for traders in the Configuration page. (#a7fe563, #d9f5349)
-- **Strategy Management**:
-  - Added Import/Export functionality for strategy settings (JSON format). (#1bdf89c)
-  - Added "Smart Find" feature to automatically recommend trading pairs using AI. (#f1103f9, #0f14525)
-  - Added "Turbo Mode" toggle for aggressive, high-volatility scalping. (#5fea4a6, #86af0e7)
-  - Added "Simple Mode" toggle to mimic v1.4.7 behavior. (#7214dda, #d3ac05c)
-- **Risk Management**:
-  - Implemented Multi-Timeframe Confirmation (MTF). (#ea19592)
-  - Added Emergency Shutdown System. (#a6fde77, #185bc17)
-  - Added Daily Loss Limit and Max Drawdown configuration. (#d9ebae0, #6e583dc)
-  - Added Trailing Stop and Max Hold Duration features. (#6e0a1c7)
-- **Market Data**:
-  - Implemented Dynamic Coin Sourcing. (#dfdc86d)
-  - Added BTC Global Market Context. (#d30b523)
-
-### Changed
-- Raised default minimum AI confidence threshold to 85%. (#ea19592)
-- Hidden irrelevant strategy settings when Copy Trading mode is active. (#40175a7)
-
-### Fixed
-- Mock Copy Trading status on Testnet. (#5f66f9c)
-- Fixed critical issue where orphaned SL/TP orders caused errors. (#78db4b5)
-
-### Removed
-- Removed legacy `logs.txt` and temporary CSV export files. (#4051bd7)
 
 ## [v3.22.0] - 2026-01-07
 
