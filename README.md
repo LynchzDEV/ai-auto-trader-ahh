@@ -8,72 +8,111 @@
 
 An advanced AI-powered cryptocurrency futures trading platform that leverages multi-agent debate consensus, comprehensive backtesting, and real-time portfolio management to automate trading strategies on Binance Futures.
 
-## 🚀 Key Features
+## Key Features
 
-*   **🤖 Multi-AI Debate System**: Utilizes multiple AI personas (e.g., Risk Manager, Technical Analyst, Fundamentalist) to debate and reach a consensus on trading decisions.
-*   **🧠 Advanced Decision Engine**: Integrates OpenRouter to access top-tier LLMs (DeepSeek, Claude, GPT-4) for market analysis.
-*   **📊 Comprehensive Backtesting**: Robust engine to test strategies against historical Binance data with detailed performance metrics (Sharpe ratio, max drawdown, win rate).
-*   **⚡ Real-time Trading**: Automated, low-latency execution on Binance Futures with support for both Testnet and Mainnet.
-*   **🛡️ Risk Management**: Built-in position sizing, stop-loss/take-profit automation, and leverage controls.
-*   **🖥️ Modern Dashboard**: a sleek, glassmorphism-inspired UI built with React & TailwindCSS for real-time monitoring of positions, equity, and logs.
-*   **📝 Live System Logs**: Real-time streaming of server logs directly to the frontend for easy debugging and monitoring.
-*   **🏆 Strategy Ranking**: Visual comparison of different strategy performances.
+### Core Trading
+*   **Multi-AI Debate System**: Multiple AI personas (Bull, Bear, Analyst, Contrarian, Risk Manager) debate and reach consensus on trading decisions
+*   **Advanced Decision Engine**: Integrates OpenRouter to access top-tier LLMs (DeepSeek, Claude, GPT-4) with Chain-of-Thought reasoning
+*   **Comprehensive Backtesting**: Test strategies against historical Binance data with detailed metrics (Sharpe ratio, max drawdown, win rate, profit factor)
+*   **Real-time Trading**: Automated, low-latency execution on Binance Futures with Testnet and Mainnet support
+*   **Bracket Orders**: Atomic execution of Entry + Stop Loss + Take Profit orders
 
-## 🧠 How It Works
+### Risk Management (7+ Layers)
+*   **Hard Validation**: Enforced 3:1 minimum risk/reward ratio
+*   **Noise Zone Protection**: Block closing positions between -1.5% and +1.5% PnL to prevent panic selling
+*   **Trend Strength Gate**: Prevent entries in sideways markets (EMA spread < 0.2%)
+*   **Trailing Stop Loss**: Automatically lock profits at +1% with 0.5% trailing distance
+*   **Smart Loss Cut**: Force close losers after extended hold time (30+ minutes with >1% loss)
+*   **Max Hold Duration**: Automatically close positions held longer than 4 hours
+*   **Drawdown Protection**: Close positions if drawdown from peak exceeds 40%
+*   **Emergency Shutdown**: Halt trading if balance drops below configured threshold ($60 default)
+*   **Daily Loss Limits**: Stop trading after reaching daily loss threshold (15% default)
 
-The system operates on an automated loop that combines technical analysis with AI reasoning:
+### Dynamic Features
+*   **Smart Find**: AI-recommended volatile trading pairs with auto-refresh
+*   **Turbo Mode**: High-frequency scalping with dynamic coin discovery
+*   **Copy Trading Mode**: Monitor positions without executing trades
+*   **Live Strategy Reload**: Apply configuration changes without restarting
+*   **Bilingual Support**: English and Chinese AI prompts
 
-1.  **Market Analysis**: Before consulting AI, the system calculates hard mathematical indicators (EMA trends, RSI levels, ATR volatility).
-2.  **AI Decision**: A structured prompt including account state, market data, and active positions is sent to the LLM (e.g., DeepSeek, Claude). The AI "thinks" (Chain of Thought) and outputs a JSON decision with confidence levels, stop-losses, and take-profits.
-3.  **Risk Validation**: A rigid validation layer strictly enforces a minimum 3:1 Reward-to-Risk ratio and position sizing limits. Even if the AI says "BUY", the math can veto it.
-4.  **Execution**: Validated trades are executed as "Bracket Orders" on Binance—simultaneously placing the Entry, Stop Loss, and Take Profit orders to ensure safety.
+### Modern Dashboard
+*   **Glassmorphism UI**: Sleek React + TailwindCSS interface
+*   **Real-time Logs**: Live streaming of server logs via SSE
+*   **Equity Curve**: Visual portfolio growth tracking
+*   **Strategy Ranking**: Compare strategy performance with interactive charts
+
+## How It Works
+
+The system operates on an automated loop (default: 5 minutes) combining technical analysis with AI reasoning:
+
+1.  **Market Analysis**: Calculate hard mathematical indicators (EMA9/21 trends, RSI levels, MACD, ATR volatility, Bollinger Bands)
+2.  **Trend Validation**: Check trend strength gate - only proceed if EMA spread > 0.2%
+3.  **AI Decision**: Send structured prompt with account state, market data, and positions to LLM. The AI outputs a JSON decision with confidence, stop-loss, and take-profit levels
+4.  **Risk Validation**: Enforce minimum 3:1 reward-to-risk ratio, leverage limits, and position sizing caps
+5.  **Noise Zone Check**: Block closures in the -1.5% to +1.5% PnL zone unless confidence > 95%
+6.  **Execution**: Execute validated trades as bracket orders (Entry + SL + TP simultaneously)
+7.  **Position Management**: Track peak PnL, apply trailing stops, enforce max hold duration
 
 For a deep dive into the math and logic, check out [TRADING_ALGO.md](TRADING_ALGO.md).
 
-
-## 📂 Project Structure
-
-A high-level overview of the codebase structure:
+## Project Structure
 
 ```
 auto-trader-ahh/
 ├── client/                 # Frontend Application (React + Vite)
 │   ├── src/
 │   │   ├── components/     # Reusable UI components (Charts, Layouts, etc.)
+│   │   ├── contexts/       # React contexts (Auth, etc.)
 │   │   ├── lib/            # API clients and utilities
-│   │   ├── pages/          # Application views (Dashboard, Backtest, Logs, etc.)
+│   │   ├── pages/          # Application views
+│   │   │   ├── Dashboard   # Real-time trader status & positions
+│   │   │   ├── Strategies  # Strategy configuration & management
+│   │   │   ├── Backtest    # Historical backtesting
+│   │   │   ├── Debate      # Multi-AI consensus arena
+│   │   │   ├── History     # Trade history & PnL
+│   │   │   ├── Equity      # Portfolio growth visualization
+│   │   │   ├── Ranking     # Strategy performance comparison
+│   │   │   ├── Config      # Global settings
+│   │   │   └── Logs        # Real-time server logs
 │   │   ├── types/          # TypeScript interfaces
 │   │   └── App.tsx         # Main entry point with routing
 │   ├── Dockerfile          # Frontend container definition
 │   └── package.json        # Frontend dependencies
 │
 ├── server/                 # Backend Application (Go)
-│   ├── api/                # HTTP API endpoints and server handlers
-│   ├── backtest/           # Backtesting engine and simulation logic
+│   ├── api/                # HTTP API endpoints (net/http)
+│   ├── backtest/           # Backtesting engine and simulation
 │   ├── config/             # Configuration loading and validation
-│   ├── data/               # SQLite database storage
-│   ├── debate/             # Multi-agent debate and consensus logic
-│   ├── decision/           # AI decision-making prompt engineering and parsing
+│   ├── data/               # SQLite database storage (trading.db)
+│   ├── debate/             # Multi-agent debate and consensus
+│   ├── decision/           # AI decision engine (NOFX-style XML parsing)
+│   │   ├── prompt_builder  # System/user prompt construction
+│   │   ├── parser          # XML to JSON parsing
+│   │   └── validator       # Risk/reward validation
+│   ├── events/             # Event hub for real-time communication
 │   ├── exchange/           # Binance Futures API integration
-│   ├── logger/             # Custom logging and broadcasting system
-│   ├── mcp/                # Model Context Protocol (AI client integration)
-│   ├── store/              # Database repositories (Equity, Trades, Settings)
-│   ├── strategy/           # Strategy interfaces and definitions
+│   ├── logger/             # Log broadcasting system (SSE)
+│   ├── market/             # Technical indicators (EMA, RSI, MACD, ATR, etc.)
+│   ├── mcp/                # Multi-provider AI client (OpenRouter)
+│   ├── store/              # Database models (Strategies, Traders, Trades, etc.)
 │   ├── trader/             # Core trading engine and execution loop
 │   ├── main.go             # Application entry point
 │   ├── Dockerfile          # Backend container definition
 │   └── go.mod              # Go module definitions
 │
 ├── docker-compose.yml      # Container orchestration
+├── TRADING_ALGO.md         # Algorithm documentation
+├── RECOMMENDED_SETTINGS.md # Configuration guide
+├── CHANGELOG.md            # Version history
 └── README.md               # Project documentation
 ```
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 **Backend**
 *   **Language**: Go 1.23
 *   **Database**: SQLite
-*   **AI Integration**: OpenRouter API (DeepSeek, Anthropic, OpenAI)
+*   **AI Integration**: OpenRouter API (DeepSeek, Anthropic Claude, OpenAI GPT-4, Llama, etc.)
 *   **Exchange**: Binance Futures API
 *   **Libraries**: generic-go-binance, go-sqlite3
 
@@ -82,9 +121,9 @@ auto-trader-ahh/
 *   **Language**: TypeScript
 *   **Styling**: TailwindCSS, Framer Motion
 *   **Components**: Shadcn/UI, Lucide Icons
-*   **Visualization**: Recharts
+*   **Visualization**: Recharts, D3
 
-## 🏁 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -94,7 +133,7 @@ auto-trader-ahh/
 *   **Binance Futures Account** (Testnet recommended for development)
 *   **OpenRouter API Key**
 
-### 🐳 Docker Quick Start (Recommended)
+### Docker Quick Start (Recommended)
 
 1.  **Clone the repository**:
     ```bash
@@ -110,8 +149,13 @@ auto-trader-ahh/
     ```
     Edit `.env` and add your keys:
     ```env
-    API_PORT=your_port_here
-    ACCESS_PASSKEY=your_key_here (recommend for security)
+    OPENROUTER_API_KEY=sk-or-...
+    OPENROUTER_MODEL=deepseek/deepseek-v3.2
+    BINANCE_API_KEY=your_api_key
+    BINANCE_SECRET_KEY=your_secret_key
+    BINANCE_TESTNET=true
+    API_PORT=8080
+    ACCESS_PASSKEY=your_optional_passkey
     ```
 
 3.  **Run with Docker Compose**:
@@ -124,7 +168,7 @@ auto-trader-ahh/
     *   **Dashboard**: [http://localhost:5173](http://localhost:5173)
     *   **API**: [http://localhost:8080](http://localhost:8080)
 
-### 🔧 Manual Installation
+### Manual Installation
 
 #### Backend
 ```bash
@@ -140,19 +184,66 @@ npm install
 npm run dev
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 The system is highly configurable via the Dashboard "Settings" page or `server/.env`.
 
-| Environment Variable | Description | Default |
-|----------------------|-------------|---------|
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENROUTER_API_KEY` | OpenRouter API key for AI | Required |
+| `OPENROUTER_MODEL` | AI model to use | `deepseek/deepseek-v3.2` |
+| `BINANCE_API_KEY` | Binance Futures API key | Required |
+| `BINANCE_SECRET_KEY` | Binance Futures secret | Required |
+| `BINANCE_TESTNET` | Use testnet (true/false) | `true` |
 | `API_PORT` | Port for the Go server | `8080` |
-| `ACCESS_PASSKEY` | Application password for login | Optional |
+| `ACCESS_PASSKEY` | Optional app password | None |
 
-## ⚠️ Disclaimer
+### Strategy Configuration
 
-This monitoring and trading software is for **educational and experimental purposes only**. Cryptocurrency trading involves significant financial risk. The authors and contributors are not responsible for any financial losses incurred while using this software. **Use at your own risk.**
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **Max Positions** | Maximum concurrent positions | 2 |
+| **BTC/ETH Leverage** | Max leverage for BTC/ETH | 10x |
+| **Altcoin Leverage** | Max leverage for altcoins | 20x |
+| **Min Confidence** | Minimum AI confidence to trade | 85% |
+| **Min R/R Ratio** | Minimum reward-to-risk ratio | 3.0 |
+| **Trading Interval** | Minutes between trading cycles | 5 |
+| **Daily Loss Limit** | Stop trading after this loss % | 15% |
+| **Noise Zone** | PnL range to block closures | -1.5% to +1.5% |
 
-## 📄 License
+See [RECOMMENDED_SETTINGS.md](RECOMMENDED_SETTINGS.md) for detailed configuration guides.
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/traders` | List traders |
+| POST | `/api/traders` | Create trader |
+| POST | `/api/traders/{id}/start` | Start trader |
+| POST | `/api/traders/{id}/stop` | Stop trader |
+| GET | `/api/strategies` | List strategies |
+| POST | `/api/strategies` | Create strategy |
+| PUT | `/api/strategies/{id}` | Update strategy |
+| GET | `/api/status` | Get trader status |
+| GET | `/api/positions` | Get open positions |
+| GET | `/api/decisions` | Get recent AI decisions |
+| GET | `/api/trades` | Get trade history |
+| GET | `/api/backtest` | List backtests |
+| POST | `/api/backtest/start` | Start backtest |
+| GET | `/api/debate/sessions` | List debate sessions |
+| POST | `/api/debate/sessions` | Create debate session |
+| GET | `/api/settings` | Get global settings |
+| PUT | `/api/settings` | Update global settings |
+| GET | `/api/logs/stream` | SSE log stream |
+| GET | `/api/events` | SSE event stream |
+
+## Disclaimer
+
+This trading software is for **educational and experimental purposes only**. Cryptocurrency futures trading involves significant financial risk including the possibility of losing more than your initial investment. The authors and contributors are not responsible for any financial losses incurred while using this software. **Use at your own risk.**
+
+## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
