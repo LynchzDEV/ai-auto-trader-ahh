@@ -478,12 +478,29 @@ Return ONLY a JSON array of strings with the selected %d symbols. Example: ["BTC
 Result:`, targetCount)
 
 	// 4. Call AI
-	// Using CallWithMessages since GetCompletion is not available in interface
-	response, err := s.aiClient.CallWithMessages("You are a smart crypto trading assistant.", prompt)
+	// Use :online model for Smart Find/Recommend Pairs to ensure fresh data
+	currentModel := s.aiClient.GetModel()
+	onlineModel := currentModel
+	if !strings.HasSuffix(onlineModel, ":online") {
+		onlineModel += ":online"
+	}
+
+	aiReq := &mcp.Request{
+		Model: onlineModel,
+		Messages: []mcp.Message{
+			{Role: "system", Content: "You are a smart crypto trading assistant."},
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.7,
+		MaxTokens:   4096,
+	}
+
+	respStruct, err := s.aiClient.CallWithRequest(aiReq)
 	if err != nil {
 		s.errorResponse(w, http.StatusInternalServerError, "AI Request failed: "+err.Error())
 		return
 	}
+	response := respStruct.Content
 
 	// 5. Parse Response (Extract JSON array)
 	// Basic cleanup if AI adds markdown

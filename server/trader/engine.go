@@ -475,10 +475,28 @@ Return ONLY a JSON array of strings with the selected %d symbols. Example: ["BTC
 Result:`, targetCount)
 
 	// 5. Call AI
-	response, err := e.mcpClient.CallWithMessages("You are a smart crypto trading assistant.", prompt)
+	// Use :online model for Smart Find to ensure fresh data
+	currentModel := e.mcpClient.GetModel()
+	onlineModel := currentModel
+	if !strings.HasSuffix(onlineModel, ":online") {
+		onlineModel += ":online"
+	}
+
+	req := &mcp.Request{
+		Model: onlineModel,
+		Messages: []mcp.Message{
+			{Role: "system", Content: "You are a smart crypto trading assistant."},
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.7,
+		MaxTokens:   4096,
+	}
+
+	respStruct, err := e.mcpClient.CallWithRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("AI request failed: %w", err)
 	}
+	response := respStruct.Content
 
 	// 6. Parse Response (Extract JSON array)
 	jsonStr := response
