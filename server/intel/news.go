@@ -42,6 +42,10 @@ func FetchNews(ctx context.Context, limit int) ([]NewsItem, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Add headers to avoid 403
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; TradingBot/1.0)")
+	req.Header.Set("Accept", "application/json")
+
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

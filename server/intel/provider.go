@@ -30,15 +30,15 @@ type ProviderConfig struct {
 // DefaultConfig returns default provider configuration
 func DefaultConfig() ProviderConfig {
 	return ProviderConfig{
-		FearGreedCacheDuration: 30 * time.Minute,
-		NewsCacheDuration:      15 * time.Minute,
-		CoinDataCacheDuration:  15 * time.Minute,
+		FearGreedCacheDuration:  30 * time.Minute,
+		NewsCacheDuration:       15 * time.Minute,
+		CoinDataCacheDuration:   15 * time.Minute,
 		GlobalDataCacheDuration: 15 * time.Minute,
-		MaxNewsItems:           10,
-		EnableFearGreed:        true,
-		EnableNews:             true,
-		EnableCoinData:         true,
-		EnableGlobalData:       true,
+		MaxNewsItems:            10,
+		EnableFearGreed:         true,
+		EnableNews:              false, // Disabled - CryptoPanic requires registration
+		EnableCoinData:          true,
+		EnableGlobalData:        true,
 	}
 }
 
