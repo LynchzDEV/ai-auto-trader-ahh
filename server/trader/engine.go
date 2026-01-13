@@ -756,7 +756,7 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 			intelFormatted := intel.FormatForAI(marketIntel, []string{symbol}, 5)
 			if intelFormatted != "" {
 				formattedData = intelFormatted + formattedData
-				log.Printf("[%s][Intel] Successfully injected market intelligence data", e.name)
+				log.Printf("[%s][Intel] Injected market intelligence data:\n%s", e.name, intelFormatted)
 			} else {
 				log.Printf("[%s][Intel] Market intelligence data fetched but formatted output is empty", e.name)
 			}
