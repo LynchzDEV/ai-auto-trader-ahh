@@ -305,12 +305,27 @@ func (c *BinanceClient) GetPositions(ctx context.Context) ([]Position, error) {
 		return nil, fmt.Errorf("failed to parse positions: %w", err)
 	}
 
-	// Filter only positions with non-zero amount
+	// Filter only positions with non-zero amount AND meaningful notional value
 	var activePositions []Position
 	for _, p := range positions {
-		if p.PositionAmt != 0 {
-			activePositions = append(activePositions, p)
+		if p.PositionAmt == 0 {
+			continue
 		}
+
+		// Calculate notional value (position size in USD)
+		amt := p.PositionAmt
+		if amt < 0 {
+			amt = -amt // Absolute value for shorts
+		}
+		notionalValue := amt * p.MarkPrice
+
+		// Filter out dust positions (< $1 notional value)
+		// These are typically leftover from partial fills or closed positions
+		if notionalValue < 1.0 {
+			continue
+		}
+
+		activePositions = append(activePositions, p)
 	}
 
 	return activePositions, nil

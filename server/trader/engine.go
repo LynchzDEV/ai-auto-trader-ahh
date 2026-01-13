@@ -1385,13 +1385,30 @@ func (e *Engine) GetAccount() map[string]interface{} {
 	}
 }
 
-// GetPositions returns current positions
+// GetPositions returns current positions (filters out dust/closed positions)
 func (e *Engine) GetPositions() []map[string]interface{} {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	positions := make([]map[string]interface{}, 0)
 	for _, pos := range e.positions {
+		// Skip zero positions
+		if pos.PositionAmt == 0 {
+			continue
+		}
+
+		// Calculate notional value to filter dust
+		amt := pos.PositionAmt
+		if amt < 0 {
+			amt = -amt
+		}
+		notionalValue := amt * pos.MarkPrice
+
+		// Skip dust positions (< $1 notional)
+		if notionalValue < 1.0 {
+			continue
+		}
+
 		pnlPct := 0.0
 		if pos.EntryPrice > 0 {
 			if pos.PositionAmt > 0 {
