@@ -743,6 +743,21 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	// Format data for AI
 	formattedData := e.dataProvider.FormatForAI(marketData)
 
+	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
+	if e.intelProvider != nil {
+		intelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		marketIntel, err := e.intelProvider.GetMarketIntel(intelCtx, []string{symbol})
+		cancel()
+		if err != nil {
+			log.Printf("[%s][Intel] Failed to fetch intel: %v", e.name, err)
+		} else if marketIntel != nil {
+			intelFormatted := intel.FormatForAI(marketIntel, []string{symbol}, 5)
+			if intelFormatted != "" {
+				formattedData = intelFormatted + formattedData
+			}
+		}
+	}
+
 	// Inject Turbo Mode instructions
 	if e.strategy != nil && e.strategy.Config.TurboMode {
 		formattedData += "\n\n*** TURBO MODE: HIGH FREQUENCY SCALPING ***\n"
