@@ -1299,6 +1299,13 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		e.clearPositionTracking(symbol, side)
 		e.cancelBracketOrders(ctx, symbol)
 
+		// Immediately update local position state so UI reflects the close
+		e.mu.Lock()
+		if pos, exists := e.positions[symbol]; exists {
+			pos.PositionAmt = 0
+		}
+		e.mu.Unlock()
+
 		// Calculate actual realized P&L from fill price
 		realizedPnL := estimatedPnL // Default to estimated if we can't calculate
 		if closeOrder != nil && closeOrder.AvgPrice > 0 && closeOrder.ExecutedQty > 0 {
@@ -2783,6 +2790,9 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 				// Clear peak P&L synchronously to prevent race condition
 				// where a new position could inherit stale peak P&L
 				e.ClearPeakPnL(symbol, side)
+
+				// Mark position as closed in local state so UI reflects the change
+				oldPos.PositionAmt = 0
 			}
 		}
 	}
