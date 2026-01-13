@@ -31,15 +31,39 @@ jobs:
         with:
           fetch-depth: 0  # Need full history for tags
 
+      - name: Check if commit is already tagged
+        id: check_tagged
+        run: |
+          # Check if current commit already has a version tag
+          CURRENT_TAGS=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          if [ -n "${CURRENT_TAGS}" ]; then
+            echo "Current commit is already tagged: ${CURRENT_TAGS}"
+            echo "ALREADY_TAGGED=true" >> $GITHUB_OUTPUT
+            echo "EXISTING_TAG=${CURRENT_TAGS}" >> $GITHUB_OUTPUT
+          else
+            echo "Current commit is not tagged yet"
+            echo "ALREADY_TAGGED=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip if already tagged
+        if: steps.check_tagged.outputs.ALREADY_TAGGED == 'true'
+        run: |
+          echo "## ⏭️ Skipped - Commit Already Tagged" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This commit already has tag: \`${{ steps.check_tagged.outputs.EXISTING_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No new build needed." >> $GITHUB_STEP_SUMMARY
+
       - name: Calculate version
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true'
         id: version
         run: |
           # Get latest tag or default to 1.4.6
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.4.6")
           LATEST_VERSION=${LATEST_TAG#v}
-          
+
           echo "Latest version: ${LATEST_VERSION}"
-          
+
           # If manual override provided, use it
           if [ -n "${{ github.event.inputs.version_override }}" ]; then
             NEW_VERSION="${{ github.event.inputs.version_override }}"
@@ -47,11 +71,11 @@ jobs:
           else
             # Parse current version
             IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_VERSION}"
-            
+
             # Get commit message
             COMMIT_MSG=$(git log -1 --pretty=%B)
             echo "Commit message: ${COMMIT_MSG}"
-            
+
             # Determine bump type from commit message prefix
             if echo "${COMMIT_MSG}" | grep -iqE "^major(\(.+\))?:"; then
               MAJOR=$((MAJOR + 1))
@@ -70,43 +94,58 @@ jobs:
               echo "SKIP=true" >> $GITHUB_OUTPUT
               exit 0
             fi
-            
+
             NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
             echo "Bump type: ${BUMP_TYPE}"
           fi
-          
+
+          # Check if this tag already exists on remote
+          if git ls-remote --tags origin | grep -q "refs/tags/v${NEW_VERSION}$"; then
+            echo "⚠️ Tag v${NEW_VERSION} already exists on remote!"
+            echo "This can happen when workflow runs twice for the same version."
+            echo "Incrementing patch version to avoid conflict..."
+
+            # Keep incrementing until we find an unused version
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${NEW_VERSION}"
+            while git ls-remote --tags origin | grep -q "refs/tags/v${MAJOR}.${MINOR}.${PATCH}$"; do
+              PATCH=$((PATCH + 1))
+            done
+            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Using next available version: ${NEW_VERSION}"
+          fi
+
           echo "New version: ${NEW_VERSION}"
           echo "VERSION=${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "SKIP=false" >> $GITHUB_OUTPUT
 
       - name: Lowercase Registry Owner
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         run: |
           echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Skip if no version bump
-        if: steps.version.outputs.SKIP == 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP == 'true'
         run: |
           echo "No version bump commit prefix found. Skipping Docker build."
           echo "Use commit prefixes: fix:, feat:, or major: to trigger a build."
 
       - name: Set up QEMU
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -114,7 +153,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Server image
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./server
@@ -129,7 +168,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Client image
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./client
@@ -144,15 +183,24 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Create Git tag
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.version.outputs.VERSION }}" -m "Release v${{ steps.version.outputs.VERSION }}"
-          git push origin "v${{ steps.version.outputs.VERSION }}"
+          TAG="v${{ steps.version.outputs.VERSION }}"
+
+          # Double-check tag doesn't exist (safety net)
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "⚠️ Tag ${TAG} already exists on remote, skipping tag creation"
+            echo "Docker images were still pushed with this version tag"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+            echo "✅ Created and pushed tag ${TAG}"
+          fi
 
       - name: Summary
-        if: steps.version.outputs.SKIP != 'true'
+        if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
         run: |
           echo "## 🚀 Release v${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
