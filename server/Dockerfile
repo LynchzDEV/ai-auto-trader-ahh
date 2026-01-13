@@ -1,29 +1,19 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
-
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install xx for cross-compilation and build dependencies
-RUN apk add --no-cache clang lld
-COPY --from=tonistiigi/xx / /
-
 # Copy go mod files
-COPY go.mod go.sum* ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Install target-specific build dependencies and build
-RUN xx-apk add --no-cache gcc musl-dev
-RUN CGO_ENABLED=1 GOOS=$(xx-info os) GOARCH=$(xx-info arch) \
-    CC="xx-clang" \
-    go build -ldflags="-w -s" -o server .
+# Build with pure Go (no CGO needed for modernc.org/sqlite)
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s" -o server .
 
 # Runtime stage
 FROM alpine:3.20
@@ -31,7 +21,7 @@ FROM alpine:3.20
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata sqlite
+RUN apk add --no-cache ca-certificates tzdata
 
 # Copy binary from builder
 COPY --from=builder /app/server .

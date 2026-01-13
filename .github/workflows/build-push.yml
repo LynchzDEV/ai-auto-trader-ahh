@@ -165,7 +165,7 @@ jobs:
             ghcr.io/${{ env.REPO_OWNER }}/trader-ahh-server:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ env.REPO_OWNER }}/trader-ahh-server:latest
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-to: type=gha,mode=max
 
       - name: Build and push Client image
         if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
@@ -180,7 +180,7 @@ jobs:
             ghcr.io/${{ env.REPO_OWNER }}/trader-ahh-client:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ env.REPO_OWNER }}/trader-ahh-client:latest
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-to: type=gha,mode=max
 
       - name: Create Git tag
         if: steps.check_tagged.outputs.ALREADY_TAGGED != 'true' && steps.version.outputs.SKIP != 'true'
