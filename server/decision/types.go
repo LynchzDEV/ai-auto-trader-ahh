@@ -155,6 +155,9 @@ type Context struct {
 	// Noise Zone Config - passed to AI prompts
 	NoiseZoneLowerBound float64 `json:"-"` // e.g., -1.0 means below -1% is significant loss
 	NoiseZoneUpperBound float64 `json:"-"` // e.g., 1.5 means above +1.5% is profit zone
+
+	// Market Intelligence - external data (news, sentiment, fundamentals)
+	MarketIntelFormatted string `json:"-"` // Pre-formatted intel string for AI prompt
 }
 
 // ValidationConfig holds validation parameters

@@ -335,6 +335,11 @@ func FormatContextForAI(ctx *Context, lang Language) string {
 func formatContextDataEN(ctx *Context) string {
 	var sb strings.Builder
 
+	// Market Intelligence first (if available) - this is the external data
+	if ctx.MarketIntelFormatted != "" {
+		sb.WriteString(ctx.MarketIntelFormatted)
+	}
+
 	// Header
 	sb.WriteString("# Current Trading Context\n\n")
 	sb.WriteString(fmt.Sprintf("**Time**: %s\n", ctx.CurrentTime))
@@ -440,6 +445,11 @@ func formatContextDataEN(ctx *Context) string {
 // formatContextDataZH formats context data in Chinese
 func formatContextDataZH(ctx *Context) string {
 	var sb strings.Builder
+
+	// Market Intelligence first (if available) - this is the external data
+	if ctx.MarketIntelFormatted != "" {
+		sb.WriteString(ctx.MarketIntelFormatted)
+	}
 
 	// Header
 	sb.WriteString("# 当前交易环境\n\n")

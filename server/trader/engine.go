@@ -15,6 +15,7 @@ import (
 	"auto-trader-ahh/decision"
 	"auto-trader-ahh/events"
 	"auto-trader-ahh/exchange"
+	"auto-trader-ahh/intel"
 	"auto-trader-ahh/market"
 	"auto-trader-ahh/mcp"
 	"auto-trader-ahh/store"
@@ -83,6 +84,9 @@ type Engine struct {
 
 	// Smart Find Auto-Refresh
 	lastSmartFindRefresh time.Time
+
+	// Market Intelligence Provider (free external data)
+	intelProvider *intel.Provider
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -144,6 +148,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		decisionEngine.SetValidationConfig(validationCfg)
 	}
 
+	// Initialize market intelligence provider with caching
+	intelProvider := intel.NewProvider(intel.DefaultConfig())
+
 	return &Engine{
 		id:             id,
 		name:           name,
@@ -174,6 +181,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		lastResetTime:  time.Now(),
 		initialBalance: 0,
 		notifier:       notifier,
+
+		// Market Intelligence
+		intelProvider: intelProvider,
 	}
 }
 
@@ -1559,19 +1569,38 @@ func (e *Engine) buildDecisionContext(ctx context.Context) *decision.Context {
 		}
 	}
 
+	// Fetch market intelligence (uses caching, won't hit APIs on every call)
+	var intelFormatted string
+	if e.intelProvider != nil {
+		// Get trading symbols for intel fetching
+		symbols := e.getTradingPairs()
+
+		// Fetch intel with timeout
+		intelCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		marketIntel, err := e.intelProvider.GetMarketIntel(intelCtx, symbols)
+		if err != nil {
+			log.Printf("[Intel] Failed to fetch market intelligence: %v", err)
+		} else if marketIntel != nil {
+			intelFormatted = intel.FormatForAI(marketIntel, symbols, 5)
+		}
+	}
+
 	return &decision.Context{
-		CurrentTime:         time.Now().Format(time.RFC3339),
-		RuntimeMinutes:      int(time.Since(e.startTime).Minutes()),
-		CallCount:           e.callCount,
-		Account:             accountInfo,
-		Positions:           positions,
-		CandidateCoins:      candidateCoins,
-		BTCETHLeverage:      btcEthLeverage,
-		AltcoinLeverage:     altcoinLeverage,
-		BTCETHPosRatio:      btcEthPosRatio,
-		AltcoinPosRatio:     altcoinPosRatio,
-		NoiseZoneLowerBound: noiseZoneLower,
-		NoiseZoneUpperBound: noiseZoneUpper,
+		CurrentTime:          time.Now().Format(time.RFC3339),
+		RuntimeMinutes:       int(time.Since(e.startTime).Minutes()),
+		CallCount:            e.callCount,
+		Account:              accountInfo,
+		Positions:            positions,
+		CandidateCoins:       candidateCoins,
+		BTCETHLeverage:       btcEthLeverage,
+		AltcoinLeverage:      altcoinLeverage,
+		BTCETHPosRatio:       btcEthPosRatio,
+		AltcoinPosRatio:      altcoinPosRatio,
+		NoiseZoneLowerBound:  noiseZoneLower,
+		NoiseZoneUpperBound:  noiseZoneUpper,
+		MarketIntelFormatted: intelFormatted,
 	}
 }
 
