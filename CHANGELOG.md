@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.37.7] - 2026-01-13
+
+### Fixed
+- **Position Close UI Sync**: Fixed bug where closed positions remained visible in the UI after AI closed them on Binance. Positions now update immediately instead of waiting for background sync. (#ace36ce)
+
 ## [v3.37.6] - 2026-01-13
 
 ### Fixed
