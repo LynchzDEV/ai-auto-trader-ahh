@@ -35,15 +35,14 @@ func TestFetchFearGreed(t *testing.T) {
 	t.Logf("Formatted:\n%s", formatted)
 }
 
-// TestFetchNews tests the CryptoPanic API
+// TestFetchNews tests the Google News RSS Feed
 func TestFetchNews(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	news, err := FetchNews(ctx, 5)
+	news, err := FetchNews(ctx, "crypto market", 5)
 	if err != nil {
-		// CryptoPanic free API may require registration now - skip test
-		t.Skipf("FetchNews failed (API may require auth): %v", err)
+		t.Fatalf("FetchNews failed: %v", err)
 	}
 
 	if len(news) == 0 {

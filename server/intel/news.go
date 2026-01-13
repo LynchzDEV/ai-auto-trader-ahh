@@ -2,49 +2,46 @@ package intel
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
 
-// CryptoPanic free public API (no auth required)
-const cryptoPanicURL = "https://cryptopanic.com/api/free/v1/posts/?public=true"
+// Google News RSS Feed Base
+const googleNewsRSSBase = "https://news.google.com/rss/search?hl=en-US&gl=US&ceid=US:en&q="
 
-// cryptoPanicResponse represents the API response
-type cryptoPanicResponse struct {
-	Count   int `json:"count"`
-	Results []struct {
-		Kind        string `json:"kind"`
-		Domain      string `json:"domain"`
-		Title       string `json:"title"`
-		PublishedAt string `json:"published_at"`
-		URL         string `json:"url"`
-		Currencies  []struct {
-			Code  string `json:"code"`
-			Title string `json:"title"`
-		} `json:"currencies"`
-		Votes struct {
-			Positive  int `json:"positive"`
-			Negative  int `json:"negative"`
-			Important int `json:"important"`
-			Liked     int `json:"liked"`
-			Disliked  int `json:"disliked"`
-		} `json:"votes"`
-	} `json:"results"`
+type rssFeed struct {
+	Channel struct {
+		Items []rssItem `xml:"item"`
+	} `xml:"channel"`
 }
 
-// FetchNews fetches latest crypto news from CryptoPanic
-func FetchNews(ctx context.Context, limit int) ([]NewsItem, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", cryptoPanicURL, nil)
+type rssItem struct {
+	Title   string `xml:"title"`
+	Link    string `xml:"link"`
+	PubDate string `xml:"pubDate"`
+	Source  string `xml:"source"`
+}
+
+// FetchNews fetches latest crypto news from Google News RSS
+func FetchNews(ctx context.Context, query string, limit int) ([]NewsItem, error) {
+	// If no query provided, default to general crypto market
+	if query == "" {
+		query = "cryptocurrency+trading+market"
+	}
+
+	// URL Encode the query (basic replacement for now)
+	encodedQuery := strings.ReplaceAll(query, " ", "+")
+	url := googleNewsRSSBase + encodedQuery
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add headers to avoid 403
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; TradingBot/1.0)")
-	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -54,46 +51,53 @@ func FetchNews(ctx context.Context, limit int) ([]NewsItem, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("news API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("news feed returned status %d", resp.StatusCode)
 	}
 
-	var result cryptoPanicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	var feed rssFeed
+	if err := xml.NewDecoder(resp.Body).Decode(&feed); err != nil {
+		return nil, fmt.Errorf("failed to decode RSS: %w", err)
 	}
 
 	var news []NewsItem
-	for i, item := range result.Results {
+	for i, item := range feed.Channel.Items {
 		if i >= limit {
 			break
 		}
 
-		published, _ := time.Parse(time.RFC3339, item.PublishedAt)
+		// Parse time (RFC1123 is standard for RSS)
+		published, err := time.Parse(time.RFC1123, item.PubDate)
+		if err != nil {
+			// Try alternative formats if needed, or just use current time fallback
+			published = time.Now()
+		}
 
-		// Determine sentiment from votes
-		sentiment := "neutral"
-		totalVotes := item.Votes.Positive + item.Votes.Negative
-		if totalVotes > 0 {
-			positiveRatio := float64(item.Votes.Positive) / float64(totalVotes)
-			if positiveRatio > 0.6 {
-				sentiment = "positive"
-			} else if positiveRatio < 0.4 {
-				sentiment = "negative"
+		// Clean title ("Title - Source" -> "Title")
+		title := item.Title
+		source := item.Source
+		if idx := strings.LastIndex(title, " - "); idx != -1 {
+			if source == "" {
+				source = title[idx+3:]
+			}
+			title = title[:idx]
+		}
+
+		// Basic currency detection in title
+		var currencies []string
+		upperTitle := strings.ToUpper(title)
+		commonCoins := []string{"BTC", "ETH", "SOL", "XRP", "BNB"}
+		for _, coin := range commonCoins {
+			if strings.Contains(upperTitle, coin) {
+				currencies = append(currencies, coin)
 			}
 		}
 
-		// Extract currency codes
-		var currencies []string
-		for _, c := range item.Currencies {
-			currencies = append(currencies, c.Code)
-		}
-
 		news = append(news, NewsItem{
-			Title:      item.Title,
-			Source:     item.Domain,
-			URL:        item.URL,
+			Title:      title,
+			Source:     source,
+			URL:        item.Link,
 			Published:  published,
-			Sentiment:  sentiment,
+			Sentiment:  "neutral", // AI will determine sentiment from title
 			Currencies: currencies,
 		})
 	}

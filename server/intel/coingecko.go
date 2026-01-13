@@ -10,34 +10,34 @@ import (
 )
 
 const (
-	coingeckoBaseURL   = "https://api.coingecko.com/api/v3"
+	coingeckoBaseURL    = "https://api.coingecko.com/api/v3"
 	coingeckoMarketsURL = coingeckoBaseURL + "/coins/markets"
 	coingeckoGlobalURL  = coingeckoBaseURL + "/global"
 )
 
 // coingeckoMarketResponse represents coin market data from CoinGecko
 type coingeckoMarketResponse struct {
-	ID                           string  `json:"id"`
-	Symbol                       string  `json:"symbol"`
-	Name                         string  `json:"name"`
-	CurrentPrice                 float64 `json:"current_price"`
-	MarketCap                    float64 `json:"market_cap"`
-	MarketCapRank                int     `json:"market_cap_rank"`
-	TotalVolume                  float64 `json:"total_volume"`
-	High24h                      float64 `json:"high_24h"`
-	Low24h                       float64 `json:"low_24h"`
-	PriceChange24h               float64 `json:"price_change_24h"`
-	PriceChangePercentage24h     float64 `json:"price_change_percentage_24h"`
+	ID                                 string  `json:"id"`
+	Symbol                             string  `json:"symbol"`
+	Name                               string  `json:"name"`
+	CurrentPrice                       float64 `json:"current_price"`
+	MarketCap                          float64 `json:"market_cap"`
+	MarketCapRank                      int     `json:"market_cap_rank"`
+	TotalVolume                        float64 `json:"total_volume"`
+	High24h                            float64 `json:"high_24h"`
+	Low24h                             float64 `json:"low_24h"`
+	PriceChange24h                     float64 `json:"price_change_24h"`
+	PriceChangePercentage24h           float64 `json:"price_change_percentage_24h"`
 	PriceChangePercentage7dInCurrency  float64 `json:"price_change_percentage_7d_in_currency"`
 	PriceChangePercentage30dInCurrency float64 `json:"price_change_percentage_30d_in_currency"`
-	ATH                          float64 `json:"ath"`
-	ATHChangePercentage          float64 `json:"ath_change_percentage"`
-	ATHDate                      string  `json:"ath_date"`
-	ATL                          float64 `json:"atl"`
-	ATLChangePercentage          float64 `json:"atl_change_percentage"`
-	CirculatingSupply            float64 `json:"circulating_supply"`
-	TotalSupply                  float64 `json:"total_supply"`
-	LastUpdated                  string  `json:"last_updated"`
+	ATH                                float64 `json:"ath"`
+	ATHChangePercentage                float64 `json:"ath_change_percentage"`
+	ATHDate                            string  `json:"ath_date"`
+	ATL                                float64 `json:"atl"`
+	ATLChangePercentage                float64 `json:"atl_change_percentage"`
+	CirculatingSupply                  float64 `json:"circulating_supply"`
+	TotalSupply                        float64 `json:"total_supply"`
+	LastUpdated                        string  `json:"last_updated"`
 }
 
 // coingeckoGlobalResponse represents global market data
@@ -147,11 +147,11 @@ func FetchGlobalData(ctx context.Context) (*GlobalMarketData, error) {
 	}
 
 	return &GlobalMarketData{
-		TotalMarketCap:        result.Data.TotalMarketCap["usd"],
-		TotalVolume:           result.Data.TotalVolume["usd"],
-		BTCDominance:          result.Data.MarketCapPercentage["btc"],
-		ETHDominance:          result.Data.MarketCapPercentage["eth"],
-		MarketCapChangePct24h: result.Data.MarketCapChangePercentage24h,
+		TotalMarketCap:         result.Data.TotalMarketCap["usd"],
+		TotalVolume:            result.Data.TotalVolume["usd"],
+		BTCDominance:           result.Data.MarketCapPercentage["btc"],
+		ETHDominance:           result.Data.MarketCapPercentage["eth"],
+		MarketCapChangePct24h:  result.Data.MarketCapChangePercentage24h,
 		ActiveCryptocurrencies: result.Data.ActiveCryptocurrencies,
 	}, nil
 }
@@ -163,7 +163,7 @@ func FormatCoinData(coinData map[string]*CoinInfo, symbols []string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## Fundamental Data (CoinGecko)\n\n")
+	sb.WriteString("## Live Coin Data (Source: CoinGecko)\n\n")
 
 	for _, symbol := range symbols {
 		cgID := GetCoinGeckoID(symbol)
@@ -232,7 +232,7 @@ func FormatGlobalData(global *GlobalMarketData) string {
 		btcDomWarning = " [Low BTC dominance - Alt season possible]"
 	}
 
-	return fmt.Sprintf(`## Global Crypto Market
+	return fmt.Sprintf(`## Global Crypto Market (Source: CoinGecko Global)
 - Total Market Cap: $%.0fB (%.2f%% 24h)
 - 24h Volume: $%.0fB
 - BTC Dominance: %.1f%%%s

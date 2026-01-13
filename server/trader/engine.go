@@ -149,7 +149,8 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 	}
 
 	// Initialize market intelligence provider with caching
-	intelProvider := intel.NewProvider(intel.DefaultConfig())
+	intelCfg := intel.DefaultConfig()
+	intelProvider := intel.NewProvider(intelCfg)
 
 	return &Engine{
 		id:             id,
@@ -745,6 +746,7 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
 	if e.intelProvider != nil {
+		log.Printf("[%s] 🌐 Searching web for real-time market news & sentiment...", e.name)
 		intelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		marketIntel, err := e.intelProvider.GetMarketIntel(intelCtx, []string{symbol})
 		cancel()

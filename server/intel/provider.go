@@ -12,18 +12,18 @@ import (
 // ProviderConfig configures the intel provider
 type ProviderConfig struct {
 	// Cache durations
-	FearGreedCacheDuration time.Duration // Default: 30 min (updates daily anyway)
-	NewsCacheDuration      time.Duration // Default: 15 min
-	CoinDataCacheDuration  time.Duration // Default: 15 min
+	FearGreedCacheDuration  time.Duration // Default: 30 min (updates daily anyway)
+	NewsCacheDuration       time.Duration // Default: 15 min
+	CoinDataCacheDuration   time.Duration // Default: 15 min
 	GlobalDataCacheDuration time.Duration // Default: 15 min
 
 	// Limits
 	MaxNewsItems int // Default: 10
 
 	// Feature toggles
-	EnableFearGreed bool
-	EnableNews      bool
-	EnableCoinData  bool
+	EnableFearGreed  bool
+	EnableNews       bool
+	EnableCoinData   bool
 	EnableGlobalData bool
 }
 
@@ -36,7 +36,7 @@ func DefaultConfig() ProviderConfig {
 		GlobalDataCacheDuration: 15 * time.Minute,
 		MaxNewsItems:            10,
 		EnableFearGreed:         true,
-		EnableNews:              false, // Disabled - CryptoPanic requires registration
+		EnableNews:              true,
 		EnableCoinData:          true,
 		EnableGlobalData:        true,
 	}
@@ -209,8 +209,21 @@ func (p *Provider) getNews(ctx context.Context, symbols []string) ([]NewsItem, e
 	}
 	p.mu.RUnlock()
 
-	// Fetch fresh data (get more than we need for filtering)
-	news, err := FetchNews(ctx, 20)
+	// Construct search query from symbols for better relevance
+	query := "cryptocurrency trading market"
+	if len(symbols) > 0 {
+		cleanSymbols := make([]string, 0)
+		for _, s := range symbols {
+			// Strip USDT
+			clean := strings.Replace(s, "USDT", "", 1)
+			cleanSymbols = append(cleanSymbols, clean)
+		}
+		// "BTC ETH SOL crypto news"
+		query = strings.Join(cleanSymbols, " ") + " crypto news"
+	}
+
+	// Fetch fresh data
+	news, err := FetchNews(ctx, query, 20)
 	if err != nil {
 		p.mu.RLock()
 		if p.newsCache != nil {
@@ -342,7 +355,8 @@ func FormatForAI(intel *MarketIntel, symbols []string, maxNewsItems int) string 
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Market Intelligence (External Data)\n\n")
+	sb.WriteString("\n>>> SEARCHING WEB FOR MARKET INTELLIGENCE...\n")
+	sb.WriteString(">>> FOUND RELEVANT LIVE DATA:\n\n")
 
 	// Global market data first
 	if intel.GlobalData != nil {
