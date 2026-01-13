@@ -149,11 +149,6 @@ auto-trader-ahh/
     ```
     Edit `.env` and add your keys:
     ```env
-    OPENROUTER_API_KEY=sk-or-...
-    OPENROUTER_MODEL=deepseek/deepseek-v3.2
-    BINANCE_API_KEY=your_api_key
-    BINANCE_SECRET_KEY=your_secret_key
-    BINANCE_TESTNET=true
     API_PORT=8080
     ACCESS_PASSKEY=your_optional_passkey
     ```
