@@ -129,20 +129,29 @@ func (s *TradeStore) GetLastTradeTime(traderID string) (int64, error) {
 		return 0, nil
 	}
 
-	// Parse timestamp (SQLite defaults to RFC3339 format usually, or whatever was inserted)
-	// Since we insert time.Time, the driver usually inserts "2006-01-02 15:04:05.999999999-07:00"
-	// We'll try standard parsing.
-	t, err := time.Parse(time.RFC3339, timestampStr)
-	if err != nil {
-		// Try alternative layout if RFC3339 fails (e.g. without timezone or space instead of T)
-		t, err = time.Parse("2006-01-02 15:04:05.999999999-07:00", timestampStr)
-		if err != nil {
-			// One last try for simple format
-			t, err = time.Parse("2006-01-02 15:04:05", timestampStr)
-			if err != nil {
-				return 0, fmt.Errorf("failed to parse timestamp %s: %w", timestampStr, err)
-			}
+	// Parse timestamp (SQLite stores time.Time in various formats depending on driver)
+	// Try multiple formats in order of likelihood
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999 +0000 UTC", // SQLite with Go time.Time
+		"2006-01-02 15:04:05.999999 +0000 UTC",
+		"2006-01-02 15:04:05 +0000 UTC",
+		"2006-01-02 15:04:05.999",
+		"2006-01-02 15:04:05",
+	}
+
+	var t time.Time
+	var parseErr error
+	for _, layout := range layouts {
+		t, parseErr = time.Parse(layout, timestampStr)
+		if parseErr == nil {
+			break
 		}
+	}
+	if parseErr != nil {
+		return 0, fmt.Errorf("failed to parse timestamp %s: %w", timestampStr, parseErr)
 	}
 
 	return t.UnixMilli(), nil
