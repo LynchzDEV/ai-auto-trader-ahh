@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.37.6] - 2026-01-13
+
+### Fixed
+- **Dust Position Filter**: Filter out positions with notional value < $1 from display. Fixes issues where closed positions or tiny dust amounts were still showing in the dashboard. (#df071a9)
+
+## [v3.37.5] - 2026-01-13
+
+### Changed
+- **Auto Smart Find Volatility**: Auto Smart Find now always uses volatility-based coin selection instead of volume-based, ensuring it finds coins with actual momentum. (#571d357)
+
+## [v3.37.4] - 2026-01-13
+
+### Fixed
+- **Auto Smart Find**: Fixed Auto Smart Find to always use volatility-based coin selection. (#b092e8a)
+
+## [v3.37.3] - 2026-01-13
+
+### Fixed
+- **Dynamic Coin Source**: Add top_volume to source type check for dynamic coin source. (#4e127ae)
+
+## [v3.37.2] - 2026-01-13
+
+### Fixed
+- **PnL Display**: Improve PnL display and minimum position validation. (#a8745c6)
+
+## [v3.37.1] - 2026-01-13
+
+### Fixed
+- **Auto Smart Find UI**: Always show Auto Smart Find section in Turbo Mode. (#560e758)
+
 ## [v3.37.0] - 2026-01-13
 
 ### Added
