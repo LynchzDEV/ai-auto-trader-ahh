@@ -105,7 +105,7 @@ func TestFetchCoinData(t *testing.T) {
 	}
 
 	// Test formatting
-	formatted := FormatCoinData(coinData, []string{"BTCUSDT", "ETHUSDT"})
+	formatted := FormatCoinData(coinData, []string{"BTCUSDT", "ETHUSDT"}, nil)
 	if formatted == "" {
 		t.Error("FormatCoinData returned empty string")
 	}

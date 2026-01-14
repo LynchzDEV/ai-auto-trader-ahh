@@ -168,7 +168,7 @@ func FetchGlobalData(ctx context.Context) (*GlobalMarketData, error) {
 }
 
 // FormatCoinData formats coin data for AI consumption
-func FormatCoinData(coinData map[string]*CoinInfo, symbols []string) string {
+func FormatCoinData(coinData map[string]*CoinInfo, symbols []string, idMapping map[string]string) string {
 	if len(coinData) == 0 {
 		return ""
 	}
@@ -177,7 +177,18 @@ func FormatCoinData(coinData map[string]*CoinInfo, symbols []string) string {
 	sb.WriteString("## Live Coin Data (Source: CoinGecko)\n\n")
 
 	for _, symbol := range symbols {
-		cgID := GetCoinGeckoID(symbol)
+		var cgID string
+
+		// 1. Try provided mapping first (dynamic + static resolved)
+		if idMapping != nil {
+			cgID = idMapping[symbol]
+		}
+
+		// 2. Fallback to static mapping if not found
+		if cgID == "" {
+			cgID = GetCoinGeckoID(symbol)
+		}
+
 		if cgID == "" {
 			continue
 		}

@@ -12,12 +12,12 @@ import (
 // ProviderConfig configures the intel provider
 type ProviderConfig struct {
 	// Cache durations
-	FearGreedCacheDuration    time.Duration // Default: 30 min (updates daily anyway)
-	NewsCacheDuration         time.Duration // Default: 15 min
-	CoinDataCacheDuration     time.Duration // Default: 15 min
-	GlobalDataCacheDuration   time.Duration // Default: 15 min
-	LunarCrushCacheDuration   time.Duration // Default: 15 min
-	TradingViewCacheDuration  time.Duration // Default: 5 min (more real-time)
+	FearGreedCacheDuration   time.Duration // Default: 30 min (updates daily anyway)
+	NewsCacheDuration        time.Duration // Default: 15 min
+	CoinDataCacheDuration    time.Duration // Default: 15 min
+	GlobalDataCacheDuration  time.Duration // Default: 15 min
+	LunarCrushCacheDuration  time.Duration // Default: 15 min
+	TradingViewCacheDuration time.Duration // Default: 5 min (more real-time)
 
 	// Limits
 	MaxNewsItems int // Default: 10
@@ -29,12 +29,12 @@ type ProviderConfig struct {
 	TradingViewInterval string // "1h", "4h", "1d" (default)
 
 	// Feature toggles
-	EnableFearGreed    bool
-	EnableNews         bool
-	EnableCoinData     bool
-	EnableGlobalData   bool
-	EnableLunarCrush   bool // Requires LunarCrushAPIKey
-	EnableTradingView  bool // TradingView technical analysis
+	EnableFearGreed   bool
+	EnableNews        bool
+	EnableCoinData    bool
+	EnableGlobalData  bool
+	EnableLunarCrush  bool // Requires LunarCrushAPIKey
+	EnableTradingView bool // TradingView technical analysis
 }
 
 // DefaultConfig returns default provider configuration
@@ -90,10 +90,10 @@ type Provider struct {
 	fearGreedCache *FearGreedData
 	fearGreedTime  time.Time
 	// Per-symbol caches
-	newsCache         map[string]*newsCacheEntry  // key: symbol (e.g., "BTC")
-	coinDataCache     map[string]*coinCacheEntry  // key: coingecko ID (e.g., "bitcoin")
-	lunarCrushCache   *lunarCrushCacheEntry       // Cached LunarCrush data (fetched in bulk)
-	tradingViewCache  *tradingViewCacheEntry      // Cached TradingView data (fetched in bulk)
+	newsCache        map[string]*newsCacheEntry // key: symbol (e.g., "BTC")
+	coinDataCache    map[string]*coinCacheEntry // key: coingecko ID (e.g., "bitcoin")
+	lunarCrushCache  *lunarCrushCacheEntry      // Cached LunarCrush data (fetched in bulk)
+	tradingViewCache *tradingViewCacheEntry     // Cached TradingView data (fetched in bulk)
 	// Dynamic symbol-to-CoinGecko ID mapping (permanent cache)
 	symbolIDCache map[string]string // key: symbol (e.g., "IPUSDT"), value: coingecko ID or "" if not found
 	// Global cache (applies to all pairs)
@@ -166,16 +166,20 @@ func (p *Provider) GetMarketIntel(ctx context.Context, symbols []string) (*Marke
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			coinData, err := p.getCoinData(ctx, symbols)
+			coinData, idMapping, err := p.getCoinData(ctx, symbols)
 			if err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("coin data: %w", err))
 				errMu.Unlock()
-				log.Printf("[Intel] CoinGecko fetch error: %v", err)
+				log.Printf("[Intel] CoinGecko: fetch error: %v", err)
 			} else {
 				p.mu.Lock()
 				intel.CoinData = coinData
+				intel.CoinIDMapping = idMapping
 				p.mu.Unlock()
+				if len(coinData) == 0 && len(symbols) > 0 {
+					log.Printf("[Intel] CoinGecko: No coin data returned for %v", symbols)
+				}
 			}
 		}()
 	}
@@ -228,11 +232,17 @@ func (p *Provider) GetMarketIntel(ctx context.Context, symbols []string) (*Marke
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("tradingview: %w", err))
 				errMu.Unlock()
-				log.Printf("[Intel] TradingView fetch error: %v", err)
+				log.Printf("[Intel] TradingView: fetch error: %v", err)
 			} else {
 				p.mu.Lock()
 				intel.TechAnalysis = tvData
 				p.mu.Unlock()
+				// Log missing symbols
+				for _, s := range symbols {
+					if _, ok := tvData[strings.ToUpper(s)]; !ok {
+						log.Printf("[Intel] TradingView: No data for %s", s)
+					}
+				}
 			}
 		}()
 	}
@@ -371,14 +381,18 @@ func (p *Provider) getCoinGeckoID(ctx context.Context, symbol string) string {
 	p.mu.RLock()
 	if id, ok := p.symbolIDCache[symbol]; ok {
 		p.mu.RUnlock()
+		if id == "" {
+			log.Printf("[Intel] CoinGecko: %s not found (cached)", symbol)
+		}
 		return id // Returns "" if we already tried and failed
 	}
 	p.mu.RUnlock()
 
 	// Dynamic lookup via CoinGecko search API
+	log.Printf("[Intel] CoinGecko: Searching for %s...", symbol)
 	id, err := SearchCoinID(ctx, symbol)
 	if err != nil {
-		log.Printf("[Intel] Failed to search CoinGecko for %s: %v", symbol, err)
+		log.Printf("[Intel] CoinGecko: Failed to search for %s: %v", symbol, err)
 		// Don't cache failures from network errors - we'll retry next time
 		return ""
 	}
@@ -389,9 +403,9 @@ func (p *Provider) getCoinGeckoID(ctx context.Context, symbol string) string {
 	p.mu.Unlock()
 
 	if id != "" {
-		log.Printf("[Intel] Discovered CoinGecko ID for %s: %s", symbol, id)
+		log.Printf("[Intel] CoinGecko: Found %s -> %s", symbol, id)
 	} else {
-		log.Printf("[Intel] No CoinGecko ID found for %s", symbol)
+		log.Printf("[Intel] CoinGecko: No match for %s", symbol)
 	}
 
 	return id
@@ -399,12 +413,14 @@ func (p *Provider) getCoinGeckoID(ctx context.Context, symbol string) string {
 
 // getCoinData returns cached or fresh coin data for the given symbols
 // Uses per-symbol caching to only return data for requested symbols
-func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[string]*CoinInfo, error) {
+// Returns: map[ID]Data, map[Symbol]ID, error
+func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[string]*CoinInfo, map[string]string, error) {
 	if len(symbols) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	result := make(map[string]*CoinInfo)
+	idMapping := make(map[string]string)
 	var idsToFetch []string
 
 	// Check per-symbol cache, using dynamic lookup for unknown symbols
@@ -413,6 +429,8 @@ func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[strin
 		if cgID == "" {
 			continue
 		}
+
+		idMapping[symbol] = cgID
 
 		p.mu.RLock()
 		if entry, ok := p.coinDataCache[cgID]; ok && time.Since(entry.fetchedAt) < p.config.CoinDataCacheDuration {
@@ -426,7 +444,7 @@ func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[strin
 
 	// If all symbols are cached, return early
 	if len(idsToFetch) == 0 {
-		return result, nil
+		return result, idMapping, nil
 	}
 
 	// Fetch missing symbols from API
@@ -443,9 +461,9 @@ func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[strin
 
 		// If we got some cached data, return it without error
 		if len(result) > 0 {
-			return result, nil
+			return result, idMapping, nil
 		}
-		return nil, err
+		return nil, idMapping, err
 	}
 
 	// Update per-symbol cache and result
@@ -459,7 +477,7 @@ func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[strin
 	}
 	p.mu.Unlock()
 
-	return result, nil
+	return result, idMapping, nil
 }
 
 // getGlobalData returns cached or fresh global market data
@@ -626,7 +644,7 @@ func FormatForAI(intel *MarketIntel, symbols []string, maxNewsItems int) string 
 
 	// Coin fundamental data
 	if len(intel.CoinData) > 0 {
-		sb.WriteString(FormatCoinData(intel.CoinData, symbols))
+		sb.WriteString(FormatCoinData(intel.CoinData, symbols, intel.CoinIDMapping))
 	}
 
 	// Social sentiment (LunarCrush)
