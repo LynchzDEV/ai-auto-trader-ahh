@@ -13,6 +13,7 @@ const (
 	coingeckoBaseURL    = "https://api.coingecko.com/api/v3"
 	coingeckoMarketsURL = coingeckoBaseURL + "/coins/markets"
 	coingeckoGlobalURL  = coingeckoBaseURL + "/global"
+	coingeckoSearchURL  = coingeckoBaseURL + "/search"
 )
 
 // coingeckoMarketResponse represents coin market data from CoinGecko
@@ -49,6 +50,16 @@ type coingeckoGlobalResponse struct {
 		MarketCapChangePercentage24h float64            `json:"market_cap_change_percentage_24h_usd"`
 		ActiveCryptocurrencies       int                `json:"active_cryptocurrencies"`
 	} `json:"data"`
+}
+
+// coingeckoSearchResponse represents the search API response
+type coingeckoSearchResponse struct {
+	Coins []struct {
+		ID            string `json:"id"`
+		Symbol        string `json:"symbol"`
+		Name          string `json:"name"`
+		MarketCapRank int    `json:"market_cap_rank"`
+	} `json:"coins"`
 }
 
 // FetchCoinData fetches market data for specific coins from CoinGecko
@@ -242,4 +253,52 @@ func FormatGlobalData(global *GlobalMarketData) string {
 `, global.TotalMarketCap/1_000_000_000, global.MarketCapChangePct24h,
 		global.TotalVolume/1_000_000_000, global.BTCDominance, btcDomWarning,
 		global.ETHDominance, marketStatus)
+}
+
+// SearchCoinID searches CoinGecko for a coin by symbol and returns its ID
+// Returns empty string if not found
+func SearchCoinID(ctx context.Context, symbol string) (string, error) {
+	// Clean symbol (remove USDT suffix if present)
+	cleanSymbol := strings.TrimSuffix(strings.ToUpper(symbol), "USDT")
+	if cleanSymbol == "" {
+		return "", nil
+	}
+
+	url := fmt.Sprintf("%s?query=%s", coingeckoSearchURL, strings.ToLower(cleanSymbol))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to search coin: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", fmt.Errorf("CoinGecko rate limit exceeded")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("CoinGecko search returned status %d", resp.StatusCode)
+	}
+
+	var result coingeckoSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Find best match - prefer exact symbol match with highest market cap rank
+	cleanSymbolLower := strings.ToLower(cleanSymbol)
+	for _, coin := range result.Coins {
+		if strings.ToLower(coin.Symbol) == cleanSymbolLower {
+			return coin.ID, nil
+		}
+	}
+
+	// No exact match found
+	return "", nil
 }

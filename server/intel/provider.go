@@ -65,6 +65,8 @@ type Provider struct {
 	// Per-symbol caches
 	newsCache     map[string]*newsCacheEntry // key: symbol (e.g., "BTC")
 	coinDataCache map[string]*coinCacheEntry // key: coingecko ID (e.g., "bitcoin")
+	// Dynamic symbol-to-CoinGecko ID mapping (permanent cache)
+	symbolIDCache map[string]string // key: symbol (e.g., "IPUSDT"), value: coingecko ID or "" if not found
 	// Global cache (applies to all pairs)
 	globalCache *GlobalMarketData
 	globalTime  time.Time
@@ -76,6 +78,7 @@ func NewProvider(config ProviderConfig) *Provider {
 		config:        config,
 		newsCache:     make(map[string]*newsCacheEntry),
 		coinDataCache: make(map[string]*coinCacheEntry),
+		symbolIDCache: make(map[string]string),
 	}
 }
 
@@ -290,6 +293,43 @@ func (p *Provider) getNews(ctx context.Context, symbols []string) ([]NewsItem, e
 	return dedupedNews, nil
 }
 
+// getCoinGeckoID returns the CoinGecko ID for a symbol, using dynamic lookup if needed
+func (p *Provider) getCoinGeckoID(ctx context.Context, symbol string) string {
+	// First check hardcoded mapping
+	if id := GetCoinGeckoID(symbol); id != "" {
+		return id
+	}
+
+	// Check dynamic cache
+	p.mu.RLock()
+	if id, ok := p.symbolIDCache[symbol]; ok {
+		p.mu.RUnlock()
+		return id // Returns "" if we already tried and failed
+	}
+	p.mu.RUnlock()
+
+	// Dynamic lookup via CoinGecko search API
+	id, err := SearchCoinID(ctx, symbol)
+	if err != nil {
+		log.Printf("[Intel] Failed to search CoinGecko for %s: %v", symbol, err)
+		// Don't cache failures from network errors - we'll retry next time
+		return ""
+	}
+
+	// Cache result (even empty string to avoid repeated lookups)
+	p.mu.Lock()
+	p.symbolIDCache[symbol] = id
+	p.mu.Unlock()
+
+	if id != "" {
+		log.Printf("[Intel] Discovered CoinGecko ID for %s: %s", symbol, id)
+	} else {
+		log.Printf("[Intel] No CoinGecko ID found for %s", symbol)
+	}
+
+	return id
+}
+
 // getCoinData returns cached or fresh coin data for the given symbols
 // Uses per-symbol caching to only return data for requested symbols
 func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[string]*CoinInfo, error) {
@@ -300,21 +340,22 @@ func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[strin
 	result := make(map[string]*CoinInfo)
 	var idsToFetch []string
 
-	// Check per-symbol cache
-	p.mu.RLock()
+	// Check per-symbol cache, using dynamic lookup for unknown symbols
 	for _, symbol := range symbols {
-		cgID := GetCoinGeckoID(symbol)
+		cgID := p.getCoinGeckoID(ctx, symbol)
 		if cgID == "" {
 			continue
 		}
 
+		p.mu.RLock()
 		if entry, ok := p.coinDataCache[cgID]; ok && time.Since(entry.fetchedAt) < p.config.CoinDataCacheDuration {
 			result[cgID] = entry.data
+			p.mu.RUnlock()
 		} else {
+			p.mu.RUnlock()
 			idsToFetch = append(idsToFetch, cgID)
 		}
 	}
-	p.mu.RUnlock()
 
 	// If all symbols are cached, return early
 	if len(idsToFetch) == 0 {
