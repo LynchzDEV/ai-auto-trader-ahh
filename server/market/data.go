@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"auto-trader-ahh/exchange"
 )
@@ -25,6 +26,9 @@ type MarketData struct {
 	Trend          string // BULLISH, BEARISH, NEUTRAL
 	BTCPrice       float64
 	BTCChange24h   float64
+	// Funding rate info
+	FundingRate     float64 // Current funding rate (e.g., 0.0001 = 0.01%)
+	NextFundingTime int64   // Unix timestamp of next funding
 }
 
 type DataProvider struct {
@@ -98,20 +102,30 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 		trend = "BEARISH"
 	}
 
+	// Fetch funding rate info (non-blocking, continue if fails)
+	var fundingRate float64
+	var nextFundingTime int64
+	if fundingInfo, err := d.binance.GetFundingInfo(ctx, symbol); err == nil {
+		fundingRate = fundingInfo.LastFundingRate
+		nextFundingTime = fundingInfo.NextFundingTime
+	}
+
 	return &MarketData{
-		Symbol:         symbol,
-		CurrentPrice:   ticker.Price,
-		Klines:         klines,
-		EMA9:           ema9,
-		EMA21:          ema21,
-		RSI:            rsi,
-		MACD:           macd,
-		MACDSignal:     signal,
-		MACDHist:       hist,
-		ATR:            atr,
-		Volume24h:      volume24h,
-		PriceChange24h: priceChange24h,
-		Trend:          trend,
+		Symbol:          symbol,
+		CurrentPrice:    ticker.Price,
+		Klines:          klines,
+		EMA9:            ema9,
+		EMA21:           ema21,
+		RSI:             rsi,
+		MACD:            macd,
+		MACDSignal:      signal,
+		MACDHist:        hist,
+		ATR:             atr,
+		Volume24h:       volume24h,
+		PriceChange24h:  priceChange24h,
+		Trend:           trend,
+		FundingRate:     fundingRate,
+		NextFundingTime: nextFundingTime,
 	}, nil
 }
 
@@ -156,6 +170,49 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 		sb.WriteString("--- BTC Market Context ---\n")
 		sb.WriteString(fmt.Sprintf("BTC Price: $%.2f\n", data.BTCPrice))
 		sb.WriteString(fmt.Sprintf("BTC 24h Change: %.2f%%\n", data.BTCChange24h))
+		sb.WriteString("\n")
+	}
+
+	// Funding Rate Info - Critical for profit calculation
+	if data.FundingRate != 0 || data.NextFundingTime > 0 {
+		sb.WriteString("--- Funding Rate Info ---\n")
+		fundingPct := data.FundingRate * 100 // Convert to percentage
+		sb.WriteString(fmt.Sprintf("Current Funding Rate: %.4f%%\n", fundingPct))
+
+		// Calculate annualized rate (3 fundings per day × 365 days)
+		annualizedRate := fundingPct * 3 * 365
+		sb.WriteString(fmt.Sprintf("Annualized Rate: %.2f%%\n", annualizedRate))
+
+		// Time until next funding
+		if data.NextFundingTime > 0 {
+			nextFundingUnix := data.NextFundingTime / 1000 // Convert ms to seconds
+			now := time.Now().Unix()
+			minsUntilFunding := (nextFundingUnix - now) / 60
+			hoursUntilFunding := minsUntilFunding / 60
+			minsRemainder := minsUntilFunding % 60
+			sb.WriteString(fmt.Sprintf("Next Funding In: %dh %dm\n", hoursUntilFunding, minsRemainder))
+		}
+
+		// Trading cost guidance
+		absFundingPct := fundingPct
+		if absFundingPct < 0 {
+			absFundingPct = -absFundingPct
+		}
+
+		// Trading fees (entry + exit) ≈ 0.08% for futures
+		tradingFeePct := 0.08
+		totalCostPct := absFundingPct + tradingFeePct
+
+		sb.WriteString(fmt.Sprintf("Est. Trading Fees: %.2f%% (entry+exit)\n", tradingFeePct))
+		sb.WriteString(fmt.Sprintf("⚠️ Minimum Profit to Break Even: %.2f%%\n", totalCostPct))
+
+		if fundingPct > 0.03 {
+			sb.WriteString("🔴 HIGH POSITIVE FUNDING: LONG positions pay funding. Consider SHORT bias.\n")
+		} else if fundingPct < -0.03 {
+			sb.WriteString("🟢 HIGH NEGATIVE FUNDING: SHORT positions pay funding. Consider LONG bias.\n")
+		} else {
+			sb.WriteString("🟡 Neutral funding rate.\n")
+		}
 		sb.WriteString("\n")
 	}
 

@@ -349,6 +349,36 @@ func (c *BinanceClient) GetTicker(ctx context.Context, symbol string) (*Ticker, 
 	return &ticker, nil
 }
 
+// FundingInfo contains funding rate information for a symbol
+type FundingInfo struct {
+	Symbol               string  `json:"symbol"`
+	MarkPrice            float64 `json:"markPrice,string"`
+	IndexPrice           float64 `json:"indexPrice,string"`
+	LastFundingRate      float64 `json:"lastFundingRate,string"` // Current/last funding rate (e.g., 0.0001 = 0.01%)
+	NextFundingTime      int64   `json:"nextFundingTime"`        // Timestamp of next funding
+	InterestRate         float64 `json:"interestRate,string"`
+	EstimatedSettlePrice float64 `json:"estimatedSettlePrice,string"` // Estimated settle price for next funding
+}
+
+// GetFundingInfo gets current funding rate info for a symbol
+// Uses /fapi/v1/premiumIndex endpoint which returns current funding rate and next funding time
+func (c *BinanceClient) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/premiumIndex", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var funding FundingInfo
+	if err := json.Unmarshal(body, &funding); err != nil {
+		return nil, fmt.Errorf("failed to parse funding info: %w", err)
+	}
+
+	return &funding, nil
+}
+
 // GetKlines retrieves candlestick data
 func (c *BinanceClient) GetKlines(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	params := url.Values{}
