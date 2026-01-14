@@ -677,6 +677,18 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		pairsToAnalyze = activeSymbols
 	} else {
 		pairsToAnalyze = e.getTradingPairs()
+		log.Printf("[%s] Active positions: %d/%d. Analyzing %d trading pairs: %v",
+			e.name, len(activeSymbols), maxPositions, len(pairsToAnalyze), pairsToAnalyze)
+	}
+
+	// CRITICAL: Check if we have any pairs to analyze
+	if len(pairsToAnalyze) == 0 {
+		log.Printf("[%s] ⚠️ NO TRADING PAIRS TO ANALYZE! Check your coin source config (Static Coins, Smart Find, or Dynamic).", e.name)
+		log.Printf("[%s] Coin Source Type: %s, Static Coins: %v",
+			e.name,
+			e.strategy.Config.CoinSource.SourceType,
+			e.strategy.Config.CoinSource.StaticCoins)
+		return // Exit early - nothing to analyze
 	}
 
 	// Process each trading pair
