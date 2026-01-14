@@ -42,28 +42,40 @@ func DefaultConfig() ProviderConfig {
 	}
 }
 
+// coinCacheEntry holds cached coin data with its own timestamp
+type coinCacheEntry struct {
+	data      *CoinInfo
+	fetchedAt time.Time
+}
+
+// newsCacheEntry holds cached news for a symbol with its own timestamp
+type newsCacheEntry struct {
+	items     []NewsItem
+	fetchedAt time.Time
+}
+
 // Provider fetches and caches market intelligence data
 type Provider struct {
 	config ProviderConfig
 
 	// Cached data with timestamps
-	mu              sync.RWMutex
-	fearGreedCache  *FearGreedData
-	fearGreedTime   time.Time
-	newsCache       []NewsItem
-	newsTime        time.Time
-	coinDataCache   map[string]*CoinInfo
-	coinDataTime    time.Time
-	coinDataSymbols []string // symbols used for last fetch
-	globalCache     *GlobalMarketData
-	globalTime      time.Time
+	mu             sync.RWMutex
+	fearGreedCache *FearGreedData
+	fearGreedTime  time.Time
+	// Per-symbol caches
+	newsCache     map[string]*newsCacheEntry // key: symbol (e.g., "BTC")
+	coinDataCache map[string]*coinCacheEntry // key: coingecko ID (e.g., "bitcoin")
+	// Global cache (applies to all pairs)
+	globalCache *GlobalMarketData
+	globalTime  time.Time
 }
 
 // NewProvider creates a new intel provider
 func NewProvider(config ProviderConfig) *Provider {
 	return &Provider{
 		config:        config,
-		coinDataCache: make(map[string]*CoinInfo),
+		newsCache:     make(map[string]*newsCacheEntry),
+		coinDataCache: make(map[string]*coinCacheEntry),
 	}
 }
 
@@ -194,126 +206,152 @@ func (p *Provider) getFearGreed(ctx context.Context) (*FearGreedData, error) {
 	return fg, nil
 }
 
-// getNews returns cached or fresh news
+// getNews returns cached or fresh news for the given symbols
+// Uses per-symbol caching to avoid returning unrelated news
 func (p *Provider) getNews(ctx context.Context, symbols []string) ([]NewsItem, error) {
-	p.mu.RLock()
-	if p.newsCache != nil && time.Since(p.newsTime) < p.config.NewsCacheDuration {
-		cached := p.newsCache
-		p.mu.RUnlock()
-		// Filter for current symbols
-		filtered := FilterNewsForSymbols(cached, symbols)
-		if len(filtered) > 0 {
-			return filtered, nil
-		}
-		return cached, nil
-	}
-	p.mu.RUnlock()
-
-	// Construct search query from symbols for better relevance
-	query := "cryptocurrency trading market"
-	if len(symbols) > 0 {
-		cleanSymbols := make([]string, 0)
-		for _, s := range symbols {
-			// Strip USDT
-			clean := strings.Replace(s, "USDT", "", 1)
-			cleanSymbols = append(cleanSymbols, clean)
-		}
-		// "BTC ETH SOL crypto news"
-		query = strings.Join(cleanSymbols, " ") + " crypto news"
-	}
-
-	// Fetch fresh data
-	news, err := FetchNews(ctx, query, 20)
-	if err != nil {
-		p.mu.RLock()
-		if p.newsCache != nil {
-			cached := p.newsCache
-			p.mu.RUnlock()
-			return FilterNewsForSymbols(cached, symbols), nil
-		}
-		p.mu.RUnlock()
-		return nil, err
-	}
-
-	// Update cache
-	p.mu.Lock()
-	p.newsCache = news
-	p.newsTime = time.Now()
-	p.mu.Unlock()
-
-	// Filter for requested symbols
-	filtered := FilterNewsForSymbols(news, symbols)
-	if len(filtered) > 0 {
-		return filtered, nil
-	}
-	return news, nil
-}
-
-// getCoinData returns cached or fresh coin data
-func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[string]*CoinInfo, error) {
-	// Check if we need to refresh (new symbols or cache expired)
-	p.mu.RLock()
-	needRefresh := time.Since(p.coinDataTime) >= p.config.CoinDataCacheDuration
-	if !needRefresh {
-		// Check if all requested symbols are in cache
-		for _, symbol := range symbols {
-			cgID := GetCoinGeckoID(symbol)
-			if cgID != "" {
-				if _, ok := p.coinDataCache[cgID]; !ok {
-					needRefresh = true
-					break
-				}
-			}
-		}
-	}
-
-	if !needRefresh && len(p.coinDataCache) > 0 {
-		cached := make(map[string]*CoinInfo)
-		for k, v := range p.coinDataCache {
-			cached[k] = v
-		}
-		p.mu.RUnlock()
-		return cached, nil
-	}
-	p.mu.RUnlock()
-
-	// Get CoinGecko IDs for symbols
-	var coinIDs []string
-	for _, symbol := range symbols {
-		if id := GetCoinGeckoID(symbol); id != "" {
-			coinIDs = append(coinIDs, id)
-		}
-	}
-
-	if len(coinIDs) == 0 {
+	if len(symbols) == 0 {
 		return nil, nil
 	}
 
-	// Fetch fresh data
-	coinData, err := FetchCoinData(ctx, coinIDs)
-	if err != nil {
-		// Return cached if available
-		p.mu.RLock()
-		if len(p.coinDataCache) > 0 {
-			cached := make(map[string]*CoinInfo)
-			for k, v := range p.coinDataCache {
-				cached[k] = v
+	// Extract base currencies from symbols
+	baseCurrencies := make([]string, 0, len(symbols))
+	for _, s := range symbols {
+		base := strings.TrimSuffix(s, "USDT")
+		if base != "" {
+			baseCurrencies = append(baseCurrencies, base)
+		}
+	}
+
+	if len(baseCurrencies) == 0 {
+		return nil, nil
+	}
+
+	// Collect news from per-symbol cache or fetch fresh
+	var allNews []NewsItem
+	var symbolsToFetch []string
+
+	p.mu.RLock()
+	for _, base := range baseCurrencies {
+		if entry, ok := p.newsCache[base]; ok && time.Since(entry.fetchedAt) < p.config.NewsCacheDuration {
+			allNews = append(allNews, entry.items...)
+		} else {
+			symbolsToFetch = append(symbolsToFetch, base)
+		}
+	}
+	p.mu.RUnlock()
+
+	// Fetch news for symbols not in cache
+	for _, base := range symbolsToFetch {
+		// Query specifically for this symbol
+		query := base + " cryptocurrency crypto news"
+		news, err := FetchNews(ctx, query, 10)
+		if err != nil {
+			// Try to use stale cache if available
+			p.mu.RLock()
+			if entry, ok := p.newsCache[base]; ok {
+				allNews = append(allNews, entry.items...)
 			}
 			p.mu.RUnlock()
-			return cached, nil
+			continue
+		}
+
+		// Filter to only include news actually mentioning this symbol
+		filtered := FilterNewsForSymbols(news, []string{base + "USDT"})
+		if len(filtered) == 0 {
+			// If no filtered results, take top 3 from the query results
+			if len(news) > 3 {
+				filtered = news[:3]
+			} else {
+				filtered = news
+			}
+		}
+
+		// Update per-symbol cache
+		p.mu.Lock()
+		p.newsCache[base] = &newsCacheEntry{
+			items:     filtered,
+			fetchedAt: time.Now(),
+		}
+		p.mu.Unlock()
+
+		allNews = append(allNews, filtered...)
+	}
+
+	// Deduplicate news by title
+	seen := make(map[string]bool)
+	dedupedNews := make([]NewsItem, 0, len(allNews))
+	for _, item := range allNews {
+		if !seen[item.Title] {
+			seen[item.Title] = true
+			dedupedNews = append(dedupedNews, item)
+		}
+	}
+
+	return dedupedNews, nil
+}
+
+// getCoinData returns cached or fresh coin data for the given symbols
+// Uses per-symbol caching to only return data for requested symbols
+func (p *Provider) getCoinData(ctx context.Context, symbols []string) (map[string]*CoinInfo, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[string]*CoinInfo)
+	var idsToFetch []string
+
+	// Check per-symbol cache
+	p.mu.RLock()
+	for _, symbol := range symbols {
+		cgID := GetCoinGeckoID(symbol)
+		if cgID == "" {
+			continue
+		}
+
+		if entry, ok := p.coinDataCache[cgID]; ok && time.Since(entry.fetchedAt) < p.config.CoinDataCacheDuration {
+			result[cgID] = entry.data
+		} else {
+			idsToFetch = append(idsToFetch, cgID)
+		}
+	}
+	p.mu.RUnlock()
+
+	// If all symbols are cached, return early
+	if len(idsToFetch) == 0 {
+		return result, nil
+	}
+
+	// Fetch missing symbols from API
+	coinData, err := FetchCoinData(ctx, idsToFetch)
+	if err != nil {
+		// Return stale cache if available
+		p.mu.RLock()
+		for _, id := range idsToFetch {
+			if entry, ok := p.coinDataCache[id]; ok {
+				result[id] = entry.data
+			}
 		}
 		p.mu.RUnlock()
+
+		// If we got some cached data, return it without error
+		if len(result) > 0 {
+			return result, nil
+		}
 		return nil, err
 	}
 
-	// Update cache
+	// Update per-symbol cache and result
 	p.mu.Lock()
-	p.coinDataCache = coinData
-	p.coinDataTime = time.Now()
-	p.coinDataSymbols = symbols
+	for id, data := range coinData {
+		p.coinDataCache[id] = &coinCacheEntry{
+			data:      data,
+			fetchedAt: time.Now(),
+		}
+		result[id] = data
+	}
 	p.mu.Unlock()
 
-	return coinData, nil
+	return result, nil
 }
 
 // getGlobalData returns cached or fresh global market data
@@ -389,7 +427,7 @@ func (p *Provider) ClearCache() {
 	defer p.mu.Unlock()
 
 	p.fearGreedCache = nil
-	p.newsCache = nil
-	p.coinDataCache = make(map[string]*CoinInfo)
+	p.newsCache = make(map[string]*newsCacheEntry)
+	p.coinDataCache = make(map[string]*coinCacheEntry)
 	p.globalCache = nil
 }
