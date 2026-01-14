@@ -1,0 +1,13 @@
+# Passive Income Ahh - AI Trading Platform
+# %VITE_SITE_URL%
+
+User-agent: *
+Allow: /
+
+# Disallow sensitive areas
+Disallow: /api/
+Disallow: /config
+Disallow: /logs
+
+# Sitemap location
+Sitemap: %VITE_SITE_URL%/sitemap.xml
