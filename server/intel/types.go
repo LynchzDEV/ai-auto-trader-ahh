@@ -4,11 +4,13 @@ import "time"
 
 // MarketIntel contains aggregated market intelligence data
 type MarketIntel struct {
-	FetchedAt   time.Time          `json:"fetched_at"`
-	FearGreed   *FearGreedData     `json:"fear_greed,omitempty"`
-	News        []NewsItem         `json:"news,omitempty"`
-	CoinData    map[string]*CoinInfo `json:"coin_data,omitempty"`
-	GlobalData  *GlobalMarketData  `json:"global_data,omitempty"`
+	FetchedAt      time.Time                   `json:"fetched_at"`
+	FearGreed      *FearGreedData              `json:"fear_greed,omitempty"`
+	News           []NewsItem                  `json:"news,omitempty"`
+	CoinData       map[string]*CoinInfo        `json:"coin_data,omitempty"`
+	GlobalData     *GlobalMarketData           `json:"global_data,omitempty"`
+	SocialData     map[string]*LunarCrushData  `json:"social_data,omitempty"`  // LunarCrush sentiment
+	TechAnalysis   map[string]*TradingViewData `json:"tech_analysis,omitempty"` // TradingView ratings
 }
 
 // FearGreedData represents the Fear & Greed Index

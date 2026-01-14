@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -150,6 +151,12 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 
 	// Initialize market intelligence provider with caching
 	intelCfg := intel.DefaultConfig()
+	// Enable LunarCrush if API key is set
+	if lunarCrushKey := os.Getenv("LUNARCRUSH_API_KEY"); lunarCrushKey != "" {
+		intelCfg.LunarCrushAPIKey = lunarCrushKey
+		intelCfg.EnableLunarCrush = true
+		log.Printf("[Intel] LunarCrush social sentiment enabled")
+	}
 	intelProvider := intel.NewProvider(intelCfg)
 
 	return &Engine{

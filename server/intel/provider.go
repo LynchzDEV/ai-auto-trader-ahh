@@ -12,33 +12,48 @@ import (
 // ProviderConfig configures the intel provider
 type ProviderConfig struct {
 	// Cache durations
-	FearGreedCacheDuration  time.Duration // Default: 30 min (updates daily anyway)
-	NewsCacheDuration       time.Duration // Default: 15 min
-	CoinDataCacheDuration   time.Duration // Default: 15 min
-	GlobalDataCacheDuration time.Duration // Default: 15 min
+	FearGreedCacheDuration    time.Duration // Default: 30 min (updates daily anyway)
+	NewsCacheDuration         time.Duration // Default: 15 min
+	CoinDataCacheDuration     time.Duration // Default: 15 min
+	GlobalDataCacheDuration   time.Duration // Default: 15 min
+	LunarCrushCacheDuration   time.Duration // Default: 15 min
+	TradingViewCacheDuration  time.Duration // Default: 5 min (more real-time)
 
 	// Limits
 	MaxNewsItems int // Default: 10
 
+	// API Keys
+	LunarCrushAPIKey string // Optional: LunarCrush API key for social sentiment
+
+	// TradingView settings
+	TradingViewInterval string // "1h", "4h", "1d" (default)
+
 	// Feature toggles
-	EnableFearGreed  bool
-	EnableNews       bool
-	EnableCoinData   bool
-	EnableGlobalData bool
+	EnableFearGreed    bool
+	EnableNews         bool
+	EnableCoinData     bool
+	EnableGlobalData   bool
+	EnableLunarCrush   bool // Requires LunarCrushAPIKey
+	EnableTradingView  bool // TradingView technical analysis
 }
 
 // DefaultConfig returns default provider configuration
 func DefaultConfig() ProviderConfig {
 	return ProviderConfig{
-		FearGreedCacheDuration:  30 * time.Minute,
-		NewsCacheDuration:       15 * time.Minute,
-		CoinDataCacheDuration:   15 * time.Minute,
-		GlobalDataCacheDuration: 15 * time.Minute,
-		MaxNewsItems:            10,
-		EnableFearGreed:         true,
-		EnableNews:              true,
-		EnableCoinData:          true,
-		EnableGlobalData:        true,
+		FearGreedCacheDuration:   30 * time.Minute,
+		NewsCacheDuration:        15 * time.Minute,
+		CoinDataCacheDuration:    15 * time.Minute,
+		GlobalDataCacheDuration:  15 * time.Minute,
+		LunarCrushCacheDuration:  15 * time.Minute,
+		TradingViewCacheDuration: 5 * time.Minute, // More real-time for TA
+		MaxNewsItems:             10,
+		TradingViewInterval:      "1h", // Default to 1 hour
+		EnableFearGreed:          true,
+		EnableNews:               true,
+		EnableCoinData:           true,
+		EnableGlobalData:         true,
+		EnableLunarCrush:         false, // Disabled by default, needs API key
+		EnableTradingView:        true,  // Enabled by default (free, no API key)
 	}
 }
 
@@ -54,6 +69,18 @@ type newsCacheEntry struct {
 	fetchedAt time.Time
 }
 
+// lunarCrushCacheEntry holds cached LunarCrush data with timestamp
+type lunarCrushCacheEntry struct {
+	data      map[string]*LunarCrushData
+	fetchedAt time.Time
+}
+
+// tradingViewCacheEntry holds cached TradingView data with timestamp
+type tradingViewCacheEntry struct {
+	data      map[string]*TradingViewData
+	fetchedAt time.Time
+}
+
 // Provider fetches and caches market intelligence data
 type Provider struct {
 	config ProviderConfig
@@ -63,8 +90,10 @@ type Provider struct {
 	fearGreedCache *FearGreedData
 	fearGreedTime  time.Time
 	// Per-symbol caches
-	newsCache     map[string]*newsCacheEntry // key: symbol (e.g., "BTC")
-	coinDataCache map[string]*coinCacheEntry // key: coingecko ID (e.g., "bitcoin")
+	newsCache         map[string]*newsCacheEntry  // key: symbol (e.g., "BTC")
+	coinDataCache     map[string]*coinCacheEntry  // key: coingecko ID (e.g., "bitcoin")
+	lunarCrushCache   *lunarCrushCacheEntry       // Cached LunarCrush data (fetched in bulk)
+	tradingViewCache  *tradingViewCacheEntry      // Cached TradingView data (fetched in bulk)
 	// Dynamic symbol-to-CoinGecko ID mapping (permanent cache)
 	symbolIDCache map[string]string // key: symbol (e.g., "IPUSDT"), value: coingecko ID or "" if not found
 	// Global cache (applies to all pairs)
@@ -165,6 +194,44 @@ func (p *Provider) GetMarketIntel(ctx context.Context, symbols []string) (*Marke
 			} else {
 				p.mu.Lock()
 				intel.GlobalData = global
+				p.mu.Unlock()
+			}
+		}()
+	}
+
+	// Fetch LunarCrush Social Sentiment
+	if p.config.EnableLunarCrush && p.config.LunarCrushAPIKey != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			socialData, err := p.getLunarCrushData(ctx, symbols)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("lunarcrush: %w", err))
+				errMu.Unlock()
+				log.Printf("[Intel] LunarCrush fetch error: %v", err)
+			} else {
+				p.mu.Lock()
+				intel.SocialData = socialData
+				p.mu.Unlock()
+			}
+		}()
+	}
+
+	// Fetch TradingView Technical Analysis
+	if p.config.EnableTradingView {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tvData, err := p.getTradingViewData(ctx, symbols)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("tradingview: %w", err))
+				errMu.Unlock()
+				log.Printf("[Intel] TradingView fetch error: %v", err)
+			} else {
+				p.mu.Lock()
+				intel.TechAnalysis = tvData
 				p.mu.Unlock()
 			}
 		}()
@@ -427,6 +494,116 @@ func (p *Provider) getGlobalData(ctx context.Context) (*GlobalMarketData, error)
 	return global, nil
 }
 
+// getLunarCrushData returns cached or fresh LunarCrush social sentiment data
+func (p *Provider) getLunarCrushData(ctx context.Context, symbols []string) (map[string]*LunarCrushData, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+
+	// Check cache
+	p.mu.RLock()
+	if p.lunarCrushCache != nil && time.Since(p.lunarCrushCache.fetchedAt) < p.config.LunarCrushCacheDuration {
+		cached := p.lunarCrushCache.data
+		p.mu.RUnlock()
+		// Filter to requested symbols
+		result := make(map[string]*LunarCrushData)
+		for _, symbol := range symbols {
+			base := strings.TrimSuffix(strings.ToUpper(symbol), "USDT")
+			if data, ok := cached[base]; ok {
+				result[base] = data
+			}
+		}
+		return result, nil
+	}
+	p.mu.RUnlock()
+
+	// Fetch fresh data
+	data, err := FetchLunarCrushData(ctx, p.config.LunarCrushAPIKey, symbols)
+	if err != nil {
+		// Return stale cache if available
+		p.mu.RLock()
+		if p.lunarCrushCache != nil {
+			cached := p.lunarCrushCache.data
+			p.mu.RUnlock()
+			result := make(map[string]*LunarCrushData)
+			for _, symbol := range symbols {
+				base := strings.TrimSuffix(strings.ToUpper(symbol), "USDT")
+				if d, ok := cached[base]; ok {
+					result[base] = d
+				}
+			}
+			return result, nil
+		}
+		p.mu.RUnlock()
+		return nil, err
+	}
+
+	// Update cache
+	p.mu.Lock()
+	p.lunarCrushCache = &lunarCrushCacheEntry{
+		data:      data,
+		fetchedAt: time.Now(),
+	}
+	p.mu.Unlock()
+
+	return data, nil
+}
+
+// getTradingViewData returns cached or fresh TradingView technical analysis
+func (p *Provider) getTradingViewData(ctx context.Context, symbols []string) (map[string]*TradingViewData, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+
+	// Check cache
+	p.mu.RLock()
+	if p.tradingViewCache != nil && time.Since(p.tradingViewCache.fetchedAt) < p.config.TradingViewCacheDuration {
+		cached := p.tradingViewCache.data
+		p.mu.RUnlock()
+		// Filter to requested symbols
+		result := make(map[string]*TradingViewData)
+		for _, symbol := range symbols {
+			sym := strings.ToUpper(symbol)
+			if data, ok := cached[sym]; ok {
+				result[sym] = data
+			}
+		}
+		return result, nil
+	}
+	p.mu.RUnlock()
+
+	// Fetch fresh data
+	data, err := FetchTradingViewData(ctx, symbols, p.config.TradingViewInterval)
+	if err != nil {
+		// Return stale cache if available
+		p.mu.RLock()
+		if p.tradingViewCache != nil {
+			cached := p.tradingViewCache.data
+			p.mu.RUnlock()
+			result := make(map[string]*TradingViewData)
+			for _, symbol := range symbols {
+				sym := strings.ToUpper(symbol)
+				if d, ok := cached[sym]; ok {
+					result[sym] = d
+				}
+			}
+			return result, nil
+		}
+		p.mu.RUnlock()
+		return nil, err
+	}
+
+	// Update cache
+	p.mu.Lock()
+	p.tradingViewCache = &tradingViewCacheEntry{
+		data:      data,
+		fetchedAt: time.Now(),
+	}
+	p.mu.Unlock()
+
+	return data, nil
+}
+
 // FormatForAI formats all market intelligence for AI consumption
 func FormatForAI(intel *MarketIntel, symbols []string, maxNewsItems int) string {
 	if intel == nil {
@@ -452,6 +629,16 @@ func FormatForAI(intel *MarketIntel, symbols []string, maxNewsItems int) string 
 		sb.WriteString(FormatCoinData(intel.CoinData, symbols))
 	}
 
+	// Social sentiment (LunarCrush)
+	if len(intel.SocialData) > 0 {
+		sb.WriteString(FormatLunarCrushData(intel.SocialData, symbols))
+	}
+
+	// TradingView technical analysis
+	if len(intel.TechAnalysis) > 0 {
+		sb.WriteString(FormatTradingViewData(intel.TechAnalysis, symbols))
+	}
+
 	// News
 	if len(intel.News) > 0 {
 		sb.WriteString(FormatNews(intel.News, maxNewsItems))
@@ -470,5 +657,7 @@ func (p *Provider) ClearCache() {
 	p.fearGreedCache = nil
 	p.newsCache = make(map[string]*newsCacheEntry)
 	p.coinDataCache = make(map[string]*coinCacheEntry)
+	p.lunarCrushCache = nil
+	p.tradingViewCache = nil
 	p.globalCache = nil
 }
