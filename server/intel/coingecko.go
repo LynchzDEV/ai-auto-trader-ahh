@@ -272,27 +272,20 @@ func FormatGlobalData(global *GlobalMarketData) string {
 
 	marketStatus := "NEUTRAL"
 	if global.MarketCapChangePct24h > 2 {
-		marketStatus = "BULLISH - Market expanding"
+		marketStatus = "BULLISH"
 	} else if global.MarketCapChangePct24h < -2 {
-		marketStatus = "BEARISH - Market contracting"
+		marketStatus = "BEARISH"
 	}
 
-	btcDomWarning := ""
-	if global.BTCDominance > 55 {
-		btcDomWarning = " [High BTC dominance - Altcoins may lag]"
-	} else if global.BTCDominance < 40 {
-		btcDomWarning = " [Low BTC dominance - Alt season possible]"
-	}
-
-	return fmt.Sprintf(`## Global Crypto Market (Source: CoinGecko Global)
-- Total Market Cap: $%.0fB (%.2f%% 24h)
+	return fmt.Sprintf(`## Global Crypto Market
+- Total Market Cap: $%.0fB (%.2f%% 24h change)
 - 24h Volume: $%.0fB
-- BTC Dominance: %.1f%%%s
+- BTC Dominance: %.1f%%
 - ETH Dominance: %.1f%%
-- Market Status: %s
+- Overall Market: %s
 
 `, global.TotalMarketCap/1_000_000_000, global.MarketCapChangePct24h,
-		global.TotalVolume/1_000_000_000, global.BTCDominance, btcDomWarning,
+		global.TotalVolume/1_000_000_000, global.BTCDominance,
 		global.ETHDominance, marketStatus)
 }
 

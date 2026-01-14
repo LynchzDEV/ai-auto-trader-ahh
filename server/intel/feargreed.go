@@ -71,28 +71,22 @@ func FormatFearGreed(fg *FearGreedData) string {
 	}
 
 	emoji := "😐"
-	warning := ""
 	switch {
 	case fg.Value <= 20:
 		emoji = "😱"
-		warning = "EXTREME FEAR - Potential buying opportunity, but high risk of further drops"
 	case fg.Value <= 40:
 		emoji = "😰"
-		warning = "FEAR - Market is cautious, potential accumulation zone"
 	case fg.Value <= 60:
 		emoji = "😐"
-		warning = "NEUTRAL - Market sentiment is balanced"
 	case fg.Value <= 80:
 		emoji = "😀"
-		warning = "GREED - Market is optimistic, be cautious of overextension"
 	default:
 		emoji = "🤑"
-		warning = "EXTREME GREED - High risk of correction, consider taking profits"
 	}
 
 	return fmt.Sprintf(`## Market Sentiment (Fear & Greed Index)
 - Value: %d/100 %s
 - Classification: %s
-- Signal: %s
-`, fg.Value, emoji, fg.Classification, warning)
+
+`, fg.Value, emoji, fg.Classification)
 }

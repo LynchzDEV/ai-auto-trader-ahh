@@ -124,16 +124,38 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 	sb.WriteString(fmt.Sprintf("24h Price Change: %.2f%%\n", data.PriceChange24h))
 	sb.WriteString(fmt.Sprintf("24h Volume: $%.2f\n\n", data.Volume24h))
 
+	// Provide recent high/low context (facts only, AI decides what to do)
+	if len(data.Klines) >= 10 {
+		recentCandles := data.Klines[len(data.Klines)-10:]
+
+		// Find the highest high and lowest low in recent candles
+		var recentHigh, recentLow float64
+		recentHigh = recentCandles[0].High
+		recentLow = recentCandles[0].Low
+
+		for _, candle := range recentCandles {
+			if candle.High > recentHigh {
+				recentHigh = candle.High
+			}
+			if candle.Low < recentLow {
+				recentLow = candle.Low
+			}
+		}
+
+		// Check how far current price is from the recent high/low
+		pctFromRecentHigh := ((recentHigh - data.CurrentPrice) / recentHigh) * 100
+		pctFromRecentLow := ((data.CurrentPrice - recentLow) / recentLow) * 100
+
+		sb.WriteString("--- Recent Range (Last 10 Candles) ---\n")
+		sb.WriteString(fmt.Sprintf("Recent High: $%.2f (current is %.1f%% below)\n", recentHigh, pctFromRecentHigh))
+		sb.WriteString(fmt.Sprintf("Recent Low: $%.2f (current is %.1f%% above)\n", recentLow, pctFromRecentLow))
+		sb.WriteString("\n")
+	}
+
 	if data.BTCPrice > 0 {
-		sb.WriteString("--- Global Market Context (BTC) ---\n")
+		sb.WriteString("--- BTC Market Context ---\n")
 		sb.WriteString(fmt.Sprintf("BTC Price: $%.2f\n", data.BTCPrice))
 		sb.WriteString(fmt.Sprintf("BTC 24h Change: %.2f%%\n", data.BTCChange24h))
-		// Add BTC context warning
-		if data.BTCChange24h < -2 {
-			sb.WriteString("⚠️ WARNING: BTC is BEARISH. Avoid LONG entries unless very confident.\n")
-		} else if data.BTCChange24h > 2 {
-			sb.WriteString("✅ BTC is BULLISH. LONG entries have tailwind.\n")
-		}
 		sb.WriteString("\n")
 	}
 
@@ -252,12 +274,13 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 	}
 	sb.WriteString("\n")
 
-	// Recent price action (last 10 candles only for clarity)
+	// Recent price action - send more candles so AI can see the full picture
 	candleCount := len(data.Klines)
-	if candleCount > 10 {
-		candleCount = 10
+	if candleCount > 30 {
+		candleCount = 30
 	}
 	sb.WriteString(fmt.Sprintf("--- Recent Price Action (Last %d Candles) ---\n", candleCount))
+
 	startIdx := len(data.Klines) - candleCount
 	if startIdx < 0 {
 		startIdx = 0
@@ -283,8 +306,11 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 		if wickPct > 60 {
 			wickWarning = " [HIGH WICK ⚠️]"
 		}
-		sb.WriteString(fmt.Sprintf("  O:%.2f H:%.2f L:%.2f C:%.2f [%s %.2f%%]%s\n",
-			k.Open, k.High, k.Low, k.Close, candle, change, wickWarning))
+
+		// Add candle number for easier reference
+		candleNum := i - startIdx + 1
+		sb.WriteString(fmt.Sprintf("  #%02d O:%.2f H:%.2f L:%.2f C:%.2f [%s %.2f%%]%s\n",
+			candleNum, k.Open, k.High, k.Low, k.Close, candle, change, wickWarning))
 	}
 
 	return sb.String()
