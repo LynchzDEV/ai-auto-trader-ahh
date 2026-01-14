@@ -907,6 +907,116 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 						e.name, symbol, confirmTF, decision.Action)
 				}
 			}
+
+			// SIGNAL CONFIRMATION - Verify medium-confidence signals before executing
+			// High confidence (90%+) executes immediately, medium confidence (75-89%) waits and re-verifies
+			if e.strategy != nil && e.strategy.Config.RiskControl.EnableSignalConfirmation {
+				rc := e.strategy.Config.RiskControl
+				highConfThreshold := rc.HighConfidenceThreshold
+				if highConfThreshold <= 0 {
+					highConfThreshold = 90.0
+				}
+
+				// Only require confirmation for medium-confidence trades
+				if decision.Confidence < highConfThreshold {
+					confirmDelaySec := rc.SignalConfirmationDelaySec
+					if confirmDelaySec <= 0 {
+						confirmDelaySec = 60
+					}
+					priceStabilityPct := rc.PriceStabilityCheckPct
+					if priceStabilityPct <= 0 {
+						priceStabilityPct = 0.5
+					}
+
+					// Record price before waiting
+					priceBeforeWait := marketData.CurrentPrice
+
+					log.Printf("[%s][%s] ⏳ SIGNAL CONFIRMATION: Confidence %.0f%% < %.0f%% threshold. Waiting %ds to re-verify...",
+						e.name, symbol, decision.Confidence, highConfThreshold, confirmDelaySec)
+
+					// Wait for confirmation delay
+					time.Sleep(time.Duration(confirmDelaySec) * time.Second)
+
+					// Re-fetch fresh market data
+					freshMarketData, err := e.dataProvider.GetMarketDataWithConfig(ctx, symbol, timeframe, klineCount)
+					if err != nil {
+						log.Printf("[%s][%s] ❌ BLOCKED: Failed to re-fetch market data for confirmation: %v", e.name, symbol, err)
+						tradeLog.Error = fmt.Sprintf("signal confirmation failed: could not refresh data: %v", err)
+						return tradeLog
+					}
+
+					// Price stability check
+					priceAfterWait := freshMarketData.CurrentPrice
+					priceDiffPct := ((priceAfterWait - priceBeforeWait) / priceBeforeWait) * 100
+					if priceDiffPct < 0 {
+						priceDiffPct = -priceDiffPct // Absolute value
+					}
+
+					if priceDiffPct > priceStabilityPct {
+						log.Printf("[%s][%s] ❌ BLOCKED: Price moved too much during confirmation (%.2f%% > %.2f%%). Before: $%.4f, After: $%.4f",
+							e.name, symbol, priceDiffPct, priceStabilityPct, priceBeforeWait, priceAfterWait)
+						tradeLog.Error = fmt.Sprintf("signal confirmation failed: price unstable (moved %.2f%%)", priceDiffPct)
+						return tradeLog
+					}
+
+					// Format fresh data for AI
+					freshFormattedData := e.dataProvider.FormatForAI(freshMarketData)
+
+					// Add account and position info
+					e.mu.RLock()
+					if e.account != nil {
+						freshFormattedData += "\n--- Account Info ---\n"
+						freshFormattedData += fmt.Sprintf("Total Equity: $%.2f\n", e.account.TotalMarginBalance)
+						freshFormattedData += fmt.Sprintf("Available Balance: $%.2f\n", e.account.AvailableBalance)
+					}
+					freshFormattedData += "\n--- No Current Position ---\n"
+					e.mu.RUnlock()
+
+					// Add strategy rules
+					if e.strategy != nil && e.strategy.Config.CustomPrompt != "" {
+						freshFormattedData += fmt.Sprintf("\n--- Strategy Rules ---\n%s\n", e.strategy.Config.CustomPrompt)
+					}
+
+					// Re-ask AI with fresh data
+					log.Printf("[%s][%s] 🔄 Re-verifying signal with fresh data...", e.name, symbol)
+					var confirmDecision *ai.TradingDecision
+					var confirmRaw string
+					var confirmErr error
+
+					if e.strategy != nil && e.strategy.Config.SimpleMode {
+						confirmDecision, confirmRaw, confirmErr = e.aiClient.GetTradingDecisionSimple(freshFormattedData)
+					} else {
+						confirmDecision, confirmRaw, confirmErr = e.aiClient.GetTradingDecision(freshFormattedData)
+					}
+
+					if confirmErr != nil {
+						log.Printf("[%s][%s] ❌ BLOCKED: AI confirmation call failed: %v", e.name, symbol, confirmErr)
+						tradeLog.Error = fmt.Sprintf("signal confirmation failed: AI error: %v", confirmErr)
+						return tradeLog
+					}
+
+					// Check if AI still agrees with original decision
+					if confirmDecision.Action != decision.Action {
+						log.Printf("[%s][%s] ❌ BLOCKED: Signal NOT confirmed. Original: %s (%.0f%%), Recheck: %s (%.0f%%)",
+							e.name, symbol, decision.Action, decision.Confidence, confirmDecision.Action, confirmDecision.Confidence)
+						tradeLog.Error = fmt.Sprintf("signal confirmation failed: AI changed mind from %s to %s", decision.Action, confirmDecision.Action)
+						tradeLog.RawAI = confirmRaw
+						return tradeLog
+					}
+
+					// Signal confirmed!
+					log.Printf("[%s][%s] ✅ SIGNAL CONFIRMED: AI still says %s (Original: %.0f%%, Recheck: %.0f%%). Price stable (moved %.2f%%). Executing...",
+						e.name, symbol, decision.Action, decision.Confidence, confirmDecision.Confidence, priceDiffPct)
+
+					// Use the confirmed decision (might have updated confidence/SL/TP)
+					decision = confirmDecision
+					tradeLog.Decision = confirmDecision
+					tradeLog.RawAI = confirmRaw
+				} else {
+					log.Printf("[%s][%s] ⚡ HIGH CONFIDENCE (%.0f%% >= %.0f%%): Executing immediately, no confirmation needed",
+						e.name, symbol, decision.Confidence, highConfThreshold)
+				}
+			}
 		}
 
 		realizedPnL, err := e.executeTrade(ctx, symbol, decision, hasPosition, pos)

@@ -50,8 +50,8 @@ type StrategyConfig struct {
 	TradingMode string `json:"trading_mode"`
 
 	// Smart Find Auto-Refresh (cycles to find new risky symbols periodically)
-	SmartFindAutoRefresh   bool `json:"smart_find_auto_refresh"`   // Enable auto-refresh of smart find
-	SmartFindRefreshMins   int  `json:"smart_find_refresh_mins"`   // Interval in minutes (30, 60, 120, etc.)
+	SmartFindAutoRefresh bool `json:"smart_find_auto_refresh"` // Enable auto-refresh of smart find
+	SmartFindRefreshMins int  `json:"smart_find_refresh_mins"` // Interval in minutes (30, 60, 120, etc.)
 
 	// Market Intelligence (Fear & Greed, News, CoinGecko data injected into AI prompts)
 	EnableMarketIntel bool `json:"enable_market_intel"` // Enable market intelligence data in AI prompts (default: false)
@@ -164,6 +164,14 @@ type RiskControlConfig struct {
 	EnableSmartLossCut bool    `json:"enable_smart_loss_cut"` // Enable time-based loss cutting
 	SmartLossCutMins   int     `json:"smart_loss_cut_mins"`   // Minutes before cutting losers (default: 30)
 	SmartLossCutPct    float64 `json:"smart_loss_cut_pct"`    // Loss % threshold for smart cut (default: -1.0 = -1%)
+
+	// SIGNAL CONFIRMATION - Verify signals before executing trades
+	// For medium confidence (75-89%), wait and re-verify with AI before executing
+	// For high confidence (90%+), execute immediately
+	EnableSignalConfirmation   bool    `json:"enable_signal_confirmation"`    // Enable signal re-verification (default: false)
+	SignalConfirmationDelaySec int     `json:"signal_confirmation_delay_sec"` // Seconds to wait before re-checking (default: 60)
+	HighConfidenceThreshold    float64 `json:"high_confidence_threshold"`     // Confidence above this executes immediately (default: 90)
+	PriceStabilityCheckPct     float64 `json:"price_stability_check_pct"`     // Max price movement % allowed during confirmation (default: 0.5)
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -252,6 +260,12 @@ func DefaultStrategyConfig() StrategyConfig {
 			EnableSmartLossCut: false,
 			SmartLossCutMins:   30,   // Cut if losing for 30 mins
 			SmartLossCutPct:    -1.0, // Only cut if loss > 1%
+
+			// Signal Confirmation (enabled by default - safer trading)
+			EnableSignalConfirmation:   true, // Verify signals before executing
+			SignalConfirmationDelaySec: 60,   // Wait 60 seconds before re-verifying
+			HighConfidenceThreshold:    90.0, // 90%+ confidence executes immediately
+			PriceStabilityCheckPct:     0.5,  // Max 0.5% price movement during confirmation
 		},
 		AI: AIConfig{
 			EnableReasoning: false,

@@ -87,6 +87,11 @@ export interface RiskControlConfig {
   noise_zone_lower_bound?: number;
   noise_zone_upper_bound?: number;
   min_hold_before_close?: number;
+  // Signal Confirmation - Verify signals before executing
+  enable_signal_confirmation?: boolean;
+  signal_confirmation_delay_sec?: number;
+  high_confidence_threshold?: number;
+  price_stability_check_pct?: number;
 }
 
 export interface Trader {
