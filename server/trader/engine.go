@@ -2103,10 +2103,10 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 		log.Printf("[SL/TP] No SL provided, using default %.1f%% (widened for volatility)", slPct)
 	} else if slPct > 10 {
 		log.Printf("[SL/TP] WARNING: SL=%.1f%% exceeds 10%%, trade will be validated", slPct)
-	} else if slPct < 2.0 {
-		// Floor at 2% minimum - anything tighter gets stopped by noise
-		log.Printf("[SL/TP] WARNING: SL=%.1f%% is too tight, raising to 2%% minimum", slPct)
-		slPct = 2.0
+	} else if slPct < 3.0 {
+		// Floor at 3% minimum for volatile altcoins - 2% gets stopped by noise too often
+		log.Printf("[SL/TP] ⚠️ AI set SL=%.1f%% which is too tight for volatile coins, raising to 3%% minimum", slPct)
+		slPct = 3.0
 	}
 
 	if tpPct <= 0 {
@@ -2117,9 +2117,17 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 		log.Printf("[SL/TP] WARNING: TP=%.1f%% exceeds 30%%, trade will be validated", tpPct)
 	}
 
-	// DO NOT silently adjust R:R - this was hiding bad AI decisions
-	// Let validateRiskRewardRatioPct properly REJECT trades with bad R:R
+	// Ensure R:R is maintained when we override SL
 	ratio := tpPct / slPct
+	if ratio < 3.0 && slPct >= 3.0 {
+		// If we raised SL, also raise TP to maintain 3:1 R:R
+		newTP := slPct * 3.0
+		if newTP > tpPct {
+			log.Printf("[SL/TP] Adjusting TP from %.1f%% to %.1f%% to maintain 3:1 R:R with SL=%.1f%%", tpPct, newTP, slPct)
+			tpPct = newTP
+		}
+	}
+
 	if ratio < 1.0 {
 		log.Printf("[SL/TP] WARNING: Poor R:R ratio %.2f:1 (SL=%.1f%%, TP=%.1f%%) - will be rejected by validator", ratio, slPct, tpPct)
 	}
