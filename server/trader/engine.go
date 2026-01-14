@@ -1008,7 +1008,10 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					}
 
 					// Check if AI still agrees with original decision
-					if confirmDecision.Action != decision.Action {
+					// Normalize actions: BUY/LONG/open_long are equivalent, SELL/SHORT/open_short are equivalent
+					originalDirection := normalizeActionDirection(decision.Action)
+					confirmDirection := normalizeActionDirection(confirmDecision.Action)
+					if confirmDirection != originalDirection {
 						log.Printf("[%s][%s] ❌ BLOCKED: Signal NOT confirmed. Original: %s (%.0f%%), Recheck: %s (%.0f%%)",
 							e.name, symbol, decision.Action, decision.Confidence, confirmDecision.Action, confirmDecision.Confidence)
 						tradeLog.Error = fmt.Sprintf("signal confirmation failed: AI changed mind from %s to %s", decision.Action, confirmDecision.Action)
@@ -1859,6 +1862,21 @@ func isBTCETH(symbol string) bool {
 	return symbol == "BTCUSDT" || symbol == "ETHUSDT" ||
 		symbol == "BTCUSD" || symbol == "ETHUSD" ||
 		symbol == "BTCUSDC" || symbol == "ETHUSDC"
+}
+
+// normalizeActionDirection converts various action strings to a normalized direction
+// This allows comparing actions like "BUY" and "LONG" as equivalent (both are bullish)
+func normalizeActionDirection(action string) string {
+	switch action {
+	case "BUY", "LONG", "open_long":
+		return "bullish"
+	case "SELL", "SHORT", "open_short":
+		return "bearish"
+	case "CLOSE", "close_long", "close_short":
+		return "close"
+	default:
+		return "hold" // HOLD, WAIT, or unknown actions
+	}
 }
 
 // getPositionPercent returns the position percentage to use for sizing
