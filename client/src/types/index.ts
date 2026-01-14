@@ -80,6 +80,10 @@ export interface RiskControlConfig {
   enable_trailing_stop?: boolean;
   trailing_stop_activate_pct?: number;
   trailing_stop_distance_pct?: number;
+  // Guaranteed Minimum Profit
+  enable_guaranteed_profit?: boolean;
+  guaranteed_profit_activate_pct?: number;
+  guaranteed_min_profit_pct?: number;
   // Max Hold Duration
   enable_max_hold_duration?: boolean;
   max_hold_duration_mins?: number;

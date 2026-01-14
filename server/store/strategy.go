@@ -162,6 +162,12 @@ type RiskControlConfig struct {
 	TrailingStopActivatePct float64 `json:"trailing_stop_activate_pct"` // Profit % to activate trailing stop (default: 1.0 = 1%)
 	TrailingStopDistancePct float64 `json:"trailing_stop_distance_pct"` // Distance behind peak price (default: 0.5 = 0.5%)
 
+	// GUARANTEED MINIMUM PROFIT - Lock in minimum profit once threshold reached
+	// Once position reaches ActivatePct profit, guarantee at least MinProfitPct on exit
+	EnableGuaranteedProfit      bool    `json:"enable_guaranteed_profit"`       // Enable guaranteed profit feature
+	GuaranteedProfitActivatePct float64 `json:"guaranteed_profit_activate_pct"` // Profit % to activate guarantee (default: 0.3%)
+	GuaranteedMinProfitPct      float64 `json:"guaranteed_min_profit_pct"`      // Minimum profit % to lock in (default: 0.1%)
+
 	// MAX HOLD DURATION - Force close positions held too long
 	EnableMaxHoldDuration bool `json:"enable_max_hold_duration"` // Enable max hold duration feature
 	MaxHoldDurationMins   int  `json:"max_hold_duration_mins"`   // Max minutes to hold a position (default: 240 = 4 hours)

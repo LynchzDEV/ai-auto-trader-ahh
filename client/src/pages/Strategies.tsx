@@ -1301,6 +1301,77 @@ export default function Strategies() {
                           )}
                         </div>
 
+                        {/* Guaranteed Minimum Profit */}
+                        <div className="p-4 rounded-lg bg-emerald-400/5 border border-emerald-400/20 space-y-3">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <Checkbox
+                              checked={editingStrategy.config.risk_control.enable_guaranteed_profit ?? false}
+                              onCheckedChange={(c) => setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  risk_control: {
+                                    ...editingStrategy.config.risk_control,
+                                    enable_guaranteed_profit: !!c
+                                  }
+                                }
+                              })}
+                              className="data-[state=checked]:bg-emerald-400 data-[state=checked]:border-emerald-400 data-[state=checked]:text-black"
+                            />
+                            <div>
+                              <span className="font-medium text-emerald-300">Guaranteed Minimum Profit</span>
+                              <p className="text-xs text-muted-foreground">Lock in minimum profit once position reaches threshold</p>
+                            </div>
+                          </label>
+
+                          {editingStrategy.config.risk_control.enable_guaranteed_profit && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">Activate at Profit %</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={editingStrategy.config.risk_control.guaranteed_profit_activate_pct ?? 0.3}
+                                  onChange={(e) => setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        guaranteed_profit_activate_pct: parseFloat(e.target.value)
+                                      }
+                                    }
+                                  })}
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.3"
+                                />
+                                <p className="text-[10px] text-muted-foreground">Profit % to activate guarantee</p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">Minimum Profit %</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={editingStrategy.config.risk_control.guaranteed_min_profit_pct ?? 0.1}
+                                  onChange={(e) => setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        guaranteed_min_profit_pct: parseFloat(e.target.value)
+                                      }
+                                    }
+                                  })}
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.1"
+                                />
+                                <p className="text-[10px] text-muted-foreground">Guaranteed minimum profit to lock in</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Max Hold Duration */}
                         <div className="p-4 rounded-lg bg-yellow-400/5 border border-yellow-400/20 space-y-3">
                           <label className="flex items-center gap-3 cursor-pointer">

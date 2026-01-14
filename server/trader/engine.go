@@ -2905,6 +2905,44 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		}
 
 		// =====================================================================
+		// 1.5. GUARANTEED MINIMUM PROFIT - Lock in minimum profit once threshold reached
+		// =====================================================================
+		if rc.EnableGuaranteedProfit {
+			activatePct := rc.GuaranteedProfitActivatePct
+			if activatePct <= 0 {
+				activatePct = 0.3 // Default: activate when position reaches 0.3% profit
+			}
+			minProfitPct := rc.GuaranteedMinProfitPct
+			if minProfitPct < 0 {
+				minProfitPct = 0.1 // Default: guarantee at least 0.1% profit
+			}
+
+			// Get peak P&L (already updated by trailing stop or update it here if trailing stop disabled)
+			if !rc.EnableTrailingStop {
+				e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
+			}
+			peakPnL := e.GetPeakPnL(pos.Symbol, side)
+
+			// Check if position ever reached activation threshold
+			if peakPnL >= activatePct {
+				// Position qualified for guaranteed profit - close if dropping to minimum
+				if rawPnlPct <= minProfitPct {
+					log.Printf("[%s][%s] 🔒 GUARANTEED PROFIT TRIGGERED: Peak=%.2f%%, Current=%.2f%%, MinGuarantee=%.2f%% (Raw)",
+						e.name, pos.Symbol, peakPnL, rawPnlPct, minProfitPct)
+
+					if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+						log.Printf("[%s][%s] Failed to close position (guaranteed profit): %v", e.name, pos.Symbol, err)
+					} else {
+						log.Printf("[%s][%s] ✅ Closed position via guaranteed profit. Locked in %.2f%% profit.", e.name, pos.Symbol, rawPnlPct)
+						e.clearPositionTracking(pos.Symbol, side)
+						e.cancelBracketOrders(ctx, pos.Symbol)
+					}
+					continue // Move to next position
+				}
+			}
+		}
+
+		// =====================================================================
 		// 2. MAX HOLD DURATION - Force close positions held too long
 		// =====================================================================
 		if rc.EnableMaxHoldDuration {
