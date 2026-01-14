@@ -2807,6 +2807,9 @@ func (e *Engine) logActiveRiskSettings(rc store.RiskControlConfig) {
 	if rc.EnableSmartLossCut {
 		features = append(features, fmt.Sprintf("SmartLossCut(%dm, %.1f%%)", rc.SmartLossCutMins, rc.SmartLossCutPct))
 	}
+	if rc.EnableGuaranteedProfit {
+		features = append(features, fmt.Sprintf("GuaranteedProfit(activate=%.1f%%, min=%.1f%%)", rc.GuaranteedProfitActivatePct, rc.GuaranteedMinProfitPct))
+	}
 	if rc.EnableEmergencyShutdown {
 		features = append(features, fmt.Sprintf("EmergencyShutdown($%.0f)", rc.EmergencyMinBalance))
 	}
