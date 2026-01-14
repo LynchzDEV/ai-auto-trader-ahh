@@ -1533,6 +1533,96 @@ export default function Strategies() {
                             </div>
                           )}
                         </div>
+
+                        {/* Signal Confirmation */}
+                        <div className="p-4 rounded-lg bg-cyan-400/5 border border-cyan-400/20 space-y-3">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <Checkbox
+                              checked={editingStrategy.config.risk_control.enable_signal_confirmation ?? true}
+                              onCheckedChange={(c) => setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  risk_control: {
+                                    ...editingStrategy.config.risk_control,
+                                    enable_signal_confirmation: !!c
+                                  }
+                                }
+                              })}
+                              className="data-[state=checked]:bg-cyan-400 data-[state=checked]:border-cyan-400"
+                            />
+                            <div>
+                              <span className="font-medium text-cyan-300">Signal Confirmation</span>
+                              <p className="text-xs text-muted-foreground">Wait and re-verify AI signals before executing trades</p>
+                            </div>
+                          </label>
+                          {editingStrategy.config.risk_control.enable_signal_confirmation && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">Confirmation Delay (sec)</Label>
+                                <Input
+                                  type="number"
+                                  value={editingStrategy.config.risk_control.signal_confirmation_delay_sec ?? 60}
+                                  onChange={(e) => setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        signal_confirmation_delay_sec: parseInt(e.target.value)
+                                      }
+                                    }
+                                  })}
+                                  className="glass h-8 text-sm"
+                                  placeholder="60"
+                                />
+                                <p className="text-[10px] text-muted-foreground">Wait time before re-checking AI</p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">High Confidence % (skip delay)</Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={editingStrategy.config.risk_control.high_confidence_threshold ?? 90}
+                                  onChange={(e) => setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        high_confidence_threshold: parseFloat(e.target.value)
+                                      }
+                                    }
+                                  })}
+                                  className="glass h-8 text-sm"
+                                  placeholder="90"
+                                />
+                                <p className="text-[10px] text-muted-foreground">Signals above this execute immediately</p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">Price Stability %</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={editingStrategy.config.risk_control.price_stability_check_pct ?? 0.5}
+                                  onChange={(e) => setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        price_stability_check_pct: parseFloat(e.target.value)
+                                      }
+                                    }
+                                  })}
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.5"
+                                />
+                                <p className="text-[10px] text-muted-foreground">Block if price moves more than this</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CollapsibleSection>
