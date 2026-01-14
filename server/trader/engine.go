@@ -752,7 +752,8 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	formattedData := e.dataProvider.FormatForAI(marketData)
 
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
-	if e.intelProvider != nil {
+	// Only fetch intel if enabled in strategy settings
+	if e.intelProvider != nil && e.strategy != nil && e.strategy.Config.EnableMarketIntel {
 		log.Printf("[%s] 🌐 Searching web for real-time market news & sentiment...", e.name)
 		intelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		marketIntel, err := e.intelProvider.GetMarketIntel(intelCtx, []string{symbol})
@@ -1597,8 +1598,9 @@ func (e *Engine) buildDecisionContext(ctx context.Context) *decision.Context {
 	}
 
 	// Fetch market intelligence (uses caching, won't hit APIs on every call)
+	// Only fetch if enabled in strategy settings
 	var intelFormatted string
-	if e.intelProvider != nil {
+	if e.intelProvider != nil && e.strategy != nil && e.strategy.Config.EnableMarketIntel {
 		// Get trading symbols for intel fetching
 		symbols := e.getTradingPairs()
 

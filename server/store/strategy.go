@@ -52,6 +52,9 @@ type StrategyConfig struct {
 	// Smart Find Auto-Refresh (cycles to find new risky symbols periodically)
 	SmartFindAutoRefresh   bool `json:"smart_find_auto_refresh"`   // Enable auto-refresh of smart find
 	SmartFindRefreshMins   int  `json:"smart_find_refresh_mins"`   // Interval in minutes (30, 60, 120, etc.)
+
+	// Market Intelligence (Fear & Greed, News, CoinGecko data injected into AI prompts)
+	EnableMarketIntel bool `json:"enable_market_intel"` // Enable market intelligence data in AI prompts (default: false)
 }
 
 // AIConfig defines AI model settings
@@ -260,6 +263,9 @@ func DefaultStrategyConfig() StrategyConfig {
 		// Smart Find Auto-Refresh (disabled by default - opt-in)
 		SmartFindAutoRefresh: false,
 		SmartFindRefreshMins: 60, // Default: 1 hour
+
+		// Market Intelligence (disabled by default - can cause noise in AI decisions)
+		EnableMarketIntel: false,
 	}
 }
 

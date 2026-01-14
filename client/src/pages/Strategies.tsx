@@ -24,6 +24,7 @@ import {
   X,
   Download,
   Upload,
+  Globe,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -686,6 +687,31 @@ export default function Strategies() {
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Automatically cycle to find new optimal symbols at set intervals. Analyzes open positions first, then finds {(editingStrategy.config.risk_control.max_positions || 3) * 2} new symbols.
+                      </p>
+                    </div>
+
+                    {/* Market Intelligence */}
+                    <div className="space-y-3 pt-3 border-t border-white/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-blue-400" />
+                          <Label className="text-sm font-medium">Market Intelligence</Label>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={editingStrategy.config.enable_market_intel || false}
+                          onChange={(e) => setEditingStrategy({
+                            ...editingStrategy,
+                            config: {
+                              ...editingStrategy.config,
+                              enable_market_intel: e.target.checked
+                            }
+                          })}
+                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-blue-500 focus:ring-blue-500/20"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Inject Fear & Greed Index, crypto news, and CoinGecko market data into AI prompts. May add noise - disable if AI makes bad entries.
                       </p>
                     </div>
 

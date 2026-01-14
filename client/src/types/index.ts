@@ -21,6 +21,8 @@ export interface StrategyConfig {
   // Smart Find Auto-Refresh
   smart_find_auto_refresh?: boolean;
   smart_find_refresh_mins?: number;
+  // Market Intelligence (Fear & Greed, News, CoinGecko data)
+  enable_market_intel?: boolean;
 }
 
 export interface AIConfig {
