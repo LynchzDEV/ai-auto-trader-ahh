@@ -30,12 +30,13 @@ const DockIcon: React.FC<DockIconProps> = ({
   const location = useLocation();
   const defaultMouseX = useMotionValue(Infinity);
 
-  const iconSize = 44;
-  const iconMagnification = 64;
-  const iconDistance = 100;
+  const iconSize = 38;
+  const iconMagnification = 56;
+  const iconDistance = 80;
 
-  const isActive = location.pathname === to ||
-    (to !== '/' && location.pathname.startsWith(to));
+  const isActive =
+    location.pathname === to ||
+    (to !== "/" && location.pathname.startsWith(to));
 
   const distance = useTransform(mouseX ?? defaultMouseX, (val) => {
     const bounds = ref.current?.getBoundingClientRect() ?? { x: 0, width: 0 };
@@ -91,7 +92,7 @@ const Dock: React.FC<DockProps> = ({ children, className }) => {
       onMouseMove={(e) => mouseX.set(e.pageX)}
       onMouseLeave={() => mouseX.set(Infinity)}
       className={cn(
-        "flex h-[64px] items-center gap-1.5 rounded-2xl px-2",
+        "flex h-[56px] items-center gap-1 rounded-2xl px-1.5",
         "bg-[rgba(12,12,18,0.95)] border border-white/10 backdrop-blur-xl",
         "shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
         className

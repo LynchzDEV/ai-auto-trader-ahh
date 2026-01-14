@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useState, useEffect } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Settings,
@@ -13,32 +13,62 @@ import {
   Zap,
   MoreHorizontal,
   X,
-  LogOut
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Dock, DockIcon, DockSeparator } from '@/components/ui/dock';
+  LogOut,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Dock, DockIcon, DockSeparator } from "@/components/ui/dock";
 
-import { useAuth } from '../contexts/AuthContext';
-import { API_BASE } from '@/lib/api';
-import { toast } from 'sonner';
+import { useAuth } from "../contexts/AuthContext";
+import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 
 // All navigation items
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', description: 'Monitor bots' },
-  { to: '/backtest', icon: FlaskConical, label: 'Backtest', description: 'Test strategies' },
-  { to: '/debate', icon: MessageSquare, label: 'Debate', description: 'AI consensus' },
-  { to: '/equity', icon: TrendingUp, label: 'Equity', description: 'Performance' },
-  { to: '/history', icon: History, label: 'History', description: 'Trade log' },
-  { to: '/ranking', icon: Trophy, label: 'Ranking', description: 'Symbol profits' },
-  { to: '/strategies', icon: Sparkles, label: 'Strategies', description: 'Define rules' },
-  { to: '/config', icon: Settings, label: 'Config', description: 'API keys' },
-  { to: '/logs', icon: Activity, label: 'Logs', description: 'AI decisions' },
+  {
+    to: "/",
+    icon: LayoutDashboard,
+    label: "Dashboard",
+    description: "Monitor bots",
+  },
+  {
+    to: "/backtest",
+    icon: FlaskConical,
+    label: "Backtest",
+    description: "Test strategies",
+  },
+  {
+    to: "/debate",
+    icon: MessageSquare,
+    label: "Debate",
+    description: "AI consensus",
+  },
+  {
+    to: "/equity",
+    icon: TrendingUp,
+    label: "Equity",
+    description: "Performance",
+  },
+  { to: "/history", icon: History, label: "History", description: "Trade log" },
+  {
+    to: "/ranking",
+    icon: Trophy,
+    label: "Ranking",
+    description: "Symbol profits",
+  },
+  {
+    to: "/strategies",
+    icon: Sparkles,
+    label: "Strategies",
+    description: "Define rules",
+  },
+  { to: "/config", icon: Settings, label: "Config", description: "API keys" },
+  { to: "/logs", icon: Activity, label: "Logs", description: "AI decisions" },
 ];
 
-// Primary items shown in dock (first 6, including Ranking)
-const primaryNavItems = navItems.slice(0, 6);
+// Primary items shown in dock (first 5 to prevent overflow on narrow screens)
+const primaryNavItems = navItems.slice(0, 5);
 // Secondary items shown in "More" menu
-const secondaryNavItems = navItems.slice(6);
+const secondaryNavItems = navItems.slice(5);
 
 export default function Layout() {
   const location = useLocation();
@@ -52,14 +82,17 @@ export default function Layout() {
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'error') {
-          toast.error(data.trader_id ? `Trader Alert: ${data.trader_id}` : 'System Alert', {
-            description: data.message,
-            duration: 8000,
-          });
+        if (data.type === "error") {
+          toast.error(
+            data.trader_id ? `Trader Alert: ${data.trader_id}` : "System Alert",
+            {
+              description: data.message,
+              duration: 8000,
+            }
+          );
         }
       } catch (e) {
-        console.error('Failed to parse event', e);
+        console.error("Failed to parse event", e);
       }
     };
 
@@ -87,8 +120,12 @@ export default function Layout() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg lg:text-xl font-bold text-gradient">Passive Income</h1>
-            <p className="text-xs text-muted-foreground">AI-Powered Trading Ahh</p>
+            <h1 className="text-lg lg:text-xl font-bold text-gradient">
+              Passive Income
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              AI-Powered Trading Ahh
+            </p>
           </div>
         </motion.div>
       </div>
@@ -96,8 +133,9 @@ export default function Layout() {
       {/* Navigation */}
       <nav className="flex-1 p-2 lg:p-4 space-y-1 overflow-y-auto">
         {navItems.map((item, index) => {
-          const isActive = location.pathname === item.to ||
-            (item.to !== '/' && location.pathname.startsWith(item.to));
+          const isActive =
+            location.pathname === item.to ||
+            (item.to !== "/" && location.pathname.startsWith(item.to));
 
           return (
             <motion.div
@@ -108,21 +146,28 @@ export default function Layout() {
             >
               <NavLink
                 to={item.to}
-                className={`group flex items-center gap-3 px-3 lg:px-4 py-2.5 lg:py-3 rounded-xl transition-all duration-200 ${isActive
-                  ? 'bg-primary/20 text-white glow-border'
-                  : 'text-muted-foreground hover:text-white hover:bg-white/5'
-                  }`}
+                className={`group flex items-center gap-3 px-3 lg:px-4 py-2.5 lg:py-3 rounded-xl transition-all duration-200 ${
+                  isActive
+                    ? "bg-primary/20 text-white glow-border"
+                    : "text-muted-foreground hover:text-white hover:bg-white/5"
+                }`}
               >
-                <div className={`p-1.5 lg:p-2 rounded-lg transition-colors ${isActive
-                  ? 'bg-primary/30'
-                  : 'bg-white/5 group-hover:bg-white/10'
-                  }`}>
+                <div
+                  className={`p-1.5 lg:p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? "bg-primary/30"
+                      : "bg-white/5 group-hover:bg-white/10"
+                  }`}
+                >
                   <item.icon className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="font-medium text-sm">{item.label}</span>
-                  <p className={`text-xs transition-colors truncate ${isActive ? 'text-white/60' : 'text-muted-foreground/60'
-                    }`}>
+                  <p
+                    className={`text-xs transition-colors truncate ${
+                      isActive ? "text-white/60" : "text-muted-foreground/60"
+                    }`}
+                  >
                     {item.description}
                   </p>
                 </div>
@@ -207,11 +252,7 @@ export default function Layout() {
               </DockIcon>
             ))}
             <DockSeparator />
-            <DockIcon
-              to="#"
-              label="More"
-              onClick={() => setIsMoreOpen(true)}
-            >
+            <DockIcon to="#" label="More" onClick={() => setIsMoreOpen(true)}>
               <MoreHorizontal className="w-5 h-5" />
             </DockIcon>
           </Dock>
@@ -232,10 +273,10 @@ export default function Layout() {
             />
             {/* Sheet */}
             <motion.div
-              initial={{ y: '100%' }}
+              initial={{ y: "100%" }}
               animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
               className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0c0c12] border-t border-white/10 rounded-t-3xl"
             >
               <div className="p-4">
@@ -256,26 +297,34 @@ export default function Layout() {
                 {/* Secondary Nav Items */}
                 <div className="space-y-2">
                   {secondaryNavItems.map((item) => {
-                    const isActive = location.pathname === item.to ||
-                      (item.to !== '/' && location.pathname.startsWith(item.to));
+                    const isActive =
+                      location.pathname === item.to ||
+                      (item.to !== "/" &&
+                        location.pathname.startsWith(item.to));
 
                     return (
                       <NavLink
                         key={item.to}
                         to={item.to}
                         onClick={() => setIsMoreOpen(false)}
-                        className={`flex items-center gap-3 p-3 rounded-xl transition-all ${isActive
-                          ? 'bg-primary/20 text-white'
-                          : 'text-muted-foreground hover:text-white hover:bg-white/5'
-                          }`}
+                        className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
+                          isActive
+                            ? "bg-primary/20 text-white"
+                            : "text-muted-foreground hover:text-white hover:bg-white/5"
+                        }`}
                       >
-                        <div className={`p-2 rounded-lg ${isActive ? 'bg-primary/30' : 'bg-white/5'
-                          }`}>
+                        <div
+                          className={`p-2 rounded-lg ${
+                            isActive ? "bg-primary/30" : "bg-white/5"
+                          }`}
+                        >
                           <item.icon className="w-5 h-5" />
                         </div>
                         <div>
                           <span className="font-medium">{item.label}</span>
-                          <p className="text-xs text-muted-foreground">{item.description}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.description}
+                          </p>
                         </div>
                       </NavLink>
                     );
@@ -295,7 +344,9 @@ export default function Layout() {
                     </div>
                     <div>
                       <span className="font-medium">Log Out</span>
-                      <p className="text-xs text-red-400/60">Sign out of session</p>
+                      <p className="text-xs text-red-400/60">
+                        Sign out of session
+                      </p>
                     </div>
                   </button>
                 )}
@@ -304,7 +355,9 @@ export default function Layout() {
                 <div className="mt-4 p-3 glass-card">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-green-500 pulse-live" />
-                    <span className="text-sm text-muted-foreground">System Online</span>
+                    <span className="text-sm text-muted-foreground">
+                      System Online
+                    </span>
                   </div>
                 </div>
 
