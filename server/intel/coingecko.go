@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,15 @@ const (
 	coingeckoMarketsURL = coingeckoBaseURL + "/coins/markets"
 	coingeckoGlobalURL  = coingeckoBaseURL + "/global"
 	coingeckoSearchURL  = coingeckoBaseURL + "/search"
+
+	// Rate limiting: CoinGecko free tier is very aggressive
+	// We allow max 1 API call per minute to be safe
+	coingeckoMinCallInterval = 60 * time.Second
+)
+
+var (
+	coingeckoLastCall time.Time
+	coingeckoMu       sync.Mutex
 )
 
 // coingeckoMarketResponse represents coin market data from CoinGecko
@@ -67,6 +77,16 @@ func FetchCoinData(ctx context.Context, coinIDs []string) (map[string]*CoinInfo,
 	if len(coinIDs) == 0 {
 		return nil, nil
 	}
+
+	// Rate limit check
+	coingeckoMu.Lock()
+	timeSinceLastCall := time.Since(coingeckoLastCall)
+	if timeSinceLastCall < coingeckoMinCallInterval {
+		coingeckoMu.Unlock()
+		return nil, fmt.Errorf("CoinGecko rate limit: wait %v before next call", coingeckoMinCallInterval-timeSinceLastCall)
+	}
+	coingeckoLastCall = time.Now()
+	coingeckoMu.Unlock()
 
 	// Build URL with coin IDs
 	url := fmt.Sprintf("%s?vs_currency=usd&ids=%s&order=market_cap_desc&sparkline=false&price_change_percentage=7d,30d",
@@ -132,6 +152,16 @@ func FetchCoinData(ctx context.Context, coinIDs []string) (map[string]*CoinInfo,
 
 // FetchGlobalData fetches global crypto market data
 func FetchGlobalData(ctx context.Context) (*GlobalMarketData, error) {
+	// Rate limit check
+	coingeckoMu.Lock()
+	timeSinceLastCall := time.Since(coingeckoLastCall)
+	if timeSinceLastCall < coingeckoMinCallInterval {
+		coingeckoMu.Unlock()
+		return nil, fmt.Errorf("CoinGecko rate limit: wait %v before next call", coingeckoMinCallInterval-timeSinceLastCall)
+	}
+	coingeckoLastCall = time.Now()
+	coingeckoMu.Unlock()
+
 	req, err := http.NewRequestWithContext(ctx, "GET", coingeckoGlobalURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -274,6 +304,16 @@ func SearchCoinID(ctx context.Context, symbol string) (string, error) {
 	if cleanSymbol == "" {
 		return "", nil
 	}
+
+	// Rate limit check
+	coingeckoMu.Lock()
+	timeSinceLastCall := time.Since(coingeckoLastCall)
+	if timeSinceLastCall < coingeckoMinCallInterval {
+		coingeckoMu.Unlock()
+		return "", fmt.Errorf("CoinGecko rate limit: wait %v before next call", coingeckoMinCallInterval-timeSinceLastCall)
+	}
+	coingeckoLastCall = time.Now()
+	coingeckoMu.Unlock()
 
 	url := fmt.Sprintf("%s?query=%s", coingeckoSearchURL, strings.ToLower(cleanSymbol))
 

@@ -42,8 +42,8 @@ func DefaultConfig() ProviderConfig {
 	return ProviderConfig{
 		FearGreedCacheDuration:   30 * time.Minute,
 		NewsCacheDuration:        15 * time.Minute,
-		CoinDataCacheDuration:    15 * time.Minute,
-		GlobalDataCacheDuration:  15 * time.Minute,
+		CoinDataCacheDuration:    60 * time.Minute, // CoinGecko free tier rate limit - cache longer
+		GlobalDataCacheDuration:  60 * time.Minute, // CoinGecko free tier rate limit - cache longer
 		LunarCrushCacheDuration:  15 * time.Minute,
 		TradingViewCacheDuration: 5 * time.Minute, // More real-time for TA
 		MaxNewsItems:             10,

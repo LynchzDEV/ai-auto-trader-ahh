@@ -150,7 +150,8 @@ You MUST output your decisions in valid JSON format wrapped in <decision> tags:
 5. Risk/Reward ratio must be at least 3:1
 6. If no good opportunities exist, use action: "wait" with symbol: "ALL"
 7. Always output valid JSON - use straight quotes, not curly quotes
-8. For close decisions: provide clear reasoning about why the position should be closed`, pb.noiseZoneLower, pb.noiseZoneLower, pb.noiseZoneUpper, pb.noiseZoneUpper)
+8. For close decisions: provide clear reasoning about why the position should be closed
+9. **STOP LOSS WIDTH**: Use wider stops (3-5%%) for volatile altcoins. Tight 1-2%% stops get triggered by normal price noise.`, pb.noiseZoneLower, pb.noiseZoneLower, pb.noiseZoneUpper, pb.noiseZoneUpper)
 }
 
 // buildSystemPromptZH builds the Chinese system prompt

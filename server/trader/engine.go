@@ -2097,15 +2097,22 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 	// Only apply defaults if values are missing or clearly invalid
 	// Do NOT silently adjust R:R - let validateRiskRewardRatioPct reject bad ratios
 	if slPct <= 0 {
-		slPct = 2.0 // Default 2% stop loss only if not provided
-		log.Printf("[SL/TP] No SL provided, using default %.1f%%", slPct)
+		// Default SL widened from 2% to 3.5% for volatile coins
+		// 2% was getting triggered by normal price noise, causing unnecessary losses
+		slPct = 3.5
+		log.Printf("[SL/TP] No SL provided, using default %.1f%% (widened for volatility)", slPct)
 	} else if slPct > 10 {
 		log.Printf("[SL/TP] WARNING: SL=%.1f%% exceeds 10%%, trade will be validated", slPct)
+	} else if slPct < 2.0 {
+		// Floor at 2% minimum - anything tighter gets stopped by noise
+		log.Printf("[SL/TP] WARNING: SL=%.1f%% is too tight, raising to 2%% minimum", slPct)
+		slPct = 2.0
 	}
 
 	if tpPct <= 0 {
-		tpPct = 6.0 // Default 6% take profit only if not provided
-		log.Printf("[SL/TP] No TP provided, using default %.1f%%", tpPct)
+		// Default TP of 10.5% maintains 3:1 R:R with 3.5% SL
+		tpPct = 10.5
+		log.Printf("[SL/TP] No TP provided, using default %.1f%% (3:1 R:R)", tpPct)
 	} else if tpPct > 30 {
 		log.Printf("[SL/TP] WARNING: TP=%.1f%% exceeds 30%%, trade will be validated", tpPct)
 	}
