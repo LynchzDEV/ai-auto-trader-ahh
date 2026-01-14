@@ -2,6 +2,141 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.48.2] - 2026-01-14
+
+### Fixed
+- **Guaranteed Profit Logging**: Add logging for guaranteed profit settings to aid debugging. (#2329f4c)
+
+## [v3.48.1] - 2026-01-14
+
+### Fixed
+- **Signal Confirmation**: Normalize AI action comparison in signal confirmation to treat equivalent bullish/bearish signals (BUY/LONG, SELL/SHORT) as the same. (#7565b2a)
+
+## [v3.48.0] - 2026-01-14
+
+### Added
+- **Guaranteed Minimum Profit**: New feature to prevent profitable trades from turning into losses by automatically protecting gains once a threshold is reached. (#ed3aea5)
+
+## [v3.47.1] - 2026-01-14
+
+### Fixed
+- **Trading Pairs Logging**: Add defensive logging when no trading pairs are found to help diagnose configuration issues. (#986d1d7)
+
+## [v3.47.0] - 2026-01-14
+
+### Added
+- **Signal Confirmation UI**: Added UI controls for Signal Confirmation settings (delay, confidence thresholds, price stability) to the Strategies page. (#4cbd76d)
+
+## [v3.46.0] - 2026-01-14
+
+### Added
+- **Funding Rate Context**: Add funding rate information to AI context for more accurate profit calculations in perpetual futures trading. (#a211e41)
+
+## [v3.45.0] - 2026-01-14
+
+### Added
+- **AI TP/SL Hybrid Mode**: New mode that trusts AI-suggested take profit and stop loss levels with minimal constraints, giving the AI more control over risk management. (#587d511)
+
+## [v3.44.0] - 2026-01-14
+
+### Added
+- **Signal Confirmation System**: New confirmation system for medium-confidence trades that waits for price stability and AI re-confirmation before executing. (#ce4b0dd)
+
+## [v3.43.1] - 2026-01-14
+
+### Fixed
+- **AI Response Parsing**: Strip markdown formatting from AI responses to prevent parsing errors. (#854fe8d)
+
+## [v3.43.0] - 2026-01-14
+
+### Added
+- **Market Intelligence Toggle**: Made the Market Intelligence feature optional with a UI toggle, allowing users to enable/disable external data enrichment. (#616a129)
+
+## [v3.42.5] - 2026-01-14
+
+### Fixed
+- **Intel Data Quality**: Provide clean market data without prescriptive warnings, letting AI make its own interpretations. (#f6691c8)
+
+## [v3.42.4] - 2026-01-14
+
+### Fixed
+- **Risk Management**: Raise minimum stop loss to 3% and adjust take profit for 3:1 risk-reward ratio. (#a667711)
+
+## [v3.42.3] - 2026-01-14
+
+### Fixed
+- **CoinGecko Rate Limiting**: Add rate limiting for CoinGecko API calls and widen SL/TP parameters. (#52f218c)
+
+## [v3.42.2] - 2026-01-14
+
+### Fixed
+- **Trend Strength**: Tighten EMA trend strength gates to filter out weak signals. (#d093931)
+
+## [v3.42.1] - 2026-01-14
+
+### Fixed
+- **CoinGecko Data Formatting**: Ensure dynamic CoinGecko data is correctly formatted for AI by passing symbol-ID mapping. (#cf1968b)
+
+## [v3.42.0] - 2026-01-14
+
+### Added
+- **LunarCrush & TradingView Integration**: Added LunarCrush social sentiment and TradingView technical ratings to the intel module. (#22d4cf6)
+
+## [v3.41.0] - 2026-01-14
+
+### Added
+- **CoinGecko Dynamic Search**: Added CoinGecko search with dynamic ID caching to automatically find coin data for any symbol. (#9e85d97)
+
+## [v3.40.2] - 2026-01-14
+
+### Fixed
+- **Intel Caching**: Use per-symbol caching for intel data to prevent data mixing between different coins. (#15f97a6)
+
+## [v3.40.1] - 2026-01-14
+
+### Fixed
+- **Intel Logging**: Improved wording for Market Intelligence logs. (#86e3827)
+
+## [v3.40.0] - 2026-01-14
+
+### Changed
+- **News Source**: Switch to Google News RSS for live market intelligence, providing more reliable and up-to-date news data. (#7213a73)
+
+## [v3.39.1] - 2026-01-14
+
+### Fixed
+- **Intel Debug Logs**: Added [Intel] prefix to debug logs for easier filtering. (#5706ee1)
+
+## [v3.39.0] - 2026-01-14
+
+### Added
+- **Intel Module Tests**: Added comprehensive test suite for the market intelligence module. (#7997435)
+
+## [v3.38.2] - 2026-01-14
+
+### Fixed
+- **Intel Integration**: Inject intel data into analyzeAndTrade function for AI decision making. (#2e2dc41)
+
+## [v3.38.1] - 2026-01-13
+
+### Fixed
+- **SQLite Timestamps**: Handle SQLite timestamp format with UTC suffix for proper date parsing. (#976a02e)
+
+## [v3.38.0] - 2026-01-13
+
+### Added
+- **Free Market Intelligence**: Added a free market intelligence module to replace OpenRouter web access, providing news and market data without additional API costs. (#81c9ac3)
+
+## [v3.37.9] - 2026-01-13
+
+### Fixed
+- **CI Build**: Disable GitHub Actions cache export and switch to pure Go SQLite driver for more reliable builds. (#81b1a73)
+
+## [v3.37.8] - 2026-01-13
+
+### Fixed
+- **Position Close UI Sync**: Update UI immediately when AI closes position on Binance, ensuring real-time dashboard accuracy. (#847dd63)
+
 ## [v3.37.7] - 2026-01-13
 
 ### Fixed
