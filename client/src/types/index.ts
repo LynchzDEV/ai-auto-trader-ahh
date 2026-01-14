@@ -64,6 +64,11 @@ export interface RiskControlConfig {
   min_position_size_btc_eth?: number;
   min_confidence: number;
   min_risk_reward_ratio: number;
+  // AI TP/SL Freedom - Hybrid mode
+  trust_ai_for_tp_sl?: boolean;
+  min_tp_percent?: number;
+  min_sl_percent?: number;
+  max_sl_percent?: number;
   high_confidence_close_threshold?: number;
   max_daily_loss_pct?: number;
   max_drawdown_pct?: number;

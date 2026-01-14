@@ -2215,16 +2215,77 @@ func (e *Engine) clearPositionTracking(symbol, side string) {
 
 // getSLTPPercentages extracts stop-loss and take-profit percentages from decision
 // Returns default values if not provided by AI
+// When TrustAIForTPSL is enabled, AI suggestions are respected with only min/max floors
 func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct float64) {
-	// Use new percentage fields
+	// Use AI-suggested values
 	slPct = decision.StopLossPct
 	tpPct = decision.TakeProfitPct
 
+	// Get config values (with sensible defaults)
+	var minTP, minSL, maxSL float64 = 3.0, 2.0, 5.0
+	var trustAI bool = false
+	var enforceRR bool = true
+
+	if e.strategy != nil {
+		rc := e.strategy.Config.RiskControl
+		trustAI = rc.TrustAIForTPSL
+
+		if rc.MinTPPercent > 0 {
+			minTP = rc.MinTPPercent
+		}
+		if rc.MinSLPercent > 0 {
+			minSL = rc.MinSLPercent
+		}
+		if rc.MaxSLPercent > 0 {
+			maxSL = rc.MaxSLPercent
+		}
+		// R:R enforcement can be disabled by setting to 0
+		if rc.MinRiskRewardRatio <= 0 {
+			enforceRR = false
+		}
+	}
+
+	// HYBRID MODE: Trust AI suggestions with minimal constraints
+	if trustAI {
+		log.Printf("[SL/TP] 🤖 HYBRID MODE: Trusting AI suggestions with floors (minTP=%.1f%%, minSL=%.1f%%, maxSL=%.1f%%)",
+			minTP, minSL, maxSL)
+
+		// Apply minimum TP floor
+		if tpPct <= 0 {
+			tpPct = minTP
+			log.Printf("[SL/TP] AI didn't suggest TP, using minimum floor %.1f%%", minTP)
+		} else if tpPct < minTP {
+			log.Printf("[SL/TP] AI suggested TP=%.1f%% below floor, raising to %.1f%%", tpPct, minTP)
+			tpPct = minTP
+		} else {
+			log.Printf("[SL/TP] ✅ Using AI's TP suggestion: %.1f%%", tpPct)
+		}
+
+		// Apply SL floors and ceiling
+		if slPct <= 0 {
+			slPct = minSL
+			log.Printf("[SL/TP] AI didn't suggest SL, using minimum floor %.1f%%", minSL)
+		} else if slPct < minSL {
+			log.Printf("[SL/TP] AI suggested SL=%.1f%% below floor, raising to %.1f%%", slPct, minSL)
+			slPct = minSL
+		} else if slPct > maxSL {
+			log.Printf("[SL/TP] AI suggested SL=%.1f%% above ceiling, capping to %.1f%%", slPct, maxSL)
+			slPct = maxSL
+		} else {
+			log.Printf("[SL/TP] ✅ Using AI's SL suggestion: %.1f%%", slPct)
+		}
+
+		// Log final R:R for info (but don't enforce in hybrid mode)
+		ratio := tpPct / slPct
+		log.Printf("[SL/TP] 📊 Final: SL=%.1f%%, TP=%.1f%%, R:R=%.2f:1 (AI-driven)", slPct, tpPct, ratio)
+
+		return slPct, tpPct
+	}
+
+	// LEGACY MODE: Strict enforcement with auto-adjustments
 	// Only apply defaults if values are missing or clearly invalid
-	// Do NOT silently adjust R:R - let validateRiskRewardRatioPct reject bad ratios
 	if slPct <= 0 {
 		// Default SL widened from 2% to 3.5% for volatile coins
-		// 2% was getting triggered by normal price noise, causing unnecessary losses
 		slPct = 3.5
 		log.Printf("[SL/TP] No SL provided, using default %.1f%% (widened for volatility)", slPct)
 	} else if slPct > 10 {
@@ -2243,19 +2304,26 @@ func (e *Engine) getSLTPPercentages(decision *ai.TradingDecision) (slPct, tpPct 
 		log.Printf("[SL/TP] WARNING: TP=%.1f%% exceeds 30%%, trade will be validated", tpPct)
 	}
 
-	// Ensure R:R is maintained when we override SL
-	ratio := tpPct / slPct
-	if ratio < 3.0 && slPct >= 3.0 {
-		// If we raised SL, also raise TP to maintain 3:1 R:R
-		newTP := slPct * 3.0
-		if newTP > tpPct {
-			log.Printf("[SL/TP] Adjusting TP from %.1f%% to %.1f%% to maintain 3:1 R:R with SL=%.1f%%", tpPct, newTP, slPct)
-			tpPct = newTP
+	// Ensure R:R is maintained when we override SL (only if R:R enforcement is enabled)
+	if enforceRR {
+		minRatio := e.strategy.Config.RiskControl.MinRiskRewardRatio
+		if minRatio <= 0 {
+			minRatio = 3.0
 		}
-	}
 
-	if ratio < 1.0 {
-		log.Printf("[SL/TP] WARNING: Poor R:R ratio %.2f:1 (SL=%.1f%%, TP=%.1f%%) - will be rejected by validator", ratio, slPct, tpPct)
+		ratio := tpPct / slPct
+		if ratio < minRatio && slPct >= 3.0 {
+			// If we raised SL, also raise TP to maintain R:R
+			newTP := slPct * minRatio
+			if newTP > tpPct {
+				log.Printf("[SL/TP] Adjusting TP from %.1f%% to %.1f%% to maintain %.1f:1 R:R with SL=%.1f%%", tpPct, newTP, minRatio, slPct)
+				tpPct = newTP
+			}
+		}
+
+		if ratio < 1.0 {
+			log.Printf("[SL/TP] WARNING: Poor R:R ratio %.2f:1 (SL=%.1f%%, TP=%.1f%%) - will be rejected by validator", ratio, slPct, tpPct)
+		}
 	}
 
 	return slPct, tpPct

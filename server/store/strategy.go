@@ -128,8 +128,14 @@ type RiskControlConfig struct {
 
 	// AI decision thresholds
 	MinConfidence                int     `json:"min_confidence"`                  // Min AI confidence to trade (default: 70)
-	MinRiskRewardRatio           float64 `json:"min_risk_reward_ratio"`           // Min TP/SL ratio (default: 3.0)
+	MinRiskRewardRatio           float64 `json:"min_risk_reward_ratio"`           // Min TP/SL ratio (default: 3.0), set to 0 to disable
 	HighConfidenceCloseThreshold float64 `json:"high_confidence_close_threshold"` // Min confidence to close in noise zone (default: 95)
+
+	// AI TP/SL Freedom - Let AI suggest TP/SL with minimal constraints
+	TrustAIForTPSL bool    `json:"trust_ai_for_tp_sl"` // Trust AI's TP/SL suggestions, only enforce minimums (default: false)
+	MinTPPercent   float64 `json:"min_tp_percent"`     // Minimum TP % floor (default: 3.0) - AI can suggest higher
+	MinSLPercent   float64 `json:"min_sl_percent"`     // Minimum SL % floor (default: 2.0) - AI can suggest higher
+	MaxSLPercent   float64 `json:"max_sl_percent"`     // Maximum SL % ceiling (default: 5.0) - prevents excessive risk
 
 	// NOISE ZONE PROTECTION - Prevent closing positions too early
 	EnableNoiseZoneProtection bool    `json:"enable_noise_zone_protection"` // Enable noise zone protection (default: true)
@@ -224,8 +230,14 @@ func DefaultStrategyConfig() StrategyConfig {
 
 			// AI thresholds
 			MinConfidence:                85,   // Raised from 70: Only trade on high confidence signals
-			MinRiskRewardRatio:           3.0,  // Minimum 3:1 reward/risk
+			MinRiskRewardRatio:           3.0,  // Minimum 3:1 reward/risk (set to 0 to disable)
 			HighConfidenceCloseThreshold: 95.0, // Raised from 85: Require very high confidence to close in noise zone
+
+			// AI TP/SL Freedom (disabled by default - opt-in for hybrid mode)
+			TrustAIForTPSL: false, // When true, trust AI's suggestions with only min/max floors
+			MinTPPercent:   3.0,   // Minimum TP floor (AI can suggest higher)
+			MinSLPercent:   2.0,   // Minimum SL floor (AI can suggest higher)
+			MaxSLPercent:   5.0,   // Maximum SL ceiling (prevents excessive risk)
 
 			// Noise Zone Protection defaults
 			EnableNoiseZoneProtection: true, // Enabled by default
