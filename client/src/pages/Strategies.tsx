@@ -110,6 +110,9 @@ export default function Strategies() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
+  const [originalStrategy, setOriginalStrategy] = useState<Strategy | null>(
+    null
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [isFindingPairs, setIsFindingPairs] = useState(false);
   const [defaultConfig, setDefaultConfig] = useState<StrategyConfig | null>(
@@ -388,7 +391,12 @@ export default function Strategies() {
                       size="icon"
                       className="glass h-8 w-8 sm:h-9 sm:w-9"
                       onClick={() => {
-                        setEditingStrategy(strategy);
+                        setEditingStrategy(
+                          JSON.parse(JSON.stringify(strategy))
+                        );
+                        setOriginalStrategy(
+                          JSON.parse(JSON.stringify(strategy))
+                        );
                         setIsCreating(false);
                       }}
                     >
@@ -528,7 +536,10 @@ export default function Strategies() {
         open={!!editingStrategy}
         onOpenChange={(open) => !open && setEditingStrategy(null)}
       >
-        <DialogContent className="w-[95vw] max-w-4xl glass-card border-white/10 max-h-[85vh] overflow-y-auto p-4 lg:p-6">
+        <DialogContent
+          className="!w-[calc(100%-1rem)] sm:!w-[90vw] pb-0 !max-w-4xl glass-card border-white/10 max-h-[95vh] overflow-y-auto"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Layers className="w-5 h-5" />
@@ -537,7 +548,7 @@ export default function Strategies() {
           </DialogHeader>
 
           {editingStrategy && (
-            <div className="space-y-4 mt-4">
+            <div className="space-y-4 mt-4 min-w-0 w-full">
               {/* Basic Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -2437,42 +2448,56 @@ export default function Strategies() {
                 </>
               )}
 
-              {/* Actions */}
-              <div className="flex justify-between gap-3 pt-4">
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleExport}
-                    title="Export settings to JSON"
-                  >
-                    <Download className="w-4 h-4 mr-1" />
-                    Export
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleImport}
-                    title="Import settings from JSON"
-                  >
-                    <Upload className="w-4 h-4 mr-1" />
-                    Import
-                  </Button>
-                </div>
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingStrategy(null);
-                      setIsCreating(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button onClick={handleSave}>
-                    <Save className="w-4 h-4 mr-2" />
-                    Save Strategy
-                  </Button>
+              {/* Actions - Sticky Footer */}
+              <div className="sticky bottom-0 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4 lg:px-6 py-3 bg-background/95 backdrop-blur-sm border-t border-white/10 mt-4">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-2 sm:gap-3">
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExport}
+                      title="Export settings to JSON"
+                      className="flex-1 sm:flex-none"
+                    >
+                      <Download className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Export</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleImport}
+                      title="Import settings from JSON"
+                      className="flex-1 sm:flex-none"
+                    >
+                      <Upload className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Import</span>
+                    </Button>
+                  </div>
+                  <div className="flex gap-2 sm:gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setEditingStrategy(null);
+                        setIsCreating(false);
+                      }}
+                      className="flex-1 sm:flex-none"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={
+                        !isCreating &&
+                        !!originalStrategy &&
+                        JSON.stringify(editingStrategy) ===
+                          JSON.stringify(originalStrategy)
+                      }
+                      className="flex-1 sm:flex-none"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      Save
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
