@@ -493,7 +493,7 @@ Return ONLY a JSON array of strings with the selected %d symbols. Example: ["BTC
 Result:`, targetCount)
 
 	// 5. Call AI
-	// Use :online model for Smart Find to ensure fresh data
+	// Use :online model for Smart Find to get fresh web data
 	currentModel := e.mcpClient.GetModel()
 	onlineModel := currentModel
 	if !strings.HasSuffix(onlineModel, ":online") {
@@ -518,6 +518,20 @@ Result:`, targetCount)
 
 	// 6. Parse Response (Extract JSON array)
 	jsonStr := response
+
+	// Strip markdown code blocks if present
+	jsonStr = strings.TrimSpace(jsonStr)
+	if strings.HasPrefix(jsonStr, "```json") {
+		jsonStr = strings.TrimPrefix(jsonStr, "```json")
+	} else if strings.HasPrefix(jsonStr, "```") {
+		jsonStr = strings.TrimPrefix(jsonStr, "```")
+	}
+	if strings.HasSuffix(jsonStr, "```") {
+		jsonStr = strings.TrimSuffix(jsonStr, "```")
+	}
+	jsonStr = strings.TrimSpace(jsonStr)
+
+	// Extract JSON array
 	if idx := strings.Index(jsonStr, "["); idx != -1 {
 		jsonStr = jsonStr[idx:]
 	}
@@ -527,7 +541,7 @@ Result:`, targetCount)
 
 	var recommended []string
 	if err := json.Unmarshal([]byte(jsonStr), &recommended); err != nil {
-		return nil, fmt.Errorf("failed to parse AI response: %w", err)
+		return nil, fmt.Errorf("failed to parse AI response: %w (raw: %s)", err, response[:min(len(response), 200)])
 	}
 
 	return recommended, nil

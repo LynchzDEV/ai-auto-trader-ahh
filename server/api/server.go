@@ -478,7 +478,7 @@ Return ONLY a JSON array of strings with the selected %d symbols. Example: ["BTC
 Result:`, targetCount)
 
 	// 4. Call AI
-	// Use :online model for Smart Find/Recommend Pairs to ensure fresh data
+	// Use :online model for Smart Find/Recommend Pairs to get fresh web data
 	currentModel := s.aiClient.GetModel()
 	onlineModel := currentModel
 	if !strings.HasSuffix(onlineModel, ":online") {
