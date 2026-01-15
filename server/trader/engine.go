@@ -98,9 +98,9 @@ type Engine struct {
 
 // oiCacheEntry stores cached OI data with expiry
 type oiCacheEntry struct {
-	Analysis  *exchange.OIAnalysis
-	LSRatio   *exchange.LongShortRatioData
-	ExpiresAt time.Time
+	Analysis      *exchange.OIAnalysis
+	SentimentData *exchange.LongShortAnalysis
+	ExpiresAt     time.Time
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -956,9 +956,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 				marketData.LiquidationSeverity = cached.Analysis.LiquidationSeverity
 				marketData.LiquidationMessage = cached.Analysis.LiquidationMessage
 			}
-			if cached.LSRatio != nil {
-				marketData.LongRatio = cached.LSRatio.LongAccount * 100
-				marketData.ShortRatio = cached.LSRatio.ShortAccount * 100
+			if cached.SentimentData != nil {
+				marketData.LongRatio = cached.SentimentData.LongAccount * 100
+				marketData.ShortRatio = cached.SentimentData.ShortAccount * 100
+				marketData.SentimentTrend = cached.SentimentData.SentimentTrend
+				marketData.SentimentMessage = cached.SentimentData.SentimentMessage
 			}
 		} else {
 			// Fetch fresh data from Binance
@@ -1002,19 +1004,25 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					e.name, symbol, oiAnalysis.OIChange1H, oiAnalysis.OISignal, oiAnalysis.OIConfidence)
 			}
 
-			// Fetch Long/Short ratio from Binance (FREE)
-			lsData, lsErr := e.binance.GetLatestLongShortRatio(oiCtx, symbol)
+			// Fetch Long/Short Sentiment Analysis from Binance (FREE)
+			sentimentData, lsErr := e.binance.GetLongShortAnalysis(oiCtx, symbol)
 			if lsErr != nil {
-				log.Printf("[%s][OI] Failed to fetch L/S ratio for %s: %v", e.name, symbol, lsErr)
-			} else if lsData != nil {
-				marketData.LongRatio = lsData.LongAccount * 100
-				marketData.ShortRatio = lsData.ShortAccount * 100
-				newCacheEntry.LSRatio = lsData
+				log.Printf("[%s][OI] Failed to fetch Sentiment data for %s: %v", e.name, symbol, lsErr)
+			} else if sentimentData != nil {
+				marketData.LongRatio = sentimentData.LongAccount * 100
+				marketData.ShortRatio = sentimentData.ShortAccount * 100
+				marketData.SentimentTrend = sentimentData.SentimentTrend
+				marketData.SentimentMessage = sentimentData.SentimentMessage
+
+				newCacheEntry.SentimentData = sentimentData
 
 				if marketData.LongRatio > 70 {
 					log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, marketData.LongRatio)
 				} else if marketData.ShortRatio > 70 {
 					log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, marketData.ShortRatio)
+				}
+				if sentimentData.SentimentTrend != "STABLE" {
+					log.Printf("[%s][Sentiment] %s: %s", e.name, symbol, sentimentData.SentimentMessage)
 				}
 			}
 

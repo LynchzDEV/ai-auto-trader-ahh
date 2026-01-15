@@ -479,4 +479,19 @@ func TestOIIntegration(t *testing.T) {
 		t.Logf("BTCUSDT L/S Ratio: %.2f (Long: %.1f%%, Short: %.1f%%)",
 			lsRatio.LongShortRatio, lsRatio.LongAccount*100, lsRatio.ShortAccount*100)
 	})
+	// Test GetLongShortAnalysis
+	t.Run("GetLongShortAnalysis", func(t *testing.T) {
+		analysis, err := client.GetLongShortAnalysis(ctx, "BTCUSDT")
+		if err != nil {
+			t.Logf("GetLongShortAnalysis error: %v", err)
+			return
+		}
+		t.Logf("Sentiment Trend: %s", analysis.SentimentTrend)
+		t.Logf("Message: %s", analysis.SentimentMessage)
+		t.Logf("1H Change: %.2f%%", analysis.LSRatioChange1H)
+
+		if analysis.Symbol == "" {
+			t.Error("Analysis should have symbol")
+		}
+	})
 }

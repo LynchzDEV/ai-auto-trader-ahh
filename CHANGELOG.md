@@ -32,6 +32,13 @@ All notable changes to this project will be documented in this file.
     - **Rocket Short Protection**: Blocks SHORT entries during detected Short Squeezes
     - Includes severity levels (HIGH/MEDIUM/LOW) and AI trading guidance
 
+- **Long/Short Ratio Sentiment Analysis**:
+  - Tracks **Sentiment Trend** (FOMO vs Fear) by monitoring L/S ratio changes over 1hr
+  - **Context-Aware Insights**:
+    - "Retail sentiment shifting LONG (+5%)" → Warning of potential FOMO top
+    - "Retail sentiment shifting SHORT (-5%)" → Warning of potential bear trap
+  - Integrated into AI Prompt for better contrarian decision making
+
 - **Comprehensive OI Test Suite** (`server/exchange/oi_test.go`):
   - `TestOIAnalysisInterpretation`: 6 test cases for signal interpretation
   - `TestOIChangeCalculation`: 4 test cases for % change calculation

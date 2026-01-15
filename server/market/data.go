@@ -38,6 +38,9 @@ type MarketData struct {
 	OIDescription string  // Human-readable interpretation
 	LongRatio     float64 // % of traders long
 	ShortRatio    float64 // % of traders short
+	// Sentiment Analysis (Trend of retail positioning)
+	SentimentTrend   string // BECOMING_BULLISH, BECOMING_BEARISH, STABLE
+	SentimentMessage string // Description of sentiment shift (e.g. "Retail FOMO detected")
 	// Inferred Liquidation Detection (FREE - derived from OI + Price)
 	LiquidationPressure string // LONG_LIQUIDATION, SHORT_LIQUIDATION, NONE
 	LiquidationSeverity string // HIGH, MEDIUM, LOW, NONE
@@ -370,12 +373,19 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		}
 
 		// Long/Short Ratio
+		// Long/Short Ratio
 		if data.LongRatio > 0 || data.ShortRatio > 0 {
 			sb.WriteString(fmt.Sprintf("\nL/S Ratio: %.1f%% Long | %.1f%% Short\n", data.LongRatio, data.ShortRatio))
 			if data.LongRatio > 70 {
 				sb.WriteString("⚠️ CROWDED LONG - potential for reversal down\n")
 			} else if data.ShortRatio > 70 {
 				sb.WriteString("⚠️ CROWDED SHORT - potential for squeeze up\n")
+			}
+
+			// Add Sentiment Shift (Trend)
+			if data.SentimentTrend != "" && data.SentimentTrend != "STABLE" {
+				sb.WriteString(fmt.Sprintf("📊 Sentiment Trend: %s\n", data.SentimentTrend))
+				sb.WriteString(fmt.Sprintf("💡 Insight: %s\n", data.SentimentMessage))
 			}
 		}
 		sb.WriteString("\n")

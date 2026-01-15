@@ -1205,6 +1205,14 @@ func (c *BinanceClient) GetTopTraderLongShortRatio(ctx context.Context, symbol s
 	return ratios, nil
 }
 
+// LongShortAnalysis calculates sentiment shifts
+type LongShortAnalysis struct {
+	LongShortRatioData
+	LSRatioChange1H  float64 // Change in Long Ratio over 1 hour
+	SentimentTrend   string  // "BECOMING_BULLISH", "BECOMING_BEARISH", "STABLE"
+	SentimentMessage string  // Guidance message
+}
+
 // GetLatestLongShortRatio fetches the latest long/short ratio for a symbol (FREE)
 func (c *BinanceClient) GetLatestLongShortRatio(ctx context.Context, symbol string) (*LongShortRatioData, error) {
 	ratios, err := c.GetTopTraderLongShortRatio(ctx, symbol, "5m", 1)
@@ -1215,6 +1223,46 @@ func (c *BinanceClient) GetLatestLongShortRatio(ctx context.Context, symbol stri
 		return nil, fmt.Errorf("no long/short ratio data available")
 	}
 	return &ratios[0], nil
+}
+
+// GetLongShortAnalysis fetches L/S ratio history and detects sentiment shifts
+func (c *BinanceClient) GetLongShortAnalysis(ctx context.Context, symbol string) (*LongShortAnalysis, error) {
+	// standard is 5m periods, so 12 periods = 1 hour
+	ratios, err := c.GetTopTraderLongShortRatio(ctx, symbol, "5m", 13)
+	if err != nil {
+		return nil, err
+	}
+	if len(ratios) == 0 {
+		return nil, fmt.Errorf("no long/short ratio data")
+	}
+
+	current := ratios[len(ratios)-1]
+
+	analysis := &LongShortAnalysis{
+		LongShortRatioData: current,
+		SentimentTrend:     "STABLE",
+	}
+
+	if len(ratios) >= 12 {
+		old := ratios[len(ratios)-12]
+		// Calculate absolute change in Long Percentage
+		longChange := (current.LongAccount - old.LongAccount) * 100
+		analysis.LSRatioChange1H = longChange
+
+		if longChange > 5 {
+			analysis.SentimentTrend = "BECOMING_BULLISH"
+			analysis.SentimentMessage = fmt.Sprintf("Retail sentiment shifting LONG (+%.1f%% in 1h) - watch for contrarian reversal if crowded > 65%%", longChange)
+		} else if longChange < -5 {
+			analysis.SentimentTrend = "BECOMING_BEARISH"
+			analysis.SentimentMessage = fmt.Sprintf("Retail sentiment shifting SHORT (%.1f%% drop in long ratio) - potential squeeze up if price holds", longChange)
+		} else {
+			analysis.SentimentMessage = "Sentiment is stable"
+		}
+	} else {
+		analysis.SentimentMessage = "Insufficient history for trend"
+	}
+
+	return analysis, nil
 }
 
 func parseFloat(v interface{}) float64 {

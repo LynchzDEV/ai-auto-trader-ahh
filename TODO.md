@@ -78,20 +78,21 @@ Instead of paid liquidation APIs, we use:
 ---
 
 ### 3. Long/Short Ratio Tracking
-**Impact:** 🔥🔥 | **Effort:** Medium | **Status:** 🔲 Not Started
+**Impact:** 🔥🔥 | **Effort:** Medium | **Status:** ✅ Completed
 
 **Description:**  
-Track the ratio of traders with long vs short positions to identify crowded trades.
+Track the ratio of traders with long vs short positions to identify crowded trades and sentiment shifts.
 
 **Implementation:**
-- [ ] Add `LongShortRank()` to CoinAnk client
-- [ ] Add long/short ratio to MarketData
-- [ ] Add contrarian signals:
-  - Extreme long ratio (>70%) = Potential reversal warning
-  - Extreme short ratio (>70%) = Potential squeeze warning
-- [ ] Integrate into entry safety checks
+- [x] Add `GetLatestLongShortRatio` (Snapshot) and `GetLongShortAnalysis` (Trend)
+- [x] Add long/short ratio + Sentiment Trend to MarketData
+- [x] Add contrarian signals:
+  - Extreme long ratio (>70%) = Warning logs
+  - Extreme short ratio (>70%) = Warning logs
+  - **Sentiment Trend**: "Retail FOMO" (Ratio increasing) vs "Capitulation" (Ratio dropping)
+- [x] Integrate into entry safety checks (Blocks entries if crowded > 75%)
 
-**Reference:** `nofx-modify/provider/coinank/instrument_agg_rank.go`
+**Reference:** Uses `GetTopTraderLongShortRatio` from Binance Futures API.
 
 ---
 
