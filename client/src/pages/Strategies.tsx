@@ -2456,7 +2456,7 @@ export default function Strategies() {
               )}
 
               {/* Actions - Sticky Footer */}
-              <div className="sticky bottom-0 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4 lg:px-6 py-3 bg-background/95 backdrop-blur-sm border-t border-white/10 mt-4">
+              <div className="sticky bottom-0 -mx-6 px-3 sm:px-4 lg:px-6 py-3 bg-background/95 backdrop-blur-sm border-t border-white/10 mt-4">
                 <div className="flex flex-col sm:flex-row sm:justify-between gap-2 sm:gap-3">
                   <div className="flex gap-2">
                     <Button
