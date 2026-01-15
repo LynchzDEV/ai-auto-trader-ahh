@@ -320,27 +320,120 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 	sb.WriteString("--- ENTRY QUALITY CHECK ---\n")
 	longScore := 0
 	shortScore := 0
+	longWarnings := []string{}
+	shortWarnings := []string{}
 
+	// EMA structure
 	if data.EMA9 > data.EMA21 {
 		longScore++
 	} else {
 		shortScore++
 	}
+
+	// RSI in good range
 	if data.RSI > 45 && data.RSI < 65 {
 		longScore++
 	}
 	if data.RSI > 35 && data.RSI < 55 {
 		shortScore++
 	}
+
+	// RSI extreme warnings
+	if data.RSI > 75 {
+		longWarnings = append(longWarnings, "RSI OVERBOUGHT (>75)")
+	}
+	if data.RSI < 25 {
+		shortWarnings = append(shortWarnings, "RSI OVERSOLD (<25)")
+	}
+
+	// MACD momentum
 	if data.MACDHist > 0 {
 		longScore++
 	} else {
 		shortScore++
 	}
+
+	// BTC context
 	if data.BTCChange24h > 0 {
 		longScore++
 	} else {
 		shortScore++
+	}
+
+	// EXHAUSTION DETECTION: Price extended from EMA with weakening momentum
+	if data.EMA9 > 0 {
+		priceExtension := ((data.CurrentPrice - data.EMA9) / data.EMA9) * 100
+		if priceExtension > 1.0 && data.MACDHist < 0 {
+			longWarnings = append(longWarnings, fmt.Sprintf("EXHAUSTION: Extended %.1f%% above EMA9 with negative MACD", priceExtension))
+		}
+		if priceExtension < -1.0 && data.MACDHist > 0 {
+			shortWarnings = append(shortWarnings, fmt.Sprintf("EXHAUSTION: Extended %.1f%% below EMA9 with positive MACD", -priceExtension))
+		}
+	}
+
+	// EMA spread weakness
+	if data.EMA21 > 0 {
+		emaSpread := ((data.EMA9 - data.EMA21) / data.EMA21) * 100
+		absSpread := emaSpread
+		if absSpread < 0 {
+			absSpread = -absSpread
+		}
+		if absSpread < 0.6 {
+			longWarnings = append(longWarnings, fmt.Sprintf("WEAK TREND: EMA spread only %.2f%% (need >0.6%%)", absSpread))
+			shortWarnings = append(shortWarnings, fmt.Sprintf("WEAK TREND: EMA spread only %.2f%% (need >0.6%%)", absSpread))
+		}
+	}
+
+	// WICK REJECTION DETECTION
+	if len(data.Klines) >= 5 {
+		upperRejections := 0
+		lowerRejections := 0
+		for i := len(data.Klines) - 5; i < len(data.Klines); i++ {
+			k := data.Klines[i]
+			bodySize := k.Close - k.Open
+			if bodySize < 0 {
+				bodySize = -bodySize
+			}
+			if bodySize > 0 {
+				maxOC := k.Open
+				if k.Close > k.Open {
+					maxOC = k.Close
+				}
+				minOC := k.Open
+				if k.Close < k.Open {
+					minOC = k.Close
+				}
+				upperWick := k.High - maxOC
+				lowerWick := minOC - k.Low
+				if upperWick > bodySize*0.5 {
+					upperRejections++
+				}
+				if lowerWick > bodySize*0.5 {
+					lowerRejections++
+				}
+			}
+		}
+		if upperRejections >= 3 {
+			longWarnings = append(longWarnings, fmt.Sprintf("WICK REJECTION: %d/5 candles show sellers rejecting highs", upperRejections))
+		}
+		if lowerRejections >= 3 {
+			shortWarnings = append(shortWarnings, fmt.Sprintf("WICK REJECTION: %d/5 candles show buyers defending lows", lowerRejections))
+		}
+	}
+
+	// VOLUME DECLINE DETECTION
+	if len(data.Klines) >= 6 {
+		recentVol := data.Klines[len(data.Klines)-1].Volume
+		var avgVol float64
+		for i := len(data.Klines) - 6; i < len(data.Klines)-1; i++ {
+			avgVol += data.Klines[i].Volume
+		}
+		avgVol /= 5
+		if avgVol > 0 && recentVol < avgVol*0.6 {
+			warning := fmt.Sprintf("LOW VOLUME: Current vol %.0f is %.0f%% below average", recentVol, (1-(recentVol/avgVol))*100)
+			longWarnings = append(longWarnings, warning)
+			shortWarnings = append(shortWarnings, warning)
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("LONG Score: %d/4 | SHORT Score: %d/4\n", longScore, shortScore))
@@ -354,6 +447,20 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		sb.WriteString("📊 MODERATE: SHORT entry possible with caution\n")
 	} else {
 		sb.WriteString("⚠️ WEAK: Mixed signals, higher risk entry\n")
+	}
+
+	// Output warnings
+	if len(longWarnings) > 0 {
+		sb.WriteString("\n🚨 LONG ENTRY WARNINGS:\n")
+		for _, w := range longWarnings {
+			sb.WriteString(fmt.Sprintf("   - %s\n", w))
+		}
+	}
+	if len(shortWarnings) > 0 {
+		sb.WriteString("\n🚨 SHORT ENTRY WARNINGS:\n")
+		for _, w := range shortWarnings {
+			sb.WriteString(fmt.Sprintf("   - %s\n", w))
+		}
 	}
 	sb.WriteString("\n")
 

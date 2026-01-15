@@ -1013,11 +1013,17 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	// Add Global Safety Rules (Always Active)
-	formattedData += "\n--- CRITICAL ENTRY RULES ---\n"
-	formattedData += "1. DO NOT FOMO: If price is at 'Recent High' or 'Resistance', YOU MUST WAIT for a breakout + retest.\n"
-	formattedData += "2. NO WICK ENTRIES: If the last candle has a long upper wick (rejection), DO NOT BUY.\n"
-	formattedData += "3. PULLBACKS ONLY: Prefer entering on pullbacks to EMA, not when extended far above it.\n"
-	formattedData += "4. TREND ALIGNMENT: If Price < EMA9 but EMA9 > EMA21, this is a pullback. Verify support before buying.\n"
+	formattedData += "\n--- CRITICAL ENTRY RULES (CODE-ENFORCED) ---\n"
+	formattedData += "The following rules are ENFORCED by the backend. Trades violating these will be BLOCKED:\n\n"
+	formattedData += "1. EMA SPREAD GATE: EMA spread must be >= 0.6% for any new entry. Weak/choppy trends are rejected.\n"
+	formattedData += "2. NO COUNTER-TREND: For LONG, price must be ABOVE EMA9. For SHORT, price must be BELOW EMA9.\n"
+	formattedData += "3. MOMENTUM EXHAUSTION: If price is extended >1% from EMA9 with opposite MACD direction = BLOCKED.\n"
+	formattedData += "4. WICK REJECTION: If 3+ of last 5 candles show rejection wicks (sellers at highs/buyers at lows) = BLOCKED.\n"
+	formattedData += "5. VOLUME CONFIRMATION: If current volume < 60% of 5-candle average = weak move, BLOCKED.\n"
+	formattedData += "6. RESISTANCE/SUPPORT: If price within 0.5% of 40-candle high (for longs) or low (for shorts) = BLOCKED.\n"
+	formattedData += "7. RSI EXTREMES: LONG blocked if RSI > 75 (overbought). SHORT blocked if RSI < 25 (oversold).\n"
+	formattedData += "8. MULTI-TF CONFIRMATION: Higher timeframe must confirm trend, price action, AND momentum direction.\n\n"
+	formattedData += "⚠️ Check the 'ENTRY QUALITY CHECK' section above for specific warnings about current conditions.\n"
 
 	// Add 24h trading history for this symbol (with reasons and P&L)
 	// This helps AI learn from recent trades and avoid repeating mistakes
@@ -1167,24 +1173,30 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					// Check if higher timeframe agrees with trade direction
 					htfBullish := htfData.EMA9 > htfData.EMA21
 
-					// ENHANCED CHECK: Ensure Price is also respecting the trend
-					// If buying, price should be above 15m EMA21 (not crashing through it)
-					// If selling, price should be below 15m EMA21 (not pumping through it)
+					// ENHANCED CHECK 1: Ensure Price is also respecting the trend
 					priceRespectsTrend := false
 					if htfBullish {
-						// Bullish trend: Price > EMA21
 						priceRespectsTrend = htfData.CurrentPrice >= htfData.EMA21
 					} else {
-						// Bearish trend: Price < EMA21
 						priceRespectsTrend = htfData.CurrentPrice <= htfData.EMA21
+					}
+
+					// ENHANCED CHECK 2: Verify momentum direction (MACD histogram)
+					htfMomentumBullish := htfData.MACDHist > 0
+
+					// ENHANCED CHECK 3: Verify EMA spread strength on higher TF
+					htfEmaSpread := 0.0
+					if htfData.EMA21 > 0 {
+						htfEmaSpread = ((htfData.EMA9 - htfData.EMA21) / htfData.EMA21) * 100
+					}
+					htfAbsSpread := htfEmaSpread
+					if htfAbsSpread < 0 {
+						htfAbsSpread = -htfAbsSpread
 					}
 
 					wantLong := decision.Action == "BUY"
 
-					// Validation:
-					// 1. Trend Direction must match (EMA structure)
-					// 2. Price Action must match (Price vs EMA relation)
-
+					// Validation 1: Trend Direction must match (EMA structure)
 					isTrendAligned := (wantLong && htfBullish) || (!wantLong && !htfBullish)
 
 					if !isTrendAligned {
@@ -1196,16 +1208,36 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 						return tradeLog
 					}
 
+					// Validation 2: Price Action must match
 					if !priceRespectsTrend {
-						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Price Action Warning. Trend is correct but Price is countering it (Breaking EMA21). Price: $%.4f, EMA21: $%.4f",
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Price Action Warning. Price countering trend. Price: $%.4f, EMA21: $%.4f",
 							e.name, symbol, htfData.CurrentPrice, htfData.EMA21)
-						tradeLog.Error = fmt.Sprintf("blocked: %s price action failure (breaking trend support/resistance)", confirmTF)
+						tradeLog.Error = fmt.Sprintf("blocked: %s price action failure", confirmTF)
 						return tradeLog
 					}
 
-					// If we get here, both Trend and Price Action are aligned
-					log.Printf("[%s][%s] ✅ Multi-TF confirmed: %s trend agrees on %s AND Price is respecting EMA21",
-						e.name, symbol, confirmTF, decision.Action)
+					// Validation 3: MACD momentum must support trade direction
+					momentumSupports := (wantLong && htfMomentumBullish) || (!wantLong && !htfMomentumBullish)
+					if !momentumSupports {
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Momentum Weakening. Want %s but %s MACD histogram is %.4f (opposite direction)",
+							e.name, symbol, decision.Action, confirmTF, htfData.MACDHist)
+						tradeLog.Error = fmt.Sprintf("blocked: %s momentum weakening (MACD histogram: %.4f)", confirmTF, htfData.MACDHist)
+						return tradeLog
+					}
+
+					// Validation 4: Higher TF must have meaningful trend strength
+					if htfAbsSpread < 0.4 {
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Weak Trend. %s EMA spread is only %.2f%% (need >= 0.4%%)",
+							e.name, symbol, confirmTF, htfAbsSpread)
+						tradeLog.Error = fmt.Sprintf("blocked: %s has weak trend (EMA spread: %.2f%%)", confirmTF, htfAbsSpread)
+						return tradeLog
+					}
+
+					// All checks passed!
+					log.Printf("[%s][%s] ✅ Multi-TF FULL confirmed: %s trend=%s, MACD=%.4f, EMA spread=%.2f%%",
+						e.name, symbol, confirmTF,
+						map[bool]string{true: "BULLISH", false: "BEARISH"}[htfBullish],
+						htfData.MACDHist, htfEmaSpread)
 				}
 			}
 
@@ -1361,26 +1393,138 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 }
 
 // checkEntrySafety enforces strict rules to prevent bad entries (FOMO at resistance, counter-trend)
+// Enhanced with: momentum exhaustion, wick rejection, volume decline, and EMA spread gate
 func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, marketData *market.MarketData) error {
 	if decision.Action != "BUY" && decision.Action != "SELL" &&
 		decision.Action != "open_long" && decision.Action != "open_short" {
 		return nil
 	}
 
+	isLong := decision.Action == "BUY" || decision.Action == "open_long"
 	ema9 := marketData.EMA9
+	ema21 := marketData.EMA21
 	currentPrice := marketData.CurrentPrice
 
-	// 1. Momentum Check (EMA9)
-	if (decision.Action == "BUY" || decision.Action == "open_long") && currentPrice < ema9 {
+	// 1. Counter-Trend Check (EMA9)
+	if isLong && currentPrice < ema9 {
 		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f", currentPrice, ema9)
 	}
-	if (decision.Action == "SELL" || decision.Action == "open_short") && currentPrice > ema9 {
+	if !isLong && currentPrice > ema9 {
 		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f", currentPrice, ema9)
 	}
 
-	// 2. Resistance/Support FOMO Check (30-candle range ~= 2.5 hours)
-	if len(marketData.Klines) >= 30 {
-		recentCandles := marketData.Klines[len(marketData.Klines)-30:]
+	// 2. EMA Spread Strength Gate - Require minimum trend strength for entries
+	emaSpread := 0.0
+	if ema21 > 0 {
+		emaSpread = ((ema9 - ema21) / ema21) * 100
+	}
+	absEmaSpread := emaSpread
+	if absEmaSpread < 0 {
+		absEmaSpread = -absEmaSpread
+	}
+
+	// Require at least 0.6% EMA spread for reliable trend (stricter than before)
+	if absEmaSpread < 0.6 {
+		return fmt.Errorf("weak trend: EMA spread %.2f%% is too weak (need >= 0.6%%). Choppy market - WAIT", absEmaSpread)
+	}
+
+	// Verify spread direction matches trade direction
+	if isLong && emaSpread < 0 {
+		return fmt.Errorf("trend mismatch: trying to LONG but EMA9 < EMA21 (bearish structure)")
+	}
+	if !isLong && emaSpread > 0 {
+		return fmt.Errorf("trend mismatch: trying to SHORT but EMA9 > EMA21 (bullish structure)")
+	}
+
+	// 3. Momentum Exhaustion Detection - Price extended from EMA with weakening MACD
+	if ema9 > 0 {
+		priceExtension := ((currentPrice - ema9) / ema9) * 100
+
+		// For LONG: If price extended > 1% above EMA9 AND MACD histogram weakening = exhaustion
+		if isLong && priceExtension > 1.0 && marketData.MACDHist < 0 {
+			return fmt.Errorf("momentum exhaustion: price extended %.2f%% above EMA9 with negative MACD histogram (%.4f) - likely reversal",
+				priceExtension, marketData.MACDHist)
+		}
+
+		// For SHORT: If price extended > 1% below EMA9 AND MACD histogram strengthening = exhaustion
+		if !isLong && priceExtension < -1.0 && marketData.MACDHist > 0 {
+			return fmt.Errorf("momentum exhaustion: price extended %.2f%% below EMA9 with positive MACD histogram (%.4f) - likely reversal",
+				priceExtension, marketData.MACDHist)
+		}
+	}
+
+	// 4. Wick Rejection Pattern Detection - Multiple rejection wicks signal reversal
+	if len(marketData.Klines) >= 5 {
+		recentCandles := marketData.Klines[len(marketData.Klines)-5:]
+		upperWickRejections := 0
+		lowerWickRejections := 0
+
+		for _, k := range recentCandles {
+			bodySize := k.Close - k.Open
+			if bodySize < 0 {
+				bodySize = -bodySize
+			}
+			totalRange := k.High - k.Low
+			if totalRange <= 0 {
+				continue
+			}
+
+			// Upper wick = High - max(Open, Close)
+			// Lower wick = min(Open, Close) - Low
+			maxOC := k.Open
+			if k.Close > k.Open {
+				maxOC = k.Close
+			}
+			minOC := k.Open
+			if k.Close < k.Open {
+				minOC = k.Close
+			}
+
+			upperWick := k.High - maxOC
+			lowerWick := minOC - k.Low
+
+			// If upper wick > 50% of body = rejection at highs
+			if bodySize > 0 && upperWick > bodySize*0.5 {
+				upperWickRejections++
+			}
+			// If lower wick > 50% of body = rejection at lows
+			if bodySize > 0 && lowerWick > bodySize*0.5 {
+				lowerWickRejections++
+			}
+		}
+
+		// Block LONG if multiple upper wick rejections (sellers active at highs)
+		if isLong && upperWickRejections >= 3 {
+			return fmt.Errorf("wick rejection: %d of last 5 candles show upper wick rejection - sellers defending highs", upperWickRejections)
+		}
+
+		// Block SHORT if multiple lower wick rejections (buyers active at lows)
+		if !isLong && lowerWickRejections >= 3 {
+			return fmt.Errorf("wick rejection: %d of last 5 candles show lower wick rejection - buyers defending lows", lowerWickRejections)
+		}
+	}
+
+	// 5. Volume Decline Detection - Declining volume on trend = weak move
+	if len(marketData.Klines) >= 6 {
+		recentVol := marketData.Klines[len(marketData.Klines)-1].Volume
+
+		// Calculate average of previous 5 candles
+		var avgVol float64
+		for i := len(marketData.Klines) - 6; i < len(marketData.Klines)-1; i++ {
+			avgVol += marketData.Klines[i].Volume
+		}
+		avgVol /= 5
+
+		// If current volume < 60% of average = weak conviction
+		if avgVol > 0 && recentVol < avgVol*0.6 {
+			return fmt.Errorf("weak volume: current volume %.0f is %.0f%% below average %.0f - weak conviction move",
+				recentVol, (1-(recentVol/avgVol))*100, avgVol)
+		}
+	}
+
+	// 6. Resistance/Support FOMO Check (expanded to 40 candles for better context)
+	if len(marketData.Klines) >= 40 {
+		recentCandles := marketData.Klines[len(marketData.Klines)-40:]
 		var recentHigh, recentLow float64
 		recentHigh = recentCandles[0].High
 		recentLow = recentCandles[0].Low
@@ -1393,18 +1537,27 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 			}
 		}
 
-		// Block BUY if too close to Resistance (within 0.3%) unless break through (> recentHigh)
-		if decision.Action == "BUY" || decision.Action == "open_long" {
-			if currentPrice < recentHigh && currentPrice >= recentHigh*0.997 {
-				return fmt.Errorf("resistance block: price $%.4f is too close to recent high $%.4f (Possible BUY THE TOP)", currentPrice, recentHigh)
+		// Block BUY if too close to Resistance (within 0.5% - increased from 0.3%)
+		if isLong {
+			if currentPrice < recentHigh && currentPrice >= recentHigh*0.995 {
+				return fmt.Errorf("resistance block: price $%.4f is within 0.5%% of 40-candle high $%.4f (BUY THE TOP)", currentPrice, recentHigh)
 			}
 		}
-		// Block SELL if too close to Support (within 0.3%) unless break through (< recentLow)
-		if decision.Action == "SELL" || decision.Action == "open_short" {
-			if currentPrice > recentLow && currentPrice <= recentLow*1.003 {
-				return fmt.Errorf("support block: price $%.4f is too close to recent low $%.4f (Possible SELL THE BOTTOM)", currentPrice, recentLow)
+
+		// Block SELL if too close to Support (within 0.5%)
+		if !isLong {
+			if currentPrice > recentLow && currentPrice <= recentLow*1.005 {
+				return fmt.Errorf("support block: price $%.4f is within 0.5%% of 40-candle low $%.4f (SELL THE BOTTOM)", currentPrice, recentLow)
 			}
 		}
+	}
+
+	// 7. RSI Extreme Check - Don't chase overbought/oversold
+	if isLong && marketData.RSI > 75 {
+		return fmt.Errorf("RSI overbought: RSI %.1f > 75 - risky for LONG entry", marketData.RSI)
+	}
+	if !isLong && marketData.RSI < 25 {
+		return fmt.Errorf("RSI oversold: RSI %.1f < 25 - risky for SHORT entry", marketData.RSI)
 	}
 
 	return nil
