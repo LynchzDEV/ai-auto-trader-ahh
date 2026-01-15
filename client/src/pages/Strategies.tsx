@@ -544,7 +544,7 @@ export default function Strategies() {
         }}
       >
         <DialogContent
-          className="!w-[calc(100%-1rem)] sm:!w-[90vw] pb-0 !max-w-4xl glass-card border-white/10 max-h-[95vh] overflow-y-auto"
+          className="pb-0 glass-card border-white/10 max-h-[99vh] max-w-[99vw] sm:max-w-3xl sm:max-h-[95vh] overflow-y-auto"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DialogHeader>
