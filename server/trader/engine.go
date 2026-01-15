@@ -518,8 +518,9 @@ Here are the Top 30 pairs by Volatility (Price Change):
 	}
 
 	prompt += fmt.Sprintf(`
-Return ONLY a JSON array of strings with the selected %d symbols. Example: ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-Result:`, targetCount)
+RESPONSE FORMAT: Return ONLY a raw JSON array of %d symbol strings. No markdown, no code blocks, no explanation.
+Example: ["BTCUSDT","ETHUSDT","SOLUSDT"]
+Your response:`, targetCount)
 
 	// 5. Call AI
 	// Use :online model for Smart Find to get fresh web data
@@ -532,7 +533,7 @@ Result:`, targetCount)
 	req := &mcp.Request{
 		Model: onlineModel,
 		Messages: []mcp.Message{
-			{Role: "system", Content: "You are a smart crypto trading assistant."},
+			{Role: "system", Content: "You are a crypto trading assistant. Always respond with raw JSON only - no markdown, no code fences, no extra text."},
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.7,
@@ -548,13 +549,22 @@ Result:`, targetCount)
 	// 6. Parse Response (Extract JSON array)
 	jsonStr := response
 
-	// Strip markdown code blocks if present
+	// Strip markdown code blocks if present (handles ```json\n...\n``` format)
 	jsonStr = strings.TrimSpace(jsonStr)
-	if strings.HasPrefix(jsonStr, "```json") {
-		jsonStr = strings.TrimPrefix(jsonStr, "```json")
-	} else if strings.HasPrefix(jsonStr, "```") {
-		jsonStr = strings.TrimPrefix(jsonStr, "```")
+
+	// Remove opening code fence (with optional language identifier)
+	if strings.HasPrefix(jsonStr, "```") {
+		// Find the end of the first line (after ```json or just ```)
+		if idx := strings.Index(jsonStr, "\n"); idx != -1 {
+			jsonStr = jsonStr[idx+1:]
+		} else {
+			// No newline found, just strip the prefix
+			jsonStr = strings.TrimPrefix(jsonStr, "```json")
+			jsonStr = strings.TrimPrefix(jsonStr, "```")
+		}
 	}
+
+	// Remove closing code fence
 	if strings.HasSuffix(jsonStr, "```") {
 		jsonStr = strings.TrimSuffix(jsonStr, "```")
 	}
