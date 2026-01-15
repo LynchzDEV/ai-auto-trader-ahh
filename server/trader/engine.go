@@ -1378,9 +1378,9 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f", currentPrice, ema9)
 	}
 
-	// 2. Resistance/Support FOMO Check (10-candle range)
-	if len(marketData.Klines) >= 10 {
-		recentCandles := marketData.Klines[len(marketData.Klines)-10:]
+	// 2. Resistance/Support FOMO Check (30-candle range ~= 2.5 hours)
+	if len(marketData.Klines) >= 30 {
+		recentCandles := marketData.Klines[len(marketData.Klines)-30:]
 		var recentHigh, recentLow float64
 		recentHigh = recentCandles[0].High
 		recentLow = recentCandles[0].Low
