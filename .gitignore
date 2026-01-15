@@ -62,5 +62,4 @@ tmp/
 temp/
 
 # CSV files
-*.csv
-Strategy Main Jan 09 2026.json
+# *.csv

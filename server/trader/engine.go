@@ -90,6 +90,17 @@ type Engine struct {
 
 	// Market Intelligence Provider (free external data)
 	intelProvider *intel.Provider
+
+	// OI Analysis Cache (to avoid rate limits: 1000 req/5min)
+	oiCache      map[string]*oiCacheEntry // key: symbol -> cached OI data
+	oiCacheMutex sync.RWMutex
+}
+
+// oiCacheEntry stores cached OI data with expiry
+type oiCacheEntry struct {
+	Analysis  *exchange.OIAnalysis
+	LSRatio   *exchange.LongShortRatioData
+	ExpiresAt time.Time
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -199,6 +210,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 
 		// Market Intelligence
 		intelProvider: intelProvider,
+
+		// OI Cache (1 minute TTL to stay well under rate limits)
+		oiCache: make(map[string]*oiCacheEntry),
 	}
 }
 
@@ -905,55 +919,101 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	// Fetch Open Interest data from Binance (FREE - no API key needed!)
-	// Uses /futures/data/openInterestHist and /futures/data/topLongShortPositionRatio
+	// Uses caching to stay well under rate limits (1000 req/5min)
+	// Cache TTL: 1 minute per symbol
 	{
-		oiCtx, oiCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer oiCancel()
+		const oiCacheTTL = 1 * time.Minute
 
-		// Fetch OI analysis from Binance (FREE)
-		oiAnalysis, oiErr := e.binance.GetOIAnalysis(oiCtx, symbol, marketData.PriceChange24h)
-		if oiErr != nil {
-			log.Printf("[%s][OI] Failed to fetch OI data for %s: %v", e.name, symbol, oiErr)
-		} else if oiAnalysis != nil {
-			marketData.OIValue = oiAnalysis.CurrentOI
-			marketData.OIChange1H = oiAnalysis.OIChange1H
-			marketData.OIChange4H = oiAnalysis.OIChange4H
-			marketData.OIChange24H = oiAnalysis.OIChange24H
-			marketData.OISignal = oiAnalysis.OISignal
+		// Check cache first
+		e.oiCacheMutex.RLock()
+		cached, hasCached := e.oiCache[symbol]
+		e.oiCacheMutex.RUnlock()
 
-			// Set description based on signal
-			switch oiAnalysis.OISignal {
-			case "BULLISH":
-				marketData.OIDescription = "New longs opening - capital flowing into long positions"
-			case "BEARISH":
-				marketData.OIDescription = "New shorts opening - capital flowing into short positions"
-			case "REVERSAL_UP":
-				marketData.OIDescription = "Shorts covering - potential short squeeze, NOT new buying"
-			case "REVERSAL_DOWN":
-				marketData.OIDescription = "Longs capitulating - potential bounce, NOT new shorting"
-			default:
-				marketData.OIDescription = "No significant OI movement - market indecision"
+		if hasCached && time.Now().Before(cached.ExpiresAt) {
+			// Use cached data
+			if cached.Analysis != nil {
+				marketData.OIValue = cached.Analysis.CurrentOI
+				marketData.OIChange1H = cached.Analysis.OIChange1H
+				marketData.OIChange4H = cached.Analysis.OIChange4H
+				marketData.OIChange24H = cached.Analysis.OIChange24H
+				marketData.OISignal = cached.Analysis.OISignal
+
+				switch cached.Analysis.OISignal {
+				case "BULLISH":
+					marketData.OIDescription = "New longs opening - capital flowing into long positions"
+				case "BEARISH":
+					marketData.OIDescription = "New shorts opening - capital flowing into short positions"
+				case "REVERSAL_UP":
+					marketData.OIDescription = "Shorts covering - potential short squeeze, NOT new buying"
+				case "REVERSAL_DOWN":
+					marketData.OIDescription = "Longs capitulating - potential bounce, NOT new shorting"
+				default:
+					marketData.OIDescription = "No significant OI movement - market indecision"
+				}
+			}
+			if cached.LSRatio != nil {
+				marketData.LongRatio = cached.LSRatio.LongAccount * 100
+				marketData.ShortRatio = cached.LSRatio.ShortAccount * 100
+			}
+		} else {
+			// Fetch fresh data from Binance
+			oiCtx, oiCancel := context.WithTimeout(ctx, 5*time.Second)
+
+			newCacheEntry := &oiCacheEntry{
+				ExpiresAt: time.Now().Add(oiCacheTTL),
 			}
 
-			log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s (%s)",
-				e.name, symbol, oiAnalysis.OIChange1H, oiAnalysis.OISignal, oiAnalysis.OIConfidence)
-		}
+			// Fetch OI analysis from Binance (FREE)
+			oiAnalysis, oiErr := e.binance.GetOIAnalysis(oiCtx, symbol, marketData.PriceChange24h)
+			if oiErr != nil {
+				log.Printf("[%s][OI] Failed to fetch OI data for %s: %v", e.name, symbol, oiErr)
+			} else if oiAnalysis != nil {
+				marketData.OIValue = oiAnalysis.CurrentOI
+				marketData.OIChange1H = oiAnalysis.OIChange1H
+				marketData.OIChange4H = oiAnalysis.OIChange4H
+				marketData.OIChange24H = oiAnalysis.OIChange24H
+				marketData.OISignal = oiAnalysis.OISignal
+				newCacheEntry.Analysis = oiAnalysis
 
-		// Fetch Long/Short ratio from Binance (FREE)
-		lsData, lsErr := e.binance.GetLatestLongShortRatio(oiCtx, symbol)
-		if lsErr != nil {
-			log.Printf("[%s][OI] Failed to fetch L/S ratio for %s: %v", e.name, symbol, lsErr)
-		} else if lsData != nil {
-			// Convert from decimal (0.xx) to percentage (xx%)
-			marketData.LongRatio = lsData.LongAccount * 100
-			marketData.ShortRatio = lsData.ShortAccount * 100
+				switch oiAnalysis.OISignal {
+				case "BULLISH":
+					marketData.OIDescription = "New longs opening - capital flowing into long positions"
+				case "BEARISH":
+					marketData.OIDescription = "New shorts opening - capital flowing into short positions"
+				case "REVERSAL_UP":
+					marketData.OIDescription = "Shorts covering - potential short squeeze, NOT new buying"
+				case "REVERSAL_DOWN":
+					marketData.OIDescription = "Longs capitulating - potential bounce, NOT new shorting"
+				default:
+					marketData.OIDescription = "No significant OI movement - market indecision"
+				}
 
-			// Warn on crowded positioning
-			if marketData.LongRatio > 70 {
-				log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, marketData.LongRatio)
-			} else if marketData.ShortRatio > 70 {
-				log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, marketData.ShortRatio)
+				log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s (%s)",
+					e.name, symbol, oiAnalysis.OIChange1H, oiAnalysis.OISignal, oiAnalysis.OIConfidence)
 			}
+
+			// Fetch Long/Short ratio from Binance (FREE)
+			lsData, lsErr := e.binance.GetLatestLongShortRatio(oiCtx, symbol)
+			if lsErr != nil {
+				log.Printf("[%s][OI] Failed to fetch L/S ratio for %s: %v", e.name, symbol, lsErr)
+			} else if lsData != nil {
+				marketData.LongRatio = lsData.LongAccount * 100
+				marketData.ShortRatio = lsData.ShortAccount * 100
+				newCacheEntry.LSRatio = lsData
+
+				if marketData.LongRatio > 70 {
+					log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, marketData.LongRatio)
+				} else if marketData.ShortRatio > 70 {
+					log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, marketData.ShortRatio)
+				}
+			}
+
+			oiCancel()
+
+			// Store in cache
+			e.oiCacheMutex.Lock()
+			e.oiCache[symbol] = newCacheEntry
+			e.oiCacheMutex.Unlock()
 		}
 	}
 
