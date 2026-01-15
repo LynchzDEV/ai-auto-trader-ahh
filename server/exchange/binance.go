@@ -274,6 +274,40 @@ func (c *BinanceClient) doRequest(ctx context.Context, method, endpoint string, 
 	return respBody, nil
 }
 
+// doPublicRequest performs a GET request to the Mainnet API (always)
+// This is used for fetching market data (OI, Sentiment) that is not available or reliable on Testnet
+func (c *BinanceClient) doPublicRequest(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
+	reqURL := BinanceMainnetURL + endpoint
+	if len(params) > 0 {
+		reqURL += "?" + params.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public request: %w", err)
+	}
+
+	// We don't strictly need API headers for public data
+	// Sending Testnet keys to Mainnet is messy, so we omit Auth headers
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("public request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("public API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
 // GetAccountInfo retrieves account balance and margin info
 func (c *BinanceClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
 	params := url.Values{}
@@ -1003,7 +1037,7 @@ func (c *BinanceClient) GetOpenInterest(ctx context.Context, symbol string) (*Op
 	params := url.Values{}
 	params.Set("symbol", symbol)
 
-	body, err := c.doRequest(ctx, "GET", "/fapi/v1/openInterest", params, false)
+	body, err := c.doPublicRequest(ctx, "/fapi/v1/openInterest", params)
 	if err != nil {
 		return nil, err
 	}
@@ -1054,7 +1088,7 @@ func (c *BinanceClient) GetOpenInterestHist(ctx context.Context, symbol string, 
 		params.Set("limit", "30") // Default to 30 data points
 	}
 
-	body, err := c.doRequest(ctx, "GET", "/futures/data/openInterestHist", params, false)
+	body, err := c.doPublicRequest(ctx, "/futures/data/openInterestHist", params)
 	if err != nil {
 		if strings.Contains(err.Error(), "status 202") {
 			return nil, nil // Treat as no data available yet
@@ -1207,7 +1241,7 @@ func (c *BinanceClient) GetTopTraderLongShortRatio(ctx context.Context, symbol s
 		params.Set("limit", "1") // Just get latest
 	}
 
-	body, err := c.doRequest(ctx, "GET", "/futures/data/topLongShortPositionRatio", params, false)
+	body, err := c.doPublicRequest(ctx, "/futures/data/topLongShortPositionRatio", params)
 	if err != nil {
 		if strings.Contains(err.Error(), "status 202") {
 			return nil, nil // Treat as no data available yet
