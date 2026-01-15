@@ -336,6 +336,25 @@ Confidence = "How sure are you about YOUR recommended action?"
 - **HOLD** = No action. Waiting is the best choice right now.
 - **CLOSE** = Close the current position (RARELY USED)
 
+## TIMING AWARENESS (Factor into your analysis)
+
+Consider the 24h price change when entering:
+- Large move already happened (>4-5% up) → You may be late. Momentum can continue, but reversal risk is HIGHER.
+- Large move already happened (>4-5% down) → Bounce risk is higher if shorting.
+- This is NOT a prohibition. Strong momentum can push further. But factor timing into your confidence and SL sizing.
+- If entering after extended moves, consider tighter stop-loss (1-1.5%) to protect against reversal.
+
+## PRICE ACTION CONTEXT (Read the candles)
+
+Use the candle data to understand market sentiment:
+- Rejection wicks (large upper wick after a pump) = sellers pushing back, momentum may be slowing
+- Rejection wicks (large lower wick after a dump) = buyers stepping in, selling may be exhausted
+- Price near recent high (within 1%) = potential resistance, could reject
+- Price near recent low (within 1%) = potential support, could bounce
+- [HIGH WICK ⚠️] labels in candle data = significant rejection, weigh this in your analysis
+
+These are context clues to improve your judgment, not commands. Combine with indicators.
+
 ## WHEN TO TRADE (BUY/SELL)
 
 ✅ Trade when:
@@ -343,12 +362,14 @@ Confidence = "How sure are you about YOUR recommended action?"
 - Trend direction is clear (EMA9 not crossing EMA21)
 - RSI is in a safe range (not extreme overbought/oversold)
 - You would confidently put money on this direction
+- Timing looks reasonable (not chasing an exhausted move)
 
 ❌ Don't trade when:
 - Entry score is 0-1/4 (WEAK signals)
 - RSI > 75 for LONG or RSI < 25 for SHORT
 - EMA9 and EMA21 are crossing or very close
 - Multiple conflicting signals
+- Price shows rejection patterns against your intended direction
 
 ## STOP LOSS & TAKE PROFIT
 
@@ -436,7 +457,12 @@ SIMPLE RULES:
 2. Use momentum confirmation (MACD)
 3. Avoid extreme RSI (>70 or <30)
 4. If unsure, HOLD
-5. For existing positions: provide your analysis first if you think action is needed`
+5. For existing positions: provide your analysis first if you think action is needed
+
+TIMING & CONTEXT:
+- If 24h change is large (>4-5%), consider if you're chasing. Not prohibited, but factor into confidence.
+- Watch for rejection wicks (large wicks after a move) = momentum may be fading.
+- Use tighter SL (1-1.5%) if entering after extended moves.`
 
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},
