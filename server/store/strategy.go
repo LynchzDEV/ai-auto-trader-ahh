@@ -353,9 +353,15 @@ func (s *StrategyStore) Delete(id string) error {
 }
 
 func (s *StrategyStore) Get(id string) (*Strategy, error) {
+	// Compute is_active based on whether any trader references this strategy
 	row := db.QueryRow(`
-		SELECT id, name, description, is_active, config, created_at, updated_at
-		FROM strategies WHERE id = ?
+		SELECT s.id, s.name, s.description, 
+			CASE WHEN COUNT(t.id) > 0 THEN 1 ELSE 0 END as is_active,
+			s.config, s.created_at, s.updated_at
+		FROM strategies s
+		LEFT JOIN traders t ON t.strategy_id = s.id
+		WHERE s.id = ?
+		GROUP BY s.id
 	`, id)
 
 	return s.scanStrategy(row)
@@ -381,9 +387,15 @@ func (s *StrategyStore) GetActive() (*Strategy, error) {
 }
 
 func (s *StrategyStore) List() ([]*Strategy, error) {
+	// Compute is_active based on whether any trader references this strategy
 	rows, err := db.Query(`
-		SELECT id, name, description, is_active, config, created_at, updated_at
-		FROM strategies ORDER BY created_at DESC
+		SELECT s.id, s.name, s.description, 
+			CASE WHEN COUNT(t.id) > 0 THEN 1 ELSE 0 END as is_active,
+			s.config, s.created_at, s.updated_at
+		FROM strategies s
+		LEFT JOIN traders t ON t.strategy_id = s.id
+		GROUP BY s.id
+		ORDER BY s.created_at DESC
 	`)
 	if err != nil {
 		return nil, err
