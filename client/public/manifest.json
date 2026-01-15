@@ -1,6 +1,6 @@
 {
-  "name": "Passive Income Ahh - AI-Powered Crypto Trading",
-  "short_name": "Passive Income",
+  "name": "__APP_NAME__",
+  "short_name": "__APP_SHORT_NAME__",
   "description": "AI-powered cryptocurrency trading platform with multi-AI debate consensus, backtesting, and real-time portfolio management",
   "start_url": "/",
   "display": "standalone",
