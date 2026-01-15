@@ -45,13 +45,21 @@ export default defineConfig(({ mode }) => {
             if (fs.existsSync(filePath)) {
               let content = fs.readFileSync(filePath, "utf-8");
               content = content
-                .replace(/%VITE_SITE_URL%/g, seoConfig.siteUrl)
-                .replace(/%VITE_SITE_NAME%/g, seoConfig.siteName)
-                .replace(/%VITE_SITE_DESCRIPTION%/g, seoConfig.siteDescription)
-                .replace(/%VITE_TWITTER_HANDLE%/g, seoConfig.twitterHandle)
-                .replace(/%VITE_FB_APP_ID%/g, seoConfig.fbAppId);
-              fs.writeFileSync(filePath, content);
+          try {
+            for (const file of filesToTransform) {
+              const filePath = path.join(outDir, file);
+              if (fs.existsSync(filePath)) {
+                let content = fs.readFileSync(filePath, "utf-8");
+                content = content.replace(/%VITE_SITE_URL%/g, seoConfig.siteUrl);
+                fs.writeFileSync(filePath, content);
+              }
             }
+          } catch (error) {
+            console.error(
+              `[html-transform] Error processing SEO files in output directory "${outDir}".`,
+              error
+            );
+            throw error;
           }
         },
       },
