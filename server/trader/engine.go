@@ -58,6 +58,7 @@ type Engine struct {
 	decisionStore *store.DecisionStore
 	equityStore   *store.EquityStore
 	tradeStore    *store.TradeStore
+	settingsStore *store.SettingsStore // For persisting daily loss state
 
 	// Position Management - Peak P&L tracking
 	peakPnLCache      map[string]float64 // key: "symbol_side" -> peak P&L %
@@ -177,6 +178,7 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		decisionStore:  store.NewDecisionStore(),
 		equityStore:    store.NewEquityStore(),
 		tradeStore:     store.NewTradeStore(),
+		settingsStore:  store.NewSettingsStore(),
 
 		// Initialize position management maps
 		peakPnLCache:          make(map[string]float64),
@@ -215,8 +217,35 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to Binance: %w", err)
 	}
 	e.account = account
-	e.initialBalance = account.TotalMarginBalance // Set initial balance for daily loss tracking (includes unrealized P&L)
-	e.lastResetTime = time.Now()
+
+	// Load persisted daily loss state (critical for surviving restarts)
+	savedState, err := e.settingsStore.GetDailyLossState(e.id)
+	if err != nil {
+		log.Printf("[%s] Warning: failed to load daily loss state: %v", e.name, err)
+	}
+
+	if savedState != nil && time.Since(savedState.LastResetTime) < 24*time.Hour {
+		// Restore saved state (within 24h window)
+		e.initialBalance = savedState.InitialBalance
+		e.lastResetTime = savedState.LastResetTime
+		e.stopUntil = savedState.StopUntil
+
+		if !e.stopUntil.IsZero() && time.Now().Before(e.stopUntil) {
+			log.Printf("[%s] 🛑 Restored daily loss pause until %s (surviving restart)", e.name, e.stopUntil.Format(time.RFC3339))
+		}
+		log.Printf("[%s] Restored daily loss tracking: initial=$%.2f, last_reset=%s",
+			e.name, e.initialBalance, e.lastResetTime.Format(time.RFC3339))
+	} else {
+		// No saved state or 24h passed - start fresh
+		e.initialBalance = account.TotalMarginBalance
+		e.lastResetTime = time.Now()
+		e.stopUntil = time.Time{}
+
+		// Persist the new state
+		e.saveDailyLossState()
+		log.Printf("[%s] Starting fresh daily loss tracking: initial=$%.2f", e.name, e.initialBalance)
+	}
+
 	log.Printf("[%s] Connected to Binance. Balance: $%.2f", e.name, account.TotalWalletBalance)
 
 	// Set leverage for all pairs (separate limits for BTC/ETH vs altcoins)
@@ -2695,6 +2724,9 @@ func (e *Engine) triggerTradingPause(ctx context.Context) {
 	e.stopUntil = time.Now().Add(time.Duration(pauseMins) * time.Minute)
 	e.mu.Unlock()
 
+	// Persist the pause state so it survives restarts
+	e.saveDailyLossState()
+
 	log.Printf("[%s] 🛑 Trading paused until %s due to daily loss limit", e.name, e.stopUntil.Format(time.RFC3339))
 
 	// Check if we should close all positions
@@ -2754,7 +2786,28 @@ func (e *Engine) resetDailyPnLIfNeeded() {
 		e.dailyPnL = 0
 		e.lastResetTime = time.Now()
 		e.stopUntil = time.Time{} // Clear any pause
+
+		// Persist the reset state
+		go e.saveDailyLossState()
+
 		log.Printf("[%s] Daily P&L reset. New initial balance: $%.2f", e.name, e.initialBalance)
+	}
+}
+
+// saveDailyLossState persists the daily loss tracking state to database
+// This allows the state to survive bot restarts
+func (e *Engine) saveDailyLossState() {
+	e.mu.RLock()
+	state := &store.DailyLossState{
+		TraderID:       e.id,
+		StopUntil:      e.stopUntil,
+		InitialBalance: e.initialBalance,
+		LastResetTime:  e.lastResetTime,
+	}
+	e.mu.RUnlock()
+
+	if err := e.settingsStore.SaveDailyLossState(state); err != nil {
+		log.Printf("[%s] Warning: failed to persist daily loss state: %v", e.name, err)
 	}
 }
 

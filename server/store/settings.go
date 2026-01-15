@@ -172,3 +172,53 @@ func maskSecret(s string) string {
 	}
 	return s[:4] + "****" + s[len(s)-4:]
 }
+
+// =============================================================================
+// Daily Loss State Persistence (per-trader)
+// =============================================================================
+
+// DailyLossState holds the daily loss tracking state for a trader
+type DailyLossState struct {
+	TraderID       string    `json:"trader_id"`
+	StopUntil      time.Time `json:"stop_until"`      // Don't trade until this time
+	InitialBalance float64   `json:"initial_balance"` // Balance at start of tracking period
+	LastResetTime  time.Time `json:"last_reset_time"` // When daily P&L was last reset
+}
+
+// GetDailyLossState retrieves the daily loss state for a specific trader
+func (s *SettingsStore) GetDailyLossState(traderID string) (*DailyLossState, error) {
+	key := "daily_loss_state:" + traderID
+	value, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	if value == "" {
+		return nil, nil // No state saved
+	}
+
+	var state DailyLossState
+	if err := json.Unmarshal([]byte(value), &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// SaveDailyLossState saves the daily loss state for a specific trader
+func (s *SettingsStore) SaveDailyLossState(state *DailyLossState) error {
+	if state == nil || state.TraderID == "" {
+		return nil
+	}
+
+	key := "daily_loss_state:" + state.TraderID
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.Set(key, string(data))
+}
+
+// ClearDailyLossState removes the daily loss state for a specific trader
+func (s *SettingsStore) ClearDailyLossState(traderID string) error {
+	key := "daily_loss_state:" + traderID
+	return s.Delete(key)
+}

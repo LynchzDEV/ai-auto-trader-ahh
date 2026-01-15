@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.48.3] - 2026-01-15
+
+### Fixed
+- **Daily Loss Persistence**: Fixed critical bug where daily loss limit state was reset on bot restart. Trading pause now survives restarts by persisting `stopUntil`, `initialBalance`, and `lastResetTime` to database.
+
 ## [v3.48.2] - 2026-01-14
 
 ### Fixed
