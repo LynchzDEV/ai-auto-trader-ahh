@@ -166,6 +166,7 @@ export default function Strategies() {
       created_at: "",
       updated_at: "",
     });
+    setOriginalStrategy(null);
     setIsCreating(true);
   };
 
