@@ -19,6 +19,7 @@ import (
 	"auto-trader-ahh/intel"
 	"auto-trader-ahh/market"
 	"auto-trader-ahh/mcp"
+	"auto-trader-ahh/provider/coinank"
 	"auto-trader-ahh/store"
 )
 
@@ -90,6 +91,9 @@ type Engine struct {
 
 	// Market Intelligence Provider (free external data)
 	intelProvider *intel.Provider
+
+	// Coinglass/CoinAnk client for OI data
+	coinglassClient *coinank.Client
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -161,6 +165,15 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 	}
 	intelProvider := intel.NewProvider(intelCfg)
 
+	// Initialize Coinglass client for OI data (optional - requires API key)
+	var coinglassClient *coinank.Client
+	if coinglassKey := os.Getenv("COINGLASS_API_KEY"); coinglassKey != "" {
+		coinglassClient = coinank.NewClient(coinglassKey)
+		log.Printf("[OI] Coinglass Open Interest analysis enabled")
+	} else {
+		log.Printf("[OI] Coinglass API key not set - OI analysis disabled")
+	}
+
 	return &Engine{
 		id:             id,
 		name:           name,
@@ -196,6 +209,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 
 		// Market Intelligence
 		intelProvider: intelProvider,
+
+		// Coinglass OI data
+		coinglassClient: coinglassClient,
 	}
 }
 
@@ -901,6 +917,47 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 		marketData.BTCChange24h = btcStats.PriceChange
 	}
 
+	// Fetch Open Interest data from Coinglass (if client is configured)
+	if e.coinglassClient != nil {
+		oiCtx, oiCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer oiCancel()
+
+		// Fetch OI data
+		oiData, oiErr := e.coinglassClient.GetOpenInterest(oiCtx, symbol)
+		if oiErr != nil {
+			log.Printf("[%s][OI] Failed to fetch OI data for %s: %v", e.name, symbol, oiErr)
+		} else if oiData != nil {
+			marketData.OIValue = oiData.OpenInterest
+			marketData.OIChange1H = oiData.Change1H
+			marketData.OIChange4H = oiData.Change4H
+			marketData.OIChange24H = oiData.Change24H
+
+			// Interpret OI signal
+			interpretation := coinank.InterpretOI(oiData.Change1H, marketData.PriceChange24h)
+			marketData.OISignal = interpretation.Signal
+			marketData.OIDescription = interpretation.Description
+
+			log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s",
+				e.name, symbol, oiData.Change1H, interpretation.Signal)
+		}
+
+		// Fetch Long/Short ratio
+		lsData, lsErr := e.coinglassClient.GetLongShortRatio(oiCtx, symbol)
+		if lsErr != nil {
+			log.Printf("[%s][OI] Failed to fetch L/S ratio for %s: %v", e.name, symbol, lsErr)
+		} else if lsData != nil {
+			marketData.LongRatio = lsData.LongRatio
+			marketData.ShortRatio = lsData.ShortRatio
+
+			// Warn on crowded positioning
+			if lsData.LongRatio > 70 {
+				log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, lsData.LongRatio)
+			} else if lsData.ShortRatio > 70 {
+				log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, lsData.ShortRatio)
+			}
+		}
+	}
+
 	// Format data for AI
 	// Format data for AI
 	enableHighWick := true
@@ -1558,6 +1615,34 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 	}
 	if !isLong && marketData.RSI < 25 {
 		return fmt.Errorf("RSI oversold: RSI %.1f < 25 - risky for SHORT entry", marketData.RSI)
+	}
+
+	// 8. OI-based Safety Check - Block entries when OI shows trend is not backed by new money
+	// REVERSAL_UP = shorts covering (price up but OI down) - dangerous for new longs
+	// REVERSAL_DOWN = longs capitulating (price down but OI down) - dangerous for new shorts
+	if marketData.OISignal != "" {
+		if isLong && marketData.OISignal == "REVERSAL_UP" {
+			// Price is up but OI is down = shorts covering, not new longs entering
+			// This often precedes a reversal down once covering completes
+			if marketData.OIChange1H < -2 { // Significant OI decrease
+				return fmt.Errorf("OI warning: price up but OI down %.2f%% (shorts covering, not new longs) - wait for OI to turn positive", marketData.OIChange1H)
+			}
+		}
+		if !isLong && marketData.OISignal == "REVERSAL_DOWN" {
+			// Price is down but OI is down = longs capitulating, not new shorts entering
+			// This often precedes a bounce once capitulation completes
+			if marketData.OIChange1H < -2 { // Significant OI decrease
+				return fmt.Errorf("OI warning: price down but OI down %.2f%% (longs capitulating, not new shorts) - wait for OI to turn positive", marketData.OIChange1H)
+			}
+		}
+
+		// Also check for extreme crowding
+		if isLong && marketData.LongRatio > 75 {
+			return fmt.Errorf("OI crowding: %.1f%% of traders are already LONG - contrarian reversal risk", marketData.LongRatio)
+		}
+		if !isLong && marketData.ShortRatio > 75 {
+			return fmt.Errorf("OI crowding: %.1f%% of traders are already SHORT - short squeeze risk", marketData.ShortRatio)
+		}
 	}
 
 	return nil

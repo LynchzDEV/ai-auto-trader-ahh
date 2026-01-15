@@ -29,6 +29,15 @@ type MarketData struct {
 	// Funding rate info
 	FundingRate     float64 // Current funding rate (e.g., 0.0001 = 0.01%)
 	NextFundingTime int64   // Unix timestamp of next funding
+	// Open Interest data (from Coinglass)
+	OIValue       float64 // Total OI in USD
+	OIChange1H    float64 // OI change in last 1 hour (%)
+	OIChange4H    float64 // OI change in last 4 hours (%)
+	OIChange24H   float64 // OI change in last 24 hours (%)
+	OISignal      string  // BULLISH, BEARISH, REVERSAL_UP, REVERSAL_DOWN, NEUTRAL
+	OIDescription string  // Human-readable interpretation
+	LongRatio     float64 // % of traders long
+	ShortRatio    float64 // % of traders short
 }
 
 type DataProvider struct {
@@ -315,6 +324,58 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		sb.WriteString("⚠️ SIDEWAYS MARKET: NO CLEAR TREND. HOLDING IS RECOMMENDED.\n")
 	}
 	sb.WriteString("\n")
+
+	// Open Interest Analysis (if available)
+	if data.OIValue > 0 || data.OISignal != "" {
+		sb.WriteString("--- OPEN INTEREST ANALYSIS ---\n")
+		sb.WriteString("⚠️ OI reveals REAL money flow, not just price action!\n\n")
+
+		if data.OIValue > 0 {
+			sb.WriteString(fmt.Sprintf("Current OI: $%.2fM\n", data.OIValue/1_000_000))
+		}
+		sb.WriteString(fmt.Sprintf("OI Change (1H): %+.2f%%\n", data.OIChange1H))
+		sb.WriteString(fmt.Sprintf("OI Change (4H): %+.2f%%\n", data.OIChange4H))
+		sb.WriteString(fmt.Sprintf("OI Change (24H): %+.2f%%\n\n", data.OIChange24H))
+
+		if data.OISignal != "" {
+			sb.WriteString(fmt.Sprintf("📊 OI SIGNAL: %s\n", data.OISignal))
+			if data.OIDescription != "" {
+				sb.WriteString(fmt.Sprintf("Meaning: %s\n", data.OIDescription))
+			}
+
+			// Add trading guidance based on OI signal
+			sb.WriteString("\n💡 OI TRADING GUIDANCE:\n")
+			switch data.OISignal {
+			case "BULLISH":
+				sb.WriteString("✅ OI supports LONG entries - new money flowing into longs\n")
+				sb.WriteString("- Trend is backed by real capital inflow\n")
+			case "BEARISH":
+				sb.WriteString("✅ OI supports SHORT entries - new money flowing into shorts\n")
+				sb.WriteString("- Downtrend is backed by real capital inflow\n")
+			case "REVERSAL_UP":
+				sb.WriteString("⚠️ CAUTION for LONG entries - price up but OI down\n")
+				sb.WriteString("- This is SHORT COVERING, not new longs buying\n")
+				sb.WriteString("- Trend may reverse once covering completes\n")
+			case "REVERSAL_DOWN":
+				sb.WriteString("⚠️ CAUTION for SHORT entries - price down but OI down\n")
+				sb.WriteString("- This is LONG CAPITULATION, not new shorts selling\n")
+				sb.WriteString("- Trend may reverse once capitulation completes\n")
+			default:
+				sb.WriteString("⚠️ No clear OI signal - market in transition\n")
+			}
+		}
+
+		// Long/Short Ratio
+		if data.LongRatio > 0 || data.ShortRatio > 0 {
+			sb.WriteString(fmt.Sprintf("\nL/S Ratio: %.1f%% Long | %.1f%% Short\n", data.LongRatio, data.ShortRatio))
+			if data.LongRatio > 70 {
+				sb.WriteString("⚠️ CROWDED LONG - potential for reversal down\n")
+			} else if data.ShortRatio > 70 {
+				sb.WriteString("⚠️ CROWDED SHORT - potential for squeeze up\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
 
 	// Entry quality summary
 	sb.WriteString("--- ENTRY QUALITY CHECK ---\n")
