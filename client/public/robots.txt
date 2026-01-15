@@ -1,4 +1,4 @@
-# Passive Income Ahh - AI Trading Platform
+# robots.txt for this site
 # %VITE_SITE_URL%
 
 User-agent: *
