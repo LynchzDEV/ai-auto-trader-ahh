@@ -190,6 +190,9 @@ type RiskControlConfig struct {
 	EnableAutoAvoidWorstSymbols bool    `json:"enable_auto_avoid_worst_symbols"` // Enable auto-avoid for worst performers (default: false)
 	AutoAvoidMinLoss24h         float64 `json:"auto_avoid_min_loss_24h"`         // Min total loss in 24h to trigger avoid (default: 5.0 USDT)
 	AutoAvoidMinTrades24h       int     `json:"auto_avoid_min_trades_24h"`       // Min trades in 24h to consider (default: 2)
+
+	// HIGH WICK WARNING - Warn AI about rejection wicks
+	EnableHighWickWarning bool `json:"enable_high_wick_warning"` // Enable high wick detection and warning
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -295,6 +298,9 @@ func DefaultStrategyConfig() StrategyConfig {
 			EnableAutoAvoidWorstSymbols: false, // When enabled, skip symbols that lost money in last 24h
 			AutoAvoidMinLoss24h:         5.0,   // Min total loss in 24h to trigger avoid (5 USDT)
 			AutoAvoidMinTrades24h:       2,     // Min trades required to consider avoiding
+
+			// High Wick Warning (enabled by default)
+			EnableHighWickWarning: true,
 		},
 		AI: AIConfig{
 			EnableReasoning: false,

@@ -101,6 +101,12 @@ export interface RiskControlConfig {
   signal_confirmation_delay_sec?: number;
   high_confidence_threshold?: number;
   price_stability_check_pct?: number;
+  // Auto-Avoid Worst Symbols
+  enable_auto_avoid_worst_symbols?: boolean;
+  auto_avoid_min_loss_24h?: number;
+  auto_avoid_min_trades_24h?: number;
+  // High Wick Warning
+  enable_high_wick_warning?: boolean;
 }
 
 export interface Trader {

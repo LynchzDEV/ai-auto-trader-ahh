@@ -902,7 +902,12 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	// Format data for AI
-	formattedData := e.dataProvider.FormatForAI(marketData)
+	// Format data for AI
+	enableHighWick := true
+	if e.strategy != nil {
+		enableHighWick = e.strategy.Config.RiskControl.EnableHighWickWarning
+	}
+	formattedData := e.dataProvider.FormatForAI(marketData, enableHighWick)
 
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
 	// Only fetch intel if enabled in strategy settings
@@ -1198,7 +1203,12 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					}
 
 					// Format fresh data for AI
-					freshFormattedData := e.dataProvider.FormatForAI(freshMarketData)
+					// Format fresh data for AI
+					enableHighWick := true
+					if e.strategy != nil {
+						enableHighWick = e.strategy.Config.RiskControl.EnableHighWickWarning
+					}
+					freshFormattedData := e.dataProvider.FormatForAI(freshMarketData, enableHighWick)
 
 					// Add account and position info
 					e.mu.RLock()
