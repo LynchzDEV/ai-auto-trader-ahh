@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"auto-trader-ahh/decision"
 	"auto-trader-ahh/exchange"
 )
 
@@ -606,6 +607,9 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		sb.WriteString(fmt.Sprintf("  #%02d O:%.2f H:%.2f L:%.2f C:%.2f [%s %.2f%%]%s\n",
 			candleNum, k.Open, k.High, k.Low, k.Close, candle, change, wickWarning))
 	}
+
+	// Append Data Dictionary (metrics explanation)
+	sb.WriteString(decision.GetSchemaPrompt(decision.LangEnglish))
 
 	return sb.String()
 }

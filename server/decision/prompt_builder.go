@@ -31,9 +31,9 @@ func (pb *PromptBuilder) SetNoiseZoneConfig(lower, upper float64) {
 // BuildSystemPrompt builds the system prompt
 func (pb *PromptBuilder) BuildSystemPrompt() string {
 	if pb.lang == LangChinese {
-		return pb.buildSystemPromptZH()
+		return pb.buildSystemPromptZH() + GetSchemaPrompt(pb.lang)
 	}
-	return pb.buildSystemPromptEN()
+	return pb.buildSystemPromptEN() + GetSchemaPrompt(pb.lang)
 }
 
 // BuildUserPrompt builds the user prompt with trading context

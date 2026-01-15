@@ -99,21 +99,21 @@ Track the ratio of traders with long vs short positions to identify crowded trad
 ## ⚡ Medium Priority (This Month)
 
 ### 4. Data Dictionary / Schema System
-**Impact:** 🔥 | **Effort:** Low | **Status:** 🔲 Not Started
+**Impact:** 🔥 | **Effort:** Low | **Status:** ✅ Completed
 
 **Description:**  
 Provide bilingual explanations of all metrics to the AI with formulas and common mistakes.
 
 **Implementation:**
-- [ ] Create `decision/schema.go` with field definitions
-- [ ] Define `DataDictionary` map with:
+- [x] Create `decision/schema.go` with field definitions
+- [x] Define `DataDictionary` map with:
   - Account metrics (Equity, Balance, Margin)
   - Trade metrics (Entry, Exit, Profit, Hold Duration)
   - Position metrics (Unrealized PnL, Peak PnL, Drawdown)
   - Market data (Volume, OI, OI Change)
-- [ ] Add formula explanations (e.g., "PnL% = (Exit - Entry) / Entry × Leverage × 100")
-- [ ] Document common AI mistakes to avoid
-- [ ] Generate schema prompt for AI
+- [x] Add formula explanations (e.g., "PnL% = (Exit - Entry) / Entry × Leverage × 100")
+- [x] Document common AI mistakes to avoid
+- [x] Generate schema prompt for AI
 
 **Reference:** `nofx-modify/decision/schema.go`
 
