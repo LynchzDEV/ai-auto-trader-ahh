@@ -2902,10 +2902,22 @@ func (e *Engine) shouldStopTrading() bool {
 }
 
 // CancelTradingPause clears the trading pause, allowing trading to resume immediately
+// IMPORTANT: This also resets the daily loss counter (sets new initial balance)
+// to prevent immediate re-triggering of the pause if the balance is still low.
 func (e *Engine) CancelTradingPause() {
 	e.mu.Lock()
 	waspaused := !e.stopUntil.IsZero() && time.Now().Before(e.stopUntil)
 	e.stopUntil = time.Time{}
+
+	// Reset daily loss baseline if we were paused
+	// This effectively "acknowledges" the loss and starts fresh from current balance
+	if waspaused && e.account != nil && e.account.TotalMarginBalance > 0 {
+		oldInitial := e.initialBalance
+		e.initialBalance = e.account.TotalMarginBalance
+		e.lastResetTime = time.Now()
+		log.Printf("[%s] 🔄 Daily loss reset on resume: Base balance updated $%.2f → $%.2f",
+			e.name, oldInitial, e.initialBalance)
+	}
 	e.mu.Unlock()
 
 	// Clear persisted state

@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - **24h Trading History AI Context**: AI now receives the past 24 hours of trading history for the specific symbol it is analyzing, including **entry reasons** (why it opened), P&L, and close reasons. This helps the AI learn from recent trades and avoid repeating failed patterns on that specific asset.
 - **Account Worst Performers Context**: The AI is now provided with a ranking of the top 5 worst-performing symbols across your entire account in the last 24h. If the current symbol is on this "worst list," the AI receives a critical warning to be extremely cautious. **System Prompt** updated to explicitly enforce checking this list and historical performance.
 
+### Fixed
+- **Daily Loss Reset upon Resume**: When manually cancelling a trading pause (Resuming), the daily loss counter is now reset (current balance becomes the new baseline). This prevents the bot from immediately re-pausing if the account is still down >20% from the start of the day.
 ## [v3.48.3] - 2026-01-15
 
 ### Fixed
