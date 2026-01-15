@@ -1156,20 +1156,45 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 				} else {
 					// Check if higher timeframe agrees with trade direction
 					htfBullish := htfData.EMA9 > htfData.EMA21
+
+					// ENHANCED CHECK: Ensure Price is also respecting the trend
+					// If buying, price should be above 15m EMA21 (not crashing through it)
+					// If selling, price should be below 15m EMA21 (not pumping through it)
+					priceRespectsTrend := false
+					if htfBullish {
+						// Bullish trend: Price > EMA21
+						priceRespectsTrend = htfData.CurrentPrice >= htfData.EMA21
+					} else {
+						// Bearish trend: Price < EMA21
+						priceRespectsTrend = htfData.CurrentPrice <= htfData.EMA21
+					}
+
 					wantLong := decision.Action == "BUY"
 
-					if (wantLong && !htfBullish) || (!wantLong && htfBullish) {
-						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF disagreement. 5m says %s but %s shows %s trend (EMA9: %.2f, EMA21: %.2f)",
+					// Validation:
+					// 1. Trend Direction must match (EMA structure)
+					// 2. Price Action must match (Price vs EMA relation)
+
+					isTrendAligned := (wantLong && htfBullish) || (!wantLong && !htfBullish)
+
+					if !isTrendAligned {
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Trend Disagreement. 5m want %s but %s is %s (EMA9: %.2f, EMA21: %.2f)",
 							e.name, symbol, decision.Action, confirmTF,
 							map[bool]string{true: "BULLISH", false: "BEARISH"}[htfBullish],
 							htfData.EMA9, htfData.EMA21)
-						tradeLog.Error = fmt.Sprintf("blocked: %s timeframe disagrees (%s vs %s)",
-							confirmTF,
-							map[bool]string{true: "BULLISH", false: "BEARISH"}[htfBullish],
-							decision.Action)
+						tradeLog.Error = fmt.Sprintf("blocked: %s trend disagrees", confirmTF)
 						return tradeLog
 					}
-					log.Printf("[%s][%s] ✅ Multi-TF confirmed: Both 5m and %s agree on %s",
+
+					if !priceRespectsTrend {
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Price Action Warning. Trend is correct but Price is countering it (Breaking EMA21). Price: $%.4f, EMA21: $%.4f",
+							e.name, symbol, htfData.CurrentPrice, htfData.EMA21)
+						tradeLog.Error = fmt.Sprintf("blocked: %s price action failure (breaking trend support/resistance)", confirmTF)
+						return tradeLog
+					}
+
+					// If we get here, both Trend and Price Action are aligned
+					log.Printf("[%s][%s] ✅ Multi-TF confirmed: %s trend agrees on %s AND Price is respecting EMA21",
 						e.name, symbol, confirmTF, decision.Action)
 				}
 			}
