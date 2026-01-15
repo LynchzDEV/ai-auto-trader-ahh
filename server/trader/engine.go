@@ -975,8 +975,23 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 
 		// If this is a bad symbol, put it at the VERY TOP of the prompt
 		if isCurrentSymbolWorst {
+			// Find specific loss amount
+			var lossAmount float64
+			for _, ws := range worstSymbols {
+				if ws.Symbol == symbol {
+					lossAmount = ws.TotalPnL
+				}
+			}
+
+			// HARD BLOCK: If loss is significant (e.g. > $5), STOP TRADING IT.
+			// This prevents the AI from gambling to "make it back".
+			if lossAmount < -5.0 {
+				log.Printf("[%s][%s] ❌ BLOCKED: Symbol is a WORST PERFORMER (Loss: $%.2f). Hard cooling off to prevent rage-trading.", e.name, symbol, lossAmount)
+				return nil
+			}
+
 			criticalContext += fmt.Sprintf("\n🚨🚨🚨 CRITICAL WARNING: THIS IS A LOSING SYMBOL (%s) 🚨🚨🚨\n", symbol)
-			criticalContext += "You have consistently LOST money on this symbol in the last 24h.\n"
+			criticalContext += fmt.Sprintf("You have lost $%.2f on this symbol in the last 24h.\n", lossAmount)
 			criticalContext += "Account-wide stats show it is one of your WORST performers.\n"
 			criticalContext += "Unless the setup is PERFECT (A+), you should REJECT this trade.\n"
 			criticalContext += "Do not try to 'make back' losses. Protect capital.\n\n"
