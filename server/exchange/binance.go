@@ -1044,6 +1044,9 @@ func (c *BinanceClient) GetOpenInterestHist(ctx context.Context, symbol string, 
 
 	body, err := c.doRequest(ctx, "GET", "/futures/data/openInterestHist", params, false)
 	if err != nil {
+		if strings.Contains(err.Error(), "status 202") {
+			return nil, nil // Treat as no data available yet
+		}
 		return nil, err
 	}
 
@@ -1194,6 +1197,9 @@ func (c *BinanceClient) GetTopTraderLongShortRatio(ctx context.Context, symbol s
 
 	body, err := c.doRequest(ctx, "GET", "/futures/data/topLongShortPositionRatio", params, false)
 	if err != nil {
+		if strings.Contains(err.Error(), "status 202") {
+			return nil, nil // Treat as no data available yet
+		}
 		return nil, err
 	}
 
