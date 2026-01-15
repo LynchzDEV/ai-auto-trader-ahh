@@ -535,7 +535,13 @@ export default function Strategies() {
       {/* Strategy Editor Modal */}
       <Dialog
         open={!!editingStrategy}
-        onOpenChange={(open) => !open && setEditingStrategy(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingStrategy(null);
+            setOriginalStrategy(null);
+            setIsCreating(false);
+          }
+        }}
       >
         <DialogContent
           className="!w-[calc(100%-1rem)] sm:!w-[90vw] pb-0 !max-w-4xl glass-card border-white/10 max-h-[95vh] overflow-y-auto"
