@@ -975,23 +975,8 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 
 		// If this is a bad symbol, put it at the VERY TOP of the prompt
 		if isCurrentSymbolWorst {
-			// Find specific loss amount
-			var lossAmount float64
-			for _, ws := range worstSymbols {
-				if ws.Symbol == symbol {
-					lossAmount = ws.TotalPnL
-				}
-			}
-
-			// HARD BLOCK: If loss is significant (e.g. > $5), STOP TRADING IT.
-			// This prevents the AI from gambling to "make it back".
-			if lossAmount < -5.0 {
-				log.Printf("[%s][%s] ❌ BLOCKED: Symbol is a WORST PERFORMER (Loss: $%.2f). Hard cooling off to prevent rage-trading.", e.name, symbol, lossAmount)
-				return nil
-			}
-
 			criticalContext += fmt.Sprintf("\n🚨🚨🚨 CRITICAL WARNING: THIS IS A LOSING SYMBOL (%s) 🚨🚨🚨\n", symbol)
-			criticalContext += fmt.Sprintf("You have lost $%.2f on this symbol in the last 24h.\n", lossAmount)
+			criticalContext += "You have consistently LOST money on this symbol in the last 24h.\n"
 			criticalContext += "Account-wide stats show it is one of your WORST performers.\n"
 			criticalContext += "Unless the setup is PERFECT (A+), you should REJECT this trade.\n"
 			criticalContext += "Do not try to 'make back' losses. Protect capital.\n\n"
@@ -1152,25 +1137,12 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	e.lastDecisions[symbol] = decision
 	e.mu.Unlock()
 
-	// 🚨 CRITICAL: HARD BLOCK for Counter-Trend "Dip Buying" 🚨
-	// If AI tries to BUY when Price < EMA9 (downtrend), BLOCK IT.
-	// If AI tries to SELL when Price > EMA9 (uptrend), BLOCK IT.
-	if !hasPosition && (decision.Action == "BUY" || decision.Action == "SELL") {
-		// Use EMA9 from MarketData we already have
-		ema9 := marketData.EMA9
-		currentPrice := marketData.CurrentPrice
-
-		if decision.Action == "BUY" && currentPrice < ema9 {
-			log.Printf("[%s][%s] ❌ BLOCKED: Counter-trend BUY attempt. Price $%.4f is BELOW EMA9 $%.4f. Wait for momentum.",
-				e.name, symbol, currentPrice, ema9)
-			tradeLog.Error = "blocked: counter-trend buy (price < EMA9)"
-			return tradeLog
-		}
-
-		if decision.Action == "SELL" && currentPrice > ema9 {
-			log.Printf("[%s][%s] ❌ BLOCKED: Counter-trend SELL attempt. Price $%.4f is ABOVE EMA9 $%.4f. Wait for momentum.",
-				e.name, symbol, currentPrice, ema9)
-			tradeLog.Error = "blocked: counter-trend sell (price > EMA9)"
+	// 🚨 CRITICAL: Entry Safety Checks 🚨
+	// Blocks FOMO entries (at Resistance) and Counter-Trend entries (below EMA9)
+	if !hasPosition && (decision.Action == "BUY" || decision.Action == "SELL" || decision.Action == "open_long" || decision.Action == "open_short") {
+		if err := e.checkEntrySafety(symbol, decision, marketData); err != nil {
+			log.Printf("[%s][%s] ❌ BLOCKED: %v", e.name, symbol, err)
+			tradeLog.Error = fmt.Sprintf("blocked: %v", err)
 			return tradeLog
 		}
 	}
@@ -1349,6 +1321,15 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					decision = confirmDecision
 					tradeLog.Decision = confirmDecision
 					tradeLog.RawAI = confirmRaw
+
+					// 🚨 RE-VERIFY Entry Safety with fresh data
+					if !hasPosition {
+						if err := e.checkEntrySafety(symbol, decision, freshMarketData); err != nil {
+							log.Printf("[%s][%s] ❌ BLOCKED (Post-Confirmation): %v", e.name, symbol, err)
+							tradeLog.Error = fmt.Sprintf("blocked after confirmation: %v", err)
+							return tradeLog
+						}
+					}
 				} else {
 					log.Printf("[%s][%s] ⚡ HIGH CONFIDENCE (%.0f%% >= %.0f%%): Executing immediately, no confirmation needed",
 						e.name, symbol, decision.Confidence, highConfThreshold)
@@ -1377,6 +1358,56 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	return tradeLog
+}
+
+// checkEntrySafety enforces strict rules to prevent bad entries (FOMO at resistance, counter-trend)
+func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, marketData *market.MarketData) error {
+	if decision.Action != "BUY" && decision.Action != "SELL" &&
+		decision.Action != "open_long" && decision.Action != "open_short" {
+		return nil
+	}
+
+	ema9 := marketData.EMA9
+	currentPrice := marketData.CurrentPrice
+
+	// 1. Momentum Check (EMA9)
+	if (decision.Action == "BUY" || decision.Action == "open_long") && currentPrice < ema9 {
+		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f", currentPrice, ema9)
+	}
+	if (decision.Action == "SELL" || decision.Action == "open_short") && currentPrice > ema9 {
+		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f", currentPrice, ema9)
+	}
+
+	// 2. Resistance/Support FOMO Check (10-candle range)
+	if len(marketData.Klines) >= 10 {
+		recentCandles := marketData.Klines[len(marketData.Klines)-10:]
+		var recentHigh, recentLow float64
+		recentHigh = recentCandles[0].High
+		recentLow = recentCandles[0].Low
+		for _, c := range recentCandles {
+			if c.High > recentHigh {
+				recentHigh = c.High
+			}
+			if c.Low < recentLow {
+				recentLow = c.Low
+			}
+		}
+
+		// Block BUY if too close to Resistance (within 0.3%) unless break through (> recentHigh)
+		if decision.Action == "BUY" || decision.Action == "open_long" {
+			if currentPrice < recentHigh && currentPrice >= recentHigh*0.997 {
+				return fmt.Errorf("resistance block: price $%.4f is too close to recent high $%.4f (Possible BUY THE TOP)", currentPrice, recentHigh)
+			}
+		}
+		// Block SELL if too close to Support (within 0.3%) unless break through (< recentLow)
+		if decision.Action == "SELL" || decision.Action == "open_short" {
+			if currentPrice > recentLow && currentPrice <= recentLow*1.003 {
+				return fmt.Errorf("support block: price $%.4f is too close to recent low $%.4f (Possible SELL THE BOTTOM)", currentPrice, recentLow)
+			}
+		}
+	}
+
+	return nil
 }
 
 // executeTrade executes the trade and returns realized PnL (if closing) and error
@@ -1813,8 +1844,8 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			// Continue to close...
 		} else {
 			// Case 3: NOISE ZONE (lower to upper bound) - BLOCK unless very high confidence
-			if isNewPosition {
-				// NEW positions in noise zone: ALWAYS block, no override
+			if isNewPosition && !isHighConfidence {
+				// NEW positions in noise zone: BLOCK unless AI is very certain (HighConfidenceCloseThreshold)
 				log.Printf("[%s][%s] ❌ BLOCKED: Position too new (%.1f mins) and in noise zone (PnL: %.2f%%). Let it develop.",
 					e.name, symbol, holdMins, pnlPct)
 				return 0, fmt.Errorf("blocked: position only %.1f mins old, in noise zone (%.2f%%). Wait for development", holdMins, pnlPct)
