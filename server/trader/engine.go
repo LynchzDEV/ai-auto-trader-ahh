@@ -448,12 +448,40 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 		QuoteVolume float64
 	}
 
+	// Prepare auto-avoid list
+	avoidSet := make(map[string]bool)
+	if e.strategy != nil && e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
+		minLoss := e.strategy.Config.RiskControl.AutoAvoidMinLoss24h
+		if minLoss <= 0 {
+			minLoss = 5.0
+		}
+
+		worst, err := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
+		if err == nil {
+			minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
+			if minTrades <= 0 {
+				minTrades = 2
+			}
+			for _, w := range worst {
+				if w.TradeCount >= minTrades {
+					avoidSet[w.Symbol] = true
+					log.Printf("[%s] SmartFind avoiding %s (loss > $%.2f)", e.name, w.Symbol, minLoss)
+				}
+			}
+		}
+	}
+
 	var candidates []MarketCoin
 	for _, t := range tickers {
 		// Basic filter: USDT pairs, reasonable volume
 		if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" {
 			// Ensure symbol is actively trading (Futures)
 			if !e.binance.IsActiveSymbol(t.Symbol) {
+				continue
+			}
+
+			// AUTO-AVOID: Skip known losers
+			if avoidSet[t.Symbol] {
 				continue
 			}
 
@@ -583,7 +611,17 @@ Your response:`, targetCount)
 		return nil, fmt.Errorf("failed to parse AI response: %w (raw: %s)", err, response[:min(len(response), 200)])
 	}
 
-	return recommended, nil
+	// Final check: Filter out any avoided symbols that AI might have hallucinated
+	var safeRecommended []string
+	for _, sym := range recommended {
+		if !avoidSet[sym] {
+			safeRecommended = append(safeRecommended, sym)
+		} else {
+			log.Printf("[%s] 🛡️ Removed %s from AI recommendations (Auto-Avoid)", e.name, sym)
+		}
+	}
+
+	return safeRecommended, nil
 }
 
 func (e *Engine) getMinConfidence() int {
@@ -959,7 +997,6 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	if e.strategy != nil && e.strategy.Config.CustomPrompt != "" {
 		formattedData += fmt.Sprintf("\n--- Strategy Rules ---\n%s\n", e.strategy.Config.CustomPrompt)
 	}
-
 
 	// Add 24h trading history for this symbol (with reasons and P&L)
 	// This helps AI learn from recent trades and avoid repeating mistakes

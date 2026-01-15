@@ -297,6 +297,15 @@ func (c *Client) GetTradingDecision(marketData string) (*TradingDecision, string
 
 Look for QUALITY setups but also trade on MODERATE opportunities when available.
 
+## LEARNING FROM HISTORY (CRITICAL)
+
+You will receive historical data for the specific symbol and your account's worst performers.
+1. **CHECK 'Account Worst Performers'**: If the symbol is on this list, be EXTREMELY skeptical. Do NOT force a trade unless the setup is perfect (Confidence > 85).
+2. **CHECK 'Recent 24h Trading History'**:
+   - If previous trades were losses, understand WHY (e.g., "SL_HIT"). Do not repeat the same mistake.
+   - If the strategy failed recently on this symbol, require higher confidence to try again.
+   - You MUST reference this history in your "reasoning" (e.g., "Avoiding due to recent losses...", "Trying again as conditions changed...").
+
 ## RESPONSE FORMAT
 
 You MUST respond with ONLY a valid JSON object:
