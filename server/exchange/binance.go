@@ -1021,6 +1021,12 @@ type OIAnalysis struct {
 	OIChange24H  float64 // OI change in last 24 hours (%)
 	OISignal     string  // BULLISH, BEARISH, REVERSAL_UP, REVERSAL_DOWN, NEUTRAL
 	OIConfidence string  // HIGH, MEDIUM, LOW
+
+	// Inferred Liquidation Detection (FREE alternative to liquidation API)
+	// Detected by: Large OI drop + Rapid price move in opposite direction
+	LiquidationPressure string // LONG_LIQUIDATION, SHORT_LIQUIDATION, NONE
+	LiquidationSeverity string // HIGH, MEDIUM, LOW, NONE
+	LiquidationMessage  string // Human readable explanation
 }
 
 // GetOpenInterestHist fetches historical OI data and calculates changes (FREE)
@@ -1109,14 +1115,58 @@ func (c *BinanceClient) GetOIAnalysis(ctx context.Context, symbol string, priceC
 		confidence = "LOW"
 	}
 
+	// Infer liquidation pressure (FREE alternative to liquidation API)
+	// Logic: Large OI drop + Rapid price move = Cascade liquidation
+	liqPressure := "NONE"
+	liqSeverity := "NONE"
+	liqMessage := ""
+
+	// Calculate OI velocity (rate of change)
+	oiDropThreshold := -2.0 // OI dropped more than 2%
+	priceThreshold := 1.5   // Price moved more than 1.5%
+
+	if change1H < oiDropThreshold {
+		// Significant OI drop detected - likely liquidations
+		if priceChange < -priceThreshold {
+			// OI down + Price down = Long liquidation cascade
+			liqPressure = "LONG_LIQUIDATION"
+			if change1H < -5 && priceChange < -3 {
+				liqSeverity = "HIGH"
+				liqMessage = "🚨 HEAVY LONG LIQUIDATIONS - Large OI drop + price crash. Potential capitulation bottom forming."
+			} else if change1H < -3 {
+				liqSeverity = "MEDIUM"
+				liqMessage = "⚠️ Long liquidations detected - Longs getting stopped/liquidated. Watch for reversal."
+			} else {
+				liqSeverity = "LOW"
+				liqMessage = "Long positions being closed - Minor liquidation pressure."
+			}
+		} else if priceChange > priceThreshold {
+			// OI down + Price up = Short liquidation/squeeze
+			liqPressure = "SHORT_LIQUIDATION"
+			if change1H < -5 && priceChange > 3 {
+				liqSeverity = "HIGH"
+				liqMessage = "🚨 SHORT SQUEEZE - Heavy short liquidations driving price up. Caution on new longs."
+			} else if change1H < -3 {
+				liqSeverity = "MEDIUM"
+				liqMessage = "⚠️ Short liquidations detected - Shorts getting squeezed. Rally may exhaust."
+			} else {
+				liqSeverity = "LOW"
+				liqMessage = "Short positions being closed - Minor squeeze pressure."
+			}
+		}
+	}
+
 	return &OIAnalysis{
-		Symbol:       symbol,
-		CurrentOI:    currentOI,
-		OIChange1H:   change1H,
-		OIChange4H:   change4H,
-		OIChange24H:  0, // Would need 24h of data
-		OISignal:     signal,
-		OIConfidence: confidence,
+		Symbol:              symbol,
+		CurrentOI:           currentOI,
+		OIChange1H:          change1H,
+		OIChange4H:          change4H,
+		OIChange24H:         0, // Would need 24h of data
+		OISignal:            signal,
+		OIConfidence:        confidence,
+		LiquidationPressure: liqPressure,
+		LiquidationSeverity: liqSeverity,
+		LiquidationMessage:  liqMessage,
 	}, nil
 }
 

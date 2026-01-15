@@ -950,6 +950,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 				default:
 					marketData.OIDescription = "No significant OI movement - market indecision"
 				}
+
+				// Populate Liquidation Data
+				marketData.LiquidationPressure = cached.Analysis.LiquidationPressure
+				marketData.LiquidationSeverity = cached.Analysis.LiquidationSeverity
+				marketData.LiquidationMessage = cached.Analysis.LiquidationMessage
 			}
 			if cached.LSRatio != nil {
 				marketData.LongRatio = cached.LSRatio.LongAccount * 100
@@ -987,6 +992,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 				default:
 					marketData.OIDescription = "No significant OI movement - market indecision"
 				}
+
+				// Populate Liquidation Data
+				marketData.LiquidationPressure = oiAnalysis.LiquidationPressure
+				marketData.LiquidationSeverity = oiAnalysis.LiquidationSeverity
+				marketData.LiquidationMessage = oiAnalysis.LiquidationMessage
 
 				log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s (%s)",
 					e.name, symbol, oiAnalysis.OIChange1H, oiAnalysis.OISignal, oiAnalysis.OIConfidence)
@@ -1701,6 +1711,20 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 		if !isLong && marketData.ShortRatio > 75 {
 			return fmt.Errorf("OI crowding: %.1f%% of traders are already SHORT - short squeeze risk", marketData.ShortRatio)
+		}
+	}
+
+	// 9. Liquidation Pressure Check - Don't trade against a cascade
+	// LONG_LIQUIDATION = falling knife. Don't buy until it stops.
+	// SHORT_LIQUIDATION = short squeeze rocket. Don't short into it.
+	if marketData.LiquidationPressure != "" && marketData.LiquidationPressure != "NONE" {
+		if isLong && marketData.LiquidationPressure == "LONG_LIQUIDATION" {
+			// Trying to LONG while longs are being liquidated? Bad idea.
+			return fmt.Errorf("LIQUIDATION BLOCK: Longs are being liquidated (Severity: %s) - catching a falling knife. Wait for liquidations to settle.", marketData.LiquidationSeverity)
+		}
+		if !isLong && marketData.LiquidationPressure == "SHORT_LIQUIDATION" {
+			// Trying to SHORT while shorts are being squeezed? Suicide.
+			return fmt.Errorf("LIQUIDATION BLOCK: Shorts are being squeezed (Severity: %s) - shorting into a rocket. Wait for squeeze to exhaust.", marketData.LiquidationSeverity)
 		}
 	}
 

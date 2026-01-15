@@ -29,7 +29,7 @@ type MarketData struct {
 	// Funding rate info
 	FundingRate     float64 // Current funding rate (e.g., 0.0001 = 0.01%)
 	NextFundingTime int64   // Unix timestamp of next funding
-	// Open Interest data (from Coinglass)
+	// Open Interest data (from Binance FREE API)
 	OIValue       float64 // Total OI in USD
 	OIChange1H    float64 // OI change in last 1 hour (%)
 	OIChange4H    float64 // OI change in last 4 hours (%)
@@ -38,6 +38,10 @@ type MarketData struct {
 	OIDescription string  // Human-readable interpretation
 	LongRatio     float64 // % of traders long
 	ShortRatio    float64 // % of traders short
+	// Inferred Liquidation Detection (FREE - derived from OI + Price)
+	LiquidationPressure string // LONG_LIQUIDATION, SHORT_LIQUIDATION, NONE
+	LiquidationSeverity string // HIGH, MEDIUM, LOW, NONE
+	LiquidationMessage  string // Human-readable explanation
 }
 
 type DataProvider struct {
@@ -372,6 +376,35 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 				sb.WriteString("⚠️ CROWDED LONG - potential for reversal down\n")
 			} else if data.ShortRatio > 70 {
 				sb.WriteString("⚠️ CROWDED SHORT - potential for squeeze up\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Liquidation Analysis (inferred from OI + Price, FREE)
+	if data.LiquidationPressure != "" && data.LiquidationPressure != "NONE" {
+		sb.WriteString("--- LIQUIDATION ANALYSIS ---\n")
+		sb.WriteString(fmt.Sprintf("⚠️ LIQUIDATION DETECTED: %s (Severity: %s)\n", data.LiquidationPressure, data.LiquidationSeverity))
+		if data.LiquidationMessage != "" {
+			sb.WriteString(data.LiquidationMessage + "\n")
+		}
+
+		// Add trading guidance based on liquidation type
+		sb.WriteString("\n💡 LIQUIDATION TRADING GUIDANCE:\n")
+		switch data.LiquidationPressure {
+		case "LONG_LIQUIDATION":
+			sb.WriteString("- Longs are being liquidated (forced selling)\n")
+			sb.WriteString("- Price may find support once liquidations exhaust\n")
+			sb.WriteString("- CAUTION on new LONG entries until liquidations settle\n")
+			if data.LiquidationSeverity == "HIGH" {
+				sb.WriteString("- Consider: May be near capitulation bottom\n")
+			}
+		case "SHORT_LIQUIDATION":
+			sb.WriteString("- Shorts are being squeezed (forced covering)\n")
+			sb.WriteString("- Rally may exhaust once short covering completes\n")
+			sb.WriteString("- CAUTION on new LONG entries at these elevated prices\n")
+			if data.LiquidationSeverity == "HIGH" {
+				sb.WriteString("- Consider: Rally may be near exhaustion point\n")
 			}
 		}
 		sb.WriteString("\n")

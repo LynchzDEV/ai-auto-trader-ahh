@@ -24,6 +24,14 @@ All notable changes to this project will be documented in this file.
   - Thread-safe cache with `sync.RWMutex`
   - With 5 symbols at 1-min interval = ~50 req/5min (20x safety margin)
 
+- **Inferred Liquidation Analysis (Free Alternative)**:
+  - Detects **Liquidation Cascades** using OI velocity + Price Action (no need for paid liquidation APIs)
+  - Identifies **Long Liquidations** (OI Crash + Price Crash) vs **Short Squeezes** (OI Crash + Price Spike)
+  - **New Safety Checks**:
+    - **Falling Knife Protection**: Blocks LONG entries during detected Long Liquidation cascades
+    - **Rocket Short Protection**: Blocks SHORT entries during detected Short Squeezes
+    - Includes severity levels (HIGH/MEDIUM/LOW) and AI trading guidance
+
 - **Comprehensive OI Test Suite** (`server/exchange/oi_test.go`):
   - `TestOIAnalysisInterpretation`: 6 test cases for signal interpretation
   - `TestOIChangeCalculation`: 4 test cases for % change calculation

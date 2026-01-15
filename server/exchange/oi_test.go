@@ -282,6 +282,7 @@ func TestOIEntrySafetyLogic(t *testing.T) {
 		oiChange1H  float64
 		longRatio   float64
 		shortRatio  float64
+		liqPressure string // Add field for liquidation pressure
 		shouldBlock bool
 		blockReason string
 	}{
@@ -347,10 +348,26 @@ func TestOIEntrySafetyLogic(t *testing.T) {
 			name:        "Allow LONG when REVERSAL_UP but OI drop is small",
 			isLong:      true,
 			oiSignal:    "REVERSAL_UP",
-			oiChange1H:  -1.0, // Only -1%, not significant
+			oiChange1H:  -1.0,
 			longRatio:   50,
 			shortRatio:  50,
 			shouldBlock: false,
+		},
+		{
+			name:        "Block LONG during LONG_LIQUIDATION (falling knife)",
+			isLong:      true,
+			oiSignal:    "NEUTRAL",
+			liqPressure: "LONG_LIQUIDATION",
+			shouldBlock: true,
+			blockReason: "long liquidation",
+		},
+		{
+			name:        "Block SHORT during SHORT_LIQUIDATION (short squeeze)",
+			isLong:      false,
+			oiSignal:    "NEUTRAL",
+			liqPressure: "SHORT_LIQUIDATION",
+			shouldBlock: true,
+			blockReason: "short squeeze",
 		},
 	}
 
@@ -376,6 +393,18 @@ func TestOIEntrySafetyLogic(t *testing.T) {
 				if !tt.isLong && tt.shortRatio > 75 {
 					blocked = true
 					reason = "crowded short"
+				}
+
+				// Liquidation check logic simulation
+				if tt.liqPressure != "" && tt.liqPressure != "NONE" {
+					if tt.isLong && tt.liqPressure == "LONG_LIQUIDATION" {
+						blocked = true
+						reason = "long liquidation"
+					}
+					if !tt.isLong && tt.liqPressure == "SHORT_LIQUIDATION" {
+						blocked = true
+						reason = "short squeeze"
+					}
 				}
 			}
 
