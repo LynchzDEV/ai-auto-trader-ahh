@@ -59,6 +59,7 @@ type Engine struct {
 	equityStore   *store.EquityStore
 	tradeStore    *store.TradeStore
 	settingsStore *store.SettingsStore // For persisting daily loss state
+	positionStore *store.PositionStore // For historical position data
 
 	// Position Management - Peak P&L tracking
 	peakPnLCache      map[string]float64 // key: "symbol_side" -> peak P&L %
@@ -179,6 +180,7 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		equityStore:    store.NewEquityStore(),
 		tradeStore:     store.NewTradeStore(),
 		settingsStore:  store.NewSettingsStore(),
+		positionStore:  store.NewPositionStore(),
 
 		// Initialize position management maps
 		peakPnLCache:          make(map[string]float64),
@@ -718,6 +720,56 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 			e.name, len(activeSymbols), maxPositions, len(pairsToAnalyze), pairsToAnalyze)
 	}
 
+	// AUTO-AVOID WORST SYMBOLS: Filter out symbols that have been losing in the last 24h
+	// This only applies to NEW trades (not existing positions which must still be analyzed)
+	if e.strategy != nil && e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
+		minLoss := e.strategy.Config.RiskControl.AutoAvoidMinLoss24h
+		if minLoss <= 0 {
+			minLoss = 5.0 // Default: 5 USDT loss
+		}
+
+		worstSymbols, err := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
+		if err != nil {
+			log.Printf("[%s] ⚠️ Failed to get worst symbols for auto-avoid: %v", e.name, err)
+		} else if len(worstSymbols) > 0 {
+			// Build a set of symbols to avoid (only if they have enough trades)
+			minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
+			if minTrades <= 0 {
+				minTrades = 2
+			}
+
+			avoidSet := make(map[string]bool)
+			for _, ws := range worstSymbols {
+				if ws.TradeCount >= minTrades {
+					avoidSet[ws.Symbol] = true
+					log.Printf("[%s] 🚫 Auto-avoiding %s (24h: %d trades, $%.2f PnL, %.1f%% win rate)",
+						e.name, ws.Symbol, ws.TradeCount, ws.TotalPnL, ws.WinRate)
+				}
+			}
+
+			// Filter pairs but KEEP any symbol that has an open position
+			activeSet := make(map[string]bool)
+			for _, sym := range activeSymbols {
+				activeSet[sym] = true
+			}
+
+			var filteredPairs []string
+			for _, symbol := range pairsToAnalyze {
+				if avoidSet[symbol] && !activeSet[symbol] {
+					// Skip this symbol - it's a loser and no open position
+					continue
+				}
+				filteredPairs = append(filteredPairs, symbol)
+			}
+
+			if len(filteredPairs) < len(pairsToAnalyze) {
+				log.Printf("[%s] 🛡️ Auto-avoid filtered out %d losing symbols. Trading: %v",
+					e.name, len(pairsToAnalyze)-len(filteredPairs), filteredPairs)
+				pairsToAnalyze = filteredPairs
+			}
+		}
+	}
+
 	// CRITICAL: Check if we have any pairs to analyze
 	if len(pairsToAnalyze) == 0 {
 		log.Printf("[%s] ⚠️ NO TRADING PAIRS TO ANALYZE! Check your coin source config (Static Coins, Smart Find, or Dynamic).", e.name)
@@ -878,6 +930,77 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	// Add strategy rules
 	if e.strategy != nil && e.strategy.Config.CustomPrompt != "" {
 		formattedData += fmt.Sprintf("\n--- Strategy Rules ---\n%s\n", e.strategy.Config.CustomPrompt)
+	}
+
+	// Add 24h trading history for this symbol (with reasons and P&L)
+	// This helps AI learn from recent trades and avoid repeating mistakes
+	symbolHistory, err := e.positionStore.GetSymbolHistory24h(e.id, symbol)
+	if err == nil && len(symbolHistory) > 0 {
+		formattedData += "\n--- Recent 24h Trading History on This Symbol ---\n"
+		formattedData += fmt.Sprintf("(Past %d trades. Learn from these results!)\n", len(symbolHistory))
+
+		var totalPnL float64
+		for i, trade := range symbolHistory {
+			pnl, _ := trade["realized_pnl"].(float64)
+			totalPnL += pnl
+
+			side, _ := trade["side"].(string)
+			entryPrice, _ := trade["entry_price"].(float64)
+			exitPrice, _ := trade["exit_price"].(float64)
+			entryReason, _ := trade["entry_reason"].(string)
+			closeReason, _ := trade["close_reason"].(string)
+
+			// Format: Trade #1: LONG @ 81.50 → 80.20 (-$1.30)
+			// Entry: Strong momentum, RSI 55
+			// Close: SL_HIT
+			pnlStr := fmt.Sprintf("$%.2f", pnl)
+			if pnl > 0 {
+				pnlStr = "+" + pnlStr
+			}
+
+			// Show only last 5 trades for brevity
+			if i < 5 {
+				formattedData += fmt.Sprintf("  #%d: %s @ $%.2f → $%.2f (%s)\n", i+1, side, entryPrice, exitPrice, pnlStr)
+				if entryReason != "" {
+					// Truncate long reasons to 80 chars
+					displayReason := entryReason
+					if len(displayReason) > 80 {
+						displayReason = displayReason[:77] + "..."
+					}
+					formattedData += fmt.Sprintf("      Why opened: %s\n", displayReason)
+				}
+				if closeReason != "" {
+					formattedData += fmt.Sprintf("      Why closed: %s\n", closeReason)
+				}
+			}
+		}
+
+		if len(symbolHistory) > 5 {
+			formattedData += fmt.Sprintf("  ... and %d more trades\n", len(symbolHistory)-5)
+		}
+
+		// Summary
+		winCount := 0
+		for _, trade := range symbolHistory {
+			pnl, _ := trade["realized_pnl"].(float64)
+			if pnl > 0 {
+				winCount++
+			}
+		}
+		winRate := float64(winCount) / float64(len(symbolHistory)) * 100
+
+		totalPnLStr := fmt.Sprintf("$%.2f", totalPnL)
+		if totalPnL > 0 {
+			totalPnLStr = "+" + totalPnLStr
+		}
+
+		formattedData += fmt.Sprintf("  SUMMARY: %d trades, %s total, %.0f%% win rate\n", len(symbolHistory), totalPnLStr, winRate)
+
+		if totalPnL < -5 {
+			formattedData += "  ⚠️ WARNING: This symbol has been LOSING money recently. Consider NOT trading or use tighter SL.\n"
+		} else if totalPnL > 10 {
+			formattedData += "  ✅ This symbol has been profitable. Current strategy may be working.\n"
+		}
 	}
 
 	// Log if reasoning mode is enabled
@@ -1311,6 +1434,20 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 		e.mu.Unlock()
 
+		// Save position to database with entry reason (for 24h history)
+		e.positionStore.Create(&store.TraderPosition{
+			TraderID:      e.id,
+			Symbol:        symbol,
+			Side:          "long",
+			EntryQuantity: filledQty,
+			Quantity:      filledQty,
+			EntryPrice:    entryPrice,
+			EntryTime:     time.Now(),
+			Leverage:      leverage,
+			EntryReason:   decision.Reasoning, // Save AI's reasoning for opening
+			Source:        "system",
+		})
+
 		// Place bracket orders (SL/TP) on exchange using actual entry price
 		// If trailing stop is enabled, only place SL - let TSL handle profits
 		slPct, tpPct := e.getSLTPPercentages(decision)
@@ -1384,6 +1521,20 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			Leverage:    leverage,
 		}
 		e.mu.Unlock()
+
+		// Save position to database with entry reason (for 24h history)
+		e.positionStore.Create(&store.TraderPosition{
+			TraderID:      e.id,
+			Symbol:        symbol,
+			Side:          "short",
+			EntryQuantity: filledQty,
+			Quantity:      filledQty,
+			EntryPrice:    entryPrice,
+			EntryTime:     time.Now(),
+			Leverage:      leverage,
+			EntryReason:   decision.Reasoning, // Save AI's reasoning for opening
+			Source:        "system",
+		})
 
 		// Place bracket orders (SL/TP) on exchange using actual entry price
 		// If trailing stop is enabled, only place SL - let TSL handle profits

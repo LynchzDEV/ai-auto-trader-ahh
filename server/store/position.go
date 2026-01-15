@@ -39,7 +39,8 @@ type TraderPosition struct {
 	RealizedPnL        float64   `json:"realized_pnl"`
 	Fee                float64   `json:"fee"`
 	Leverage           int       `json:"leverage"`
-	Status             string    `json:"status"` // OPEN, CLOSED
+	Status             string    `json:"status"`       // OPEN, CLOSED
+	EntryReason        string    `json:"entry_reason"` // AI's reasoning for opening
 	CloseReason        string    `json:"close_reason"`
 	Source             string    `json:"source"` // system, manual, sync
 	CreatedAt          time.Time `json:"created_at"`
@@ -91,17 +92,17 @@ type HoldingTimeStats struct {
 
 // HistorySummary is comprehensive AI context
 type HistorySummary struct {
-	OverallStats   TraderStats        `json:"overall_stats"`
-	BestSymbols    []SymbolStats      `json:"best_symbols"`
-	WorstSymbols   []SymbolStats      `json:"worst_symbols"`
-	LongStats      DirectionStats     `json:"long_stats"`
-	ShortStats     DirectionStats     `json:"short_stats"`
-	HoldingTime    []HoldingTimeStats `json:"holding_time"`
-	AvgHoldMins    float64            `json:"avg_hold_mins"`
-	RecentWinRate  float64            `json:"recent_win_rate"`
-	WinStreak      int                `json:"win_streak"`
-	LoseStreak     int                `json:"lose_streak"`
-	CurrentStreak  int                `json:"current_streak"`
+	OverallStats  TraderStats        `json:"overall_stats"`
+	BestSymbols   []SymbolStats      `json:"best_symbols"`
+	WorstSymbols  []SymbolStats      `json:"worst_symbols"`
+	LongStats     DirectionStats     `json:"long_stats"`
+	ShortStats    DirectionStats     `json:"short_stats"`
+	HoldingTime   []HoldingTimeStats `json:"holding_time"`
+	AvgHoldMins   float64            `json:"avg_hold_mins"`
+	RecentWinRate float64            `json:"recent_win_rate"`
+	WinStreak     int                `json:"win_streak"`
+	LoseStreak    int                `json:"lose_streak"`
+	CurrentStreak int                `json:"current_streak"`
 }
 
 // PositionStore manages position data
@@ -135,6 +136,7 @@ func (s *PositionStore) InitTables() error {
 		fee REAL DEFAULT 0,
 		leverage INTEGER DEFAULT 1,
 		status TEXT NOT NULL DEFAULT 'OPEN',
+		entry_reason TEXT,
 		close_reason TEXT,
 		source TEXT DEFAULT 'system',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -156,13 +158,13 @@ func (s *PositionStore) Create(pos *TraderPosition) (int64, error) {
 	INSERT INTO trader_positions (
 		trader_id, exchange_id, exchange_type, exchange_position_id,
 		symbol, side, entry_quantity, quantity, entry_price,
-		entry_order_id, entry_time, leverage, status, source
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		entry_order_id, entry_time, leverage, status, entry_reason, source
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	result, err := db.Exec(query,
 		pos.TraderID, pos.ExchangeID, pos.ExchangeType, pos.ExchangePositionID,
 		pos.Symbol, pos.Side, pos.EntryQuantity, pos.Quantity, pos.EntryPrice,
-		pos.EntryOrderID, pos.EntryTime, pos.Leverage, PositionStatusOpen, pos.Source,
+		pos.EntryOrderID, pos.EntryTime, pos.Leverage, PositionStatusOpen, pos.EntryReason, pos.Source,
 	)
 	if err != nil {
 		return 0, err
@@ -713,7 +715,136 @@ func (s *PositionStore) GetRecentClosedForAI(traderID string, limit int) ([]map[
 			"hold_minutes": holdDuration.Minutes(),
 			"entry_time":   pos.EntryTime.Format(time.RFC3339),
 			"exit_time":    pos.ExitTime.Format(time.RFC3339),
+			"close_reason": pos.CloseReason, // Include why the position was closed
 		})
+	}
+	return result, nil
+}
+
+// SymbolHistory24h represents a symbol's trading history in the last 24 hours
+type SymbolHistory24h struct {
+	Symbol     string  `json:"symbol"`
+	TradeCount int     `json:"trade_count"`
+	TotalPnL   float64 `json:"total_pnl"`
+	WinCount   int     `json:"win_count"`
+	LossCount  int     `json:"loss_count"`
+	WinRate    float64 `json:"win_rate"`
+}
+
+// GetSymbolHistory24h returns the past 24h trading history for a specific symbol with close_reason
+// This is used to provide AI with historical context about recent performance on this symbol
+func (s *PositionStore) GetSymbolHistory24h(traderID, symbol string) ([]map[string]interface{}, error) {
+	twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
+
+	query := `
+	SELECT id, symbol, side, entry_price, exit_price, realized_pnl, 
+		entry_time, exit_time, COALESCE(entry_reason, ''), COALESCE(close_reason, '')
+	FROM trader_positions
+	WHERE trader_id = ? AND symbol = ? AND status = 'CLOSED' 
+		AND exit_time > ?
+	ORDER BY exit_time DESC
+	`
+	rows, err := db.Query(query, traderID, symbol, twentyFourHoursAgo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var sym, side, entryReason, closeReason string
+		var entryPrice, exitPrice, realizedPnL float64
+		var entryTime, exitTime time.Time
+
+		if err := rows.Scan(&id, &sym, &side, &entryPrice, &exitPrice, &realizedPnL,
+			&entryTime, &exitTime, &entryReason, &closeReason); err != nil {
+			return nil, err
+		}
+
+		result = append(result, map[string]interface{}{
+			"symbol":       sym,
+			"side":         side,
+			"entry_price":  entryPrice,
+			"exit_price":   exitPrice,
+			"realized_pnl": realizedPnL,
+			"entry_time":   entryTime.Format(time.RFC3339),
+			"exit_time":    exitTime.Format(time.RFC3339),
+			"entry_reason": entryReason, // Why AI opened this position
+			"close_reason": closeReason, // Why position was closed
+		})
+	}
+	return result, nil
+}
+
+// GetWorstSymbols24h returns symbols with the most losses in the last 24 hours
+// This is used to auto-avoid trading symbols that have been consistently losing
+func (s *PositionStore) GetWorstSymbols24h(traderID string, minLoss float64) ([]SymbolHistory24h, error) {
+	twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
+
+	query := `
+	SELECT symbol,
+		COUNT(*) as trade_count,
+		COALESCE(SUM(realized_pnl), 0) as total_pnl,
+		SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as win_count,
+		SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) as loss_count
+	FROM trader_positions
+	WHERE trader_id = ? AND status = 'CLOSED' AND exit_time > ?
+	GROUP BY symbol
+	HAVING total_pnl < ?
+	ORDER BY total_pnl ASC
+	`
+	rows, err := db.Query(query, traderID, twentyFourHoursAgo, -minLoss)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []SymbolHistory24h
+	for rows.Next() {
+		var h SymbolHistory24h
+		if err := rows.Scan(&h.Symbol, &h.TradeCount, &h.TotalPnL, &h.WinCount, &h.LossCount); err != nil {
+			return nil, err
+		}
+		if h.TradeCount > 0 {
+			h.WinRate = float64(h.WinCount) / float64(h.TradeCount) * 100
+		}
+		result = append(result, h)
+	}
+	return result, nil
+}
+
+// GetAllSymbolStats24h returns performance stats for all symbols in the last 24h
+func (s *PositionStore) GetAllSymbolStats24h(traderID string) ([]SymbolHistory24h, error) {
+	twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
+
+	query := `
+	SELECT symbol,
+		COUNT(*) as trade_count,
+		COALESCE(SUM(realized_pnl), 0) as total_pnl,
+		SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as win_count,
+		SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) as loss_count
+	FROM trader_positions
+	WHERE trader_id = ? AND status = 'CLOSED' AND exit_time > ?
+	GROUP BY symbol
+	ORDER BY total_pnl DESC
+	`
+	rows, err := db.Query(query, traderID, twentyFourHoursAgo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []SymbolHistory24h
+	for rows.Next() {
+		var h SymbolHistory24h
+		if err := rows.Scan(&h.Symbol, &h.TradeCount, &h.TotalPnL, &h.WinCount, &h.LossCount); err != nil {
+			return nil, err
+		}
+		if h.TradeCount > 0 {
+			h.WinRate = float64(h.WinCount) / float64(h.TradeCount) * 100
+		}
+		result = append(result, h)
 	}
 	return result, nil
 }

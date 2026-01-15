@@ -184,6 +184,12 @@ type RiskControlConfig struct {
 	SignalConfirmationDelaySec int     `json:"signal_confirmation_delay_sec"` // Seconds to wait before re-checking (default: 60)
 	HighConfidenceThreshold    float64 `json:"high_confidence_threshold"`     // Confidence above this executes immediately (default: 90)
 	PriceStabilityCheckPct     float64 `json:"price_stability_check_pct"`     // Max price movement % allowed during confirmation (default: 0.5)
+
+	// AUTO-AVOID WORST SYMBOLS - Automatically exclude symbols with recent losses
+	// This prevents the bot from repeatedly trading losing symbols
+	EnableAutoAvoidWorstSymbols bool    `json:"enable_auto_avoid_worst_symbols"` // Enable auto-avoid for worst performers (default: false)
+	AutoAvoidMinLoss24h         float64 `json:"auto_avoid_min_loss_24h"`         // Min total loss in 24h to trigger avoid (default: 5.0 USDT)
+	AutoAvoidMinTrades24h       int     `json:"auto_avoid_min_trades_24h"`       // Min trades in 24h to consider (default: 2)
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -284,6 +290,11 @@ func DefaultStrategyConfig() StrategyConfig {
 			SignalConfirmationDelaySec: 60,   // Wait 60 seconds before re-verifying
 			HighConfidenceThreshold:    90.0, // 90%+ confidence executes immediately
 			PriceStabilityCheckPct:     0.5,  // Max 0.5% price movement during confirmation
+
+			// Auto-Avoid Worst Symbols (disabled by default - opt-in)
+			EnableAutoAvoidWorstSymbols: false, // When enabled, skip symbols that lost money in last 24h
+			AutoAvoidMinLoss24h:         5.0,   // Min total loss in 24h to trigger avoid (5 USDT)
+			AutoAvoidMinTrades24h:       2,     // Min trades required to consider avoiding
 		},
 		AI: AIConfig{
 			EnableReasoning: false,

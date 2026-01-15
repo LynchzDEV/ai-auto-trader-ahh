@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.49.0] - 2026-01-15
+
+### Added
+- **Auto-Avoid Worst Symbols**: New feature that automatically excludes symbols with consistent losses in the last 24 hours from trading. Configurable with `EnableAutoAvoidWorstSymbols`, `AutoAvoidMinLoss24h` (default: 5 USDT), and `AutoAvoidMinTrades24h` (default: 2). Symbols with open positions are still analyzed.
+- **24h Trading History AI Context**: AI now receives the past 24 hours of trading history for each symbol it analyzes, including **entry reasons** (why it opened), P&L, and close reasons. This helps the AI learn from recent trades and avoid repeating failed patterns.
+
 ## [v3.48.3] - 2026-01-15
 
 ### Fixed
