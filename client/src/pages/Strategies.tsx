@@ -57,6 +57,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { GlowBadge } from "@/components/ui/glow-badge";
 import { SpotlightCard } from "@/components/ui/spotlight-card";
 import { useConfirm, useAlert } from "@/components/ui/confirm-modal";
+import { isMobileDevice } from "@/lib/utils";
 
 // Moved outside component to prevent re-renders
 const CollapsibleSection = ({
@@ -545,7 +546,13 @@ export default function Strategies() {
       >
         <DialogContent
           className="!w-[calc(100%-1rem)] sm:!w-[90vw] pb-0 !max-w-4xl glass-card border-white/10 max-h-[95vh] overflow-y-auto"
-          onOpenAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            // Only prevent autofocus on mobile devices to avoid keyboard popup
+            // Desktop users maintain keyboard navigation accessibility
+            if (isMobileDevice()) {
+              e.preventDefault();
+            }
+          }}
         >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
