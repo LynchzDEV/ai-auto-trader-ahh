@@ -850,6 +850,75 @@ export default function Strategies() {
                       </div>
                     </div>
 
+
+                    {/* OI-Based Discovery */}
+                    <div className="space-y-3 pt-3 border-t border-white/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-purple-400" />
+                          <Label className="text-sm font-medium">
+                            OI-Based Smart Find
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Select
+                            value={
+                              editingStrategy.config.smart_find_filter ||
+                              "volatility"
+                            }
+                            onValueChange={(v) =>
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  smart_find_filter: v,
+                                },
+                              })
+                            }
+                            disabled={
+                              !editingStrategy.config.smart_find_use_oi
+                            }
+                          >
+                            <SelectTrigger className="w-[130px] h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="volatility">
+                                Price Volatility
+                              </SelectItem>
+                              <SelectItem value="volume">
+                                High Volume
+                              </SelectItem>
+                              <SelectItem value="oi_change">
+                                OI Change
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <input
+                            type="checkbox"
+                            checked={
+                              editingStrategy.config.smart_find_use_oi || false
+                            }
+                            onChange={(e) =>
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  smart_find_use_oi: e.target.checked,
+                                },
+                              })
+                            }
+                            className="w-4 h-4 rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500/20"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Use Open Interest data (CoinAnk) to find "Smart Money"
+                        movements. Requires COINANK_API_KEY.
+                      </p>
+                    </div>
+
                     {/* Auto Smart Find */}
                     <div className="space-y-3 pt-3 border-t border-white/10">
                       <div className="flex items-center justify-between">
@@ -1064,8 +1133,8 @@ export default function Strategies() {
                             />
                             <span
                               className={`text-sm ${editingStrategy.config.turbo_mode
-                                  ? "text-yellow-400 font-bold"
-                                  : "text-muted-foreground"
+                                ? "text-yellow-400 font-bold"
+                                : "text-muted-foreground"
                                 }`}
                             >
                               {editingStrategy.config.turbo_mode
@@ -1099,8 +1168,8 @@ export default function Strategies() {
                             />
                             <span
                               className={`text-sm ${editingStrategy.config.simple_mode
-                                  ? "text-green-400 font-bold"
-                                  : "text-muted-foreground"
+                                ? "text-green-400 font-bold"
+                                : "text-muted-foreground"
                                 }`}
                             >
                               {editingStrategy.config.simple_mode

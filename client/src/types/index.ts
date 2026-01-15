@@ -21,6 +21,9 @@ export interface StrategyConfig {
   // Smart Find Auto-Refresh
   smart_find_auto_refresh?: boolean;
   smart_find_refresh_mins?: number;
+  // OI-Based Smart Find
+  smart_find_use_oi?: boolean;
+  smart_find_filter?: string; // "volatility", "volume", "oi_change"
   // Market Intelligence (Fear & Greed, News, CoinGecko data)
   enable_market_intel?: boolean;
 }
