@@ -2488,9 +2488,10 @@ export default function Strategies() {
                       onClick={handleSave}
                       disabled={
                         !isCreating &&
-                        !!originalStrategy &&
-                        JSON.stringify(editingStrategy) ===
-                          JSON.stringify(originalStrategy)
+                        (!editingStrategy ||
+                          !originalStrategy ||
+                          JSON.stringify(editingStrategy) ===
+                            JSON.stringify(originalStrategy))
                       }
                       className="flex-1 sm:flex-none"
                     >
