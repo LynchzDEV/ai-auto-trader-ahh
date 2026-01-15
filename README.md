@@ -17,10 +17,26 @@ An advanced AI-powered cryptocurrency futures trading platform that leverages mu
 *   **Real-time Trading**: Automated, low-latency execution on Binance Futures with Testnet and Mainnet support
 *   **Bracket Orders**: Atomic execution of Entry + Stop Loss + Take Profit orders
 
-### Risk Management (7+ Layers)
+### Risk Management (12+ Layers)
+
+#### Entry Safety (7 Layers) - NEW in v3.51.0
+*   **EMA Spread Gate**: Requires ≥0.6% EMA spread for entries - blocks weak/choppy trends
+*   **Momentum Exhaustion Detection**: Blocks extended price + opposite MACD histogram entries
+*   **Wick Rejection Pattern**: Blocks when 3+ of 5 candles show rejection wicks
+*   **Volume Decline Detection**: Blocks when volume < 60% of 5-candle average
+*   **Resistance/Support Buffer**: Blocks entries within 0.5% of 40-candle high/low
+*   **RSI Extreme Blocking**: Blocks LONG if RSI >75, SHORT if RSI <25
+*   **Counter-Trend Prevention**: LONG requires Price > EMA9, SHORT requires Price < EMA9
+
+#### Multi-Timeframe Confirmation (4 Checks)
+*   **Trend Direction**: Higher TF EMA9 vs EMA21 must align
+*   **Price Action**: Price must respect higher TF EMA21
+*   **MACD Momentum**: Higher TF histogram sign must support trade
+*   **Trend Strength**: Higher TF EMA spread must be ≥0.4%
+
+#### Position Management
 *   **Hard Validation**: Enforced 3:1 minimum risk/reward ratio
 *   **Noise Zone Protection**: Block closing positions between -1.5% and +1.5% PnL to prevent panic selling
-*   **Trend Strength Gate**: Prevent entries in sideways markets (EMA spread < 0.2%)
 *   **Trailing Stop Loss**: Automatically lock profits at +1% with 0.5% trailing distance
 *   **Smart Loss Cut**: Force close losers after extended hold time (30+ minutes with >1% loss)
 *   **Max Hold Duration**: Automatically close positions held longer than 4 hours

@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.51.0] - 2026-01-16
+
+### Added
+- **Anti-Loss Protection System**: Comprehensive 7-layer entry safety system to prevent "buy the top" and "counter-trend" entries that were causing consistent losses:
+  1. **EMA Spread Gate**: Requires ≥0.6% EMA spread for any new entry. Weak/choppy trends are rejected.
+  2. **Momentum Exhaustion Detection**: Blocks entries when price is extended >1% from EMA9 with opposite MACD histogram direction.
+  3. **Wick Rejection Pattern Detection**: Blocks entries when 3+ of last 5 candles show rejection wicks (sellers at highs for longs, buyers at lows for shorts).
+  4. **Volume Decline Detection**: Blocks entries when current volume is <60% of 5-candle average (weak conviction moves).
+  5. **Expanded Resistance/Support Check**: Now uses 40-candle range with 0.5% proximity buffer (increased from 30 candles and 0.3%).
+  6. **RSI Extreme Blocking**: LONG blocked if RSI >75 (overbought), SHORT blocked if RSI <25 (oversold).
+  7. **Trend Direction Verification**: Verifies EMA spread direction matches intended trade direction.
+
+- **Enhanced Multi-Timeframe Confirmation**: Higher timeframe (15m) now validates 4 conditions instead of 2:
+  1. Trend Direction (EMA9 vs EMA21 structure)
+  2. Price Action (Price vs EMA21 relation)
+  3. **NEW**: MACD Momentum Direction (histogram sign must support trade)
+  4. **NEW**: EMA Spread Strength (requires ≥0.4% on higher TF)
+
+- **Entry Quality Warnings**: Market data formatter now provides explicit warnings about problematic entry conditions:
+  - Exhaustion patterns (extended price + opposite MACD)
+  - Wick rejection patterns
+  - Volume decline
+  - Weak EMA spread
+  - RSI extremes
+
+### Changed
+- **Critical Entry Rules Prompt**: Updated AI prompt to explicitly explain all code-enforced entry blocks, helping the AI understand what will be rejected.
+- **Resistance/Support Detection**: Expanded from 30-candle to 40-candle range, and proximity threshold from 0.3% to 0.5%.
+
 ## [v3.50.0] - 2026-01-15
 
 ### Changed
