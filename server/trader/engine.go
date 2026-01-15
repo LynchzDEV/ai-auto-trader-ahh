@@ -907,6 +907,34 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 		formattedData += fmt.Sprintf("Unrealized PnL: $%.2f\n", e.account.TotalUnrealizedProfit)
 	}
 
+	// Add Account-Wide Worst Performers Ranking (Context)
+	worstSymbols, err := e.positionStore.GetWorstSymbols24h(e.id, 0) // Get all losers
+	if err == nil && len(worstSymbols) > 0 {
+		formattedData += "\n--- Account Worst Performers (24h) ---\n"
+		var worstList string
+		isCurrentSymbolWorst := false
+
+		// Show top 5 worst
+		limit := 5
+		if len(worstSymbols) < limit {
+			limit = len(worstSymbols)
+		}
+
+		for i := 0; i < limit; i++ {
+			ws := worstSymbols[i]
+			worstList += fmt.Sprintf("%d. %s ($%.2f)\n", i+1, ws.Symbol, ws.TotalPnL)
+			if ws.Symbol == symbol {
+				isCurrentSymbolWorst = true
+			}
+		}
+
+		formattedData += worstList
+		if isCurrentSymbolWorst {
+			formattedData += fmt.Sprintf("\n⚠️ CRITICAL CONTEXT: This symbol (%s) is one of your WORST performers!\n", symbol)
+			formattedData += "Be EXTREMELY cautious. Do not force trades on losing assets.\n"
+		}
+	}
+
 	// Add position info if exists
 	pos, hasPosition := e.positions[symbol]
 	e.mu.RUnlock()
@@ -931,6 +959,7 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	if e.strategy != nil && e.strategy.Config.CustomPrompt != "" {
 		formattedData += fmt.Sprintf("\n--- Strategy Rules ---\n%s\n", e.strategy.Config.CustomPrompt)
 	}
+
 
 	// Add 24h trading history for this symbol (with reasons and P&L)
 	// This helps AI learn from recent trades and avoid repeating mistakes
