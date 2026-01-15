@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.50.0] - 2026-01-15
+
+### Changed
+- **Strict Momentum Enforcement**: The trading engine now enforces a hard rule preventing "counter-trend" entries against short-term momentum.
+  - **BUY** requires `Price >= 5m EMA9`.
+  - **SELL** requires `Price <= 5m EMA9`.
+  - This prevents the bot from "buying the dip" during crashes (catching falling knives) even if the AI suggests it.
+- **Enhanced Multi-TF Confirmation**: Evaluation of higher timeframes (e.g., 15m) now requires Price to be respecting the trend (e.g., Price > EMA21 for Bulls), not just EMA alignment.
+- **AI Prompt Prioritization**: "Worst Performer" and "Recent Loss" warnings are now moved to the **very top** of the AI prompt as a `CRITICAL PROMPT`, ensuring the AI sees them before any market data.
+- **Global Safety Rules**: Injected permanent safety rules into the AI prompt forbidding trades at Resistance/Support without confirmation and rejecting entries on candles with large rejection wicks.
+- **Funding Rate Logic**: Updated market data presentation to prevent the AI from establishing a directional bias solely based on funding rates (preventing counter-trend trades).
+
 ## [v3.49.0] - 2026-01-15
 
 ### Added
