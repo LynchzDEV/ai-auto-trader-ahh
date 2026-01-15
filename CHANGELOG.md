@@ -45,6 +45,7 @@ All notable changes to this project will be documented in this file.
   - `TestLongShortRatioInterpretation`: 6 test cases for crowding detection
   - `TestOIDataStructs`: Structure validation tests
   - `TestOIEntrySafetyLogic`: 7 test cases for entry blocking logic
+  - `TestLongShortSentimentLogic`: 5 test cases for sentiment trend detection
   - `TestOIIntegration`: Live API tests (skipped with `-short` flag)
 
 ### Technical

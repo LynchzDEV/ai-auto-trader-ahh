@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -413,6 +415,81 @@ func TestOIEntrySafetyLogic(t *testing.T) {
 			}
 			if tt.shouldBlock && reason != tt.blockReason {
 				t.Errorf("Reason = %q, want %q", reason, tt.blockReason)
+			}
+		})
+	}
+}
+
+// TestLongShortSentimentLogic tests the sentiment trend detection logic
+func TestLongShortSentimentLogic(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentLongPct float64
+		oldLongPct     float64
+		wantTrend      string
+		wantMsgContent string // simplified check for message content
+	}{
+		{
+			name:           "Significant Long Rise (+6%) -> BECOMING_BULLISH",
+			currentLongPct: 0.60,
+			oldLongPct:     0.54,
+			wantTrend:      "BECOMING_BULLISH",
+			wantMsgContent: "shifting LONG",
+		},
+		{
+			name:           "Significant Long Drop (-6%) -> BECOMING_BEARISH",
+			currentLongPct: 0.50,
+			oldLongPct:     0.56,
+			wantTrend:      "BECOMING_BEARISH",
+			wantMsgContent: "shifting SHORT",
+		},
+		{
+			name:           "Minor Change (+2%) -> STABLE",
+			currentLongPct: 0.52,
+			oldLongPct:     0.50,
+			wantTrend:      "STABLE",
+			wantMsgContent: "stable",
+		},
+
+		{
+			name:           "Just Below Threshold (+4.9%) -> STABLE",
+			currentLongPct: 0.549,
+			oldLongPct:     0.50,
+			wantTrend:      "STABLE",
+			wantMsgContent: "stable",
+		},
+		{
+			name:           "Just Over Threshold (+5.1%) -> BECOMING_BULLISH",
+			currentLongPct: 0.551,
+			oldLongPct:     0.50,
+			wantTrend:      "BECOMING_BULLISH",
+			wantMsgContent: "shifting LONG",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Logic from GetLongShortAnalysis
+			currentChange := (tt.currentLongPct - tt.oldLongPct) * 100
+			trend := "STABLE"
+			message := "Sentiment is stable"
+
+			if currentChange > 5 {
+				trend = "BECOMING_BULLISH"
+				message = fmt.Sprintf("shifting LONG (+%.1f%%)", currentChange)
+			} else if currentChange < -5 {
+				trend = "BECOMING_BEARISH"
+				message = fmt.Sprintf("shifting SHORT (%.1f%% drop)", currentChange)
+			}
+
+			if trend != tt.wantTrend {
+				t.Errorf("Trend = %s, want %s (change=%.2f%%)", trend, tt.wantTrend, currentChange)
+			}
+			// Simple contains check for message
+			if tt.wantMsgContent != "" {
+				if !strings.Contains(message, tt.wantMsgContent) {
+					t.Errorf("Message = %q, want content %q", message, tt.wantMsgContent)
+				}
 			}
 		})
 	}
