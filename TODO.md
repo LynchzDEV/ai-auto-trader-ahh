@@ -33,26 +33,26 @@
 **Impact:** 🔥🔥🔥 | **Effort:** Medium | **Status:** ✅ Completed
 
 **Description:**  
-Integrate CoinAnk API to fetch OI changes and provide market interpretation to the AI. This reveals *real money flow*, not just price action.
+Integrated **Binance's FREE API** to fetch OI changes and provide market interpretation to the AI. This reveals *real money flow*, not just price action.
+
+**🆓 NO API KEY NEEDED - Uses free Binance endpoints!**
 
 **Implementation:**
-- [x] Create `provider/coinank/` package
-- [x] Implement `CoinankClient` with HTTP client
-- [x] Add `GetOpenInterest()` function
-- [x] Add OI data to `MarketData` struct
+- [x] Add `GetOpenInterest()` to BinanceClient
+- [x] Add `GetOpenInterestHist()` for historical OI changes
+- [x] Add `GetOIAnalysis()` with automatic interpretation
+- [x] Add `GetTopTraderLongShortRatio()` for positioning data
+- [x] Add OI fields to `MarketData` struct
 - [x] Format OI interpretation for AI:
   - OI Up + Price Up = Strong bullish (new longs)
   - OI Up + Price Down = Strong bearish (new shorts)
   - OI Down + Price Up = Short covering (reversal?)
   - OI Down + Price Down = Long closing (reversal?)
-- [x] Add `GetLongShortRatio()` for L/S ratio tracking
 - [x] Add OI-based entry safety checks in `checkEntrySafety()`
-- [ ] Add UI toggle for OI analysis (optional - can use env var for now)
 
-**Environment Variable:**
-```
-COINGLASS_API_KEY=your_api_key_here
-```
+**Binance API Endpoints Used (FREE):**
+- `/futures/data/openInterestHist` - OI history with USD value
+- `/futures/data/topLongShortPositionRatio` - Top trader positioning
 
 ---
 

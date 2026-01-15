@@ -19,7 +19,6 @@ import (
 	"auto-trader-ahh/intel"
 	"auto-trader-ahh/market"
 	"auto-trader-ahh/mcp"
-	"auto-trader-ahh/provider/coinank"
 	"auto-trader-ahh/store"
 )
 
@@ -91,9 +90,6 @@ type Engine struct {
 
 	// Market Intelligence Provider (free external data)
 	intelProvider *intel.Provider
-
-	// Coinglass/CoinAnk client for OI data
-	coinglassClient *coinank.Client
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -165,14 +161,8 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 	}
 	intelProvider := intel.NewProvider(intelCfg)
 
-	// Initialize Coinglass client for OI data (optional - requires API key)
-	var coinglassClient *coinank.Client
-	if coinglassKey := os.Getenv("COINGLASS_API_KEY"); coinglassKey != "" {
-		coinglassClient = coinank.NewClient(coinglassKey)
-		log.Printf("[OI] Coinglass Open Interest analysis enabled")
-	} else {
-		log.Printf("[OI] Coinglass API key not set - OI analysis disabled")
-	}
+	// OI Analysis uses Binance's FREE API endpoints - no additional API key needed!
+	log.Printf("[OI] Open Interest analysis enabled (using free Binance API)")
 
 	return &Engine{
 		id:             id,
@@ -209,9 +199,6 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 
 		// Market Intelligence
 		intelProvider: intelProvider,
-
-		// Coinglass OI data
-		coinglassClient: coinglassClient,
 	}
 }
 
@@ -917,43 +904,55 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 		marketData.BTCChange24h = btcStats.PriceChange
 	}
 
-	// Fetch Open Interest data from Coinglass (if client is configured)
-	if e.coinglassClient != nil {
+	// Fetch Open Interest data from Binance (FREE - no API key needed!)
+	// Uses /futures/data/openInterestHist and /futures/data/topLongShortPositionRatio
+	{
 		oiCtx, oiCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer oiCancel()
 
-		// Fetch OI data
-		oiData, oiErr := e.coinglassClient.GetOpenInterest(oiCtx, symbol)
+		// Fetch OI analysis from Binance (FREE)
+		oiAnalysis, oiErr := e.binance.GetOIAnalysis(oiCtx, symbol, marketData.PriceChange24h)
 		if oiErr != nil {
 			log.Printf("[%s][OI] Failed to fetch OI data for %s: %v", e.name, symbol, oiErr)
-		} else if oiData != nil {
-			marketData.OIValue = oiData.OpenInterest
-			marketData.OIChange1H = oiData.Change1H
-			marketData.OIChange4H = oiData.Change4H
-			marketData.OIChange24H = oiData.Change24H
+		} else if oiAnalysis != nil {
+			marketData.OIValue = oiAnalysis.CurrentOI
+			marketData.OIChange1H = oiAnalysis.OIChange1H
+			marketData.OIChange4H = oiAnalysis.OIChange4H
+			marketData.OIChange24H = oiAnalysis.OIChange24H
+			marketData.OISignal = oiAnalysis.OISignal
 
-			// Interpret OI signal
-			interpretation := coinank.InterpretOI(oiData.Change1H, marketData.PriceChange24h)
-			marketData.OISignal = interpretation.Signal
-			marketData.OIDescription = interpretation.Description
+			// Set description based on signal
+			switch oiAnalysis.OISignal {
+			case "BULLISH":
+				marketData.OIDescription = "New longs opening - capital flowing into long positions"
+			case "BEARISH":
+				marketData.OIDescription = "New shorts opening - capital flowing into short positions"
+			case "REVERSAL_UP":
+				marketData.OIDescription = "Shorts covering - potential short squeeze, NOT new buying"
+			case "REVERSAL_DOWN":
+				marketData.OIDescription = "Longs capitulating - potential bounce, NOT new shorting"
+			default:
+				marketData.OIDescription = "No significant OI movement - market indecision"
+			}
 
-			log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s",
-				e.name, symbol, oiData.Change1H, interpretation.Signal)
+			log.Printf("[%s][OI] %s: OI Change 1H: %+.2f%%, Signal: %s (%s)",
+				e.name, symbol, oiAnalysis.OIChange1H, oiAnalysis.OISignal, oiAnalysis.OIConfidence)
 		}
 
-		// Fetch Long/Short ratio
-		lsData, lsErr := e.coinglassClient.GetLongShortRatio(oiCtx, symbol)
+		// Fetch Long/Short ratio from Binance (FREE)
+		lsData, lsErr := e.binance.GetLatestLongShortRatio(oiCtx, symbol)
 		if lsErr != nil {
 			log.Printf("[%s][OI] Failed to fetch L/S ratio for %s: %v", e.name, symbol, lsErr)
 		} else if lsData != nil {
-			marketData.LongRatio = lsData.LongRatio
-			marketData.ShortRatio = lsData.ShortRatio
+			// Convert from decimal (0.xx) to percentage (xx%)
+			marketData.LongRatio = lsData.LongAccount * 100
+			marketData.ShortRatio = lsData.ShortAccount * 100
 
 			// Warn on crowded positioning
-			if lsData.LongRatio > 70 {
-				log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, lsData.LongRatio)
-			} else if lsData.ShortRatio > 70 {
-				log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, lsData.ShortRatio)
+			if marketData.LongRatio > 70 {
+				log.Printf("[%s][OI] ⚠️ %s: CROWDED LONG (%.1f%%) - reversal risk!", e.name, symbol, marketData.LongRatio)
+			} else if marketData.ShortRatio > 70 {
+				log.Printf("[%s][OI] ⚠️ %s: CROWDED SHORT (%.1f%%) - squeeze risk!", e.name, symbol, marketData.ShortRatio)
 			}
 		}
 	}

@@ -978,6 +978,195 @@ func (c *BinanceClient) GetIncomeHistory(ctx context.Context, symbol, incomeType
 	return income, nil
 }
 
+// OpenInterestData represents current open interest for a symbol
+type OpenInterestData struct {
+	Symbol       string  `json:"symbol"`
+	OpenInterest float64 `json:"openInterest,string"` // OI in contracts
+	Time         int64   `json:"time"`
+}
+
+// GetOpenInterest fetches current open interest for a symbol (FREE - no API key needed)
+// Endpoint: GET /fapi/v1/openInterest (weight: 1)
+func (c *BinanceClient) GetOpenInterest(ctx context.Context, symbol string) (*OpenInterestData, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/openInterest", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var oi OpenInterestData
+	if err := json.Unmarshal(body, &oi); err != nil {
+		return nil, fmt.Errorf("failed to parse open interest: %w", err)
+	}
+
+	return &oi, nil
+}
+
+// OpenInterestHistData represents historical open interest statistics
+type OpenInterestHistData struct {
+	Symbol               string  `json:"symbol"`
+	SumOpenInterest      float64 `json:"sumOpenInterest,string"`      // Total OI in contracts
+	SumOpenInterestValue float64 `json:"sumOpenInterestValue,string"` // Total OI value in USD
+	Timestamp            int64   `json:"timestamp"`
+}
+
+// OIAnalysis represents analyzed OI data with change percentages
+type OIAnalysis struct {
+	Symbol       string
+	CurrentOI    float64 // Current OI value in USD
+	OIChange1H   float64 // OI change in last 1 hour (%)
+	OIChange4H   float64 // OI change in last 4 hours (%)
+	OIChange24H  float64 // OI change in last 24 hours (%)
+	OISignal     string  // BULLISH, BEARISH, REVERSAL_UP, REVERSAL_DOWN, NEUTRAL
+	OIConfidence string  // HIGH, MEDIUM, LOW
+}
+
+// GetOpenInterestHist fetches historical OI data and calculates changes (FREE)
+// Endpoint: GET /futures/data/openInterestHist (weight: 0, rate limit: 1000 req/5min)
+// period can be: "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"
+func (c *BinanceClient) GetOpenInterestHist(ctx context.Context, symbol string, period string, limit int) ([]OpenInterestHistData, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("period", period)
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	} else {
+		params.Set("limit", "30") // Default to 30 data points
+	}
+
+	body, err := c.doRequest(ctx, "GET", "/futures/data/openInterestHist", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var oiHist []OpenInterestHistData
+	if err := json.Unmarshal(body, &oiHist); err != nil {
+		return nil, fmt.Errorf("failed to parse OI history: %w", err)
+	}
+
+	return oiHist, nil
+}
+
+// GetOIAnalysis fetches OI data and calculates changes with interpretation (FREE)
+func (c *BinanceClient) GetOIAnalysis(ctx context.Context, symbol string, priceChange float64) (*OIAnalysis, error) {
+	// Fetch 1-hour OI history (each data point is 5min, so 12 points = 1 hour)
+	oiHist, err := c.GetOpenInterestHist(ctx, symbol, "5m", 30)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(oiHist) < 2 {
+		return nil, fmt.Errorf("insufficient OI history data")
+	}
+
+	// Get latest and calculate changes
+	latest := oiHist[len(oiHist)-1]
+	currentOI := latest.SumOpenInterestValue
+
+	// Calculate 1H change (compare with 12 periods ago if available)
+	change1H := 0.0
+	if len(oiHist) >= 12 {
+		oldOI := oiHist[len(oiHist)-12].SumOpenInterestValue
+		if oldOI > 0 {
+			change1H = ((currentOI - oldOI) / oldOI) * 100
+		}
+	}
+
+	// Calculate 4H change (would need more data, approximate with available)
+	change4H := 0.0
+	if len(oiHist) >= 30 {
+		oldOI := oiHist[0].SumOpenInterestValue
+		if oldOI > 0 {
+			change4H = ((currentOI - oldOI) / oldOI) * 100
+		}
+	}
+
+	// Interpret OI signal
+	signal := "NEUTRAL"
+	confidence := "LOW"
+
+	if change1H > 0 && priceChange > 0 {
+		signal = "BULLISH"
+		if change1H > 2 && priceChange > 1 {
+			confidence = "HIGH"
+		} else {
+			confidence = "MEDIUM"
+		}
+	} else if change1H > 0 && priceChange < 0 {
+		signal = "BEARISH"
+		if change1H > 2 && priceChange < -1 {
+			confidence = "HIGH"
+		} else {
+			confidence = "MEDIUM"
+		}
+	} else if change1H < 0 && priceChange > 0 {
+		signal = "REVERSAL_UP" // Shorts covering
+		confidence = "LOW"
+	} else if change1H < 0 && priceChange < 0 {
+		signal = "REVERSAL_DOWN" // Longs capitulating
+		confidence = "LOW"
+	}
+
+	return &OIAnalysis{
+		Symbol:       symbol,
+		CurrentOI:    currentOI,
+		OIChange1H:   change1H,
+		OIChange4H:   change4H,
+		OIChange24H:  0, // Would need 24h of data
+		OISignal:     signal,
+		OIConfidence: confidence,
+	}, nil
+}
+
+// LongShortRatioData represents top trader long/short ratio
+type LongShortRatioData struct {
+	Symbol         string  `json:"symbol"`
+	LongShortRatio float64 `json:"longShortRatio,string"` // Long accounts / Short accounts
+	LongAccount    float64 `json:"longAccount,string"`    // % of accounts that are long
+	ShortAccount   float64 `json:"shortAccount,string"`   // % of accounts that are short
+	Timestamp      int64   `json:"timestamp"`
+}
+
+// GetTopTraderLongShortRatio fetches top trader positioning (FREE)
+// Endpoint: GET /futures/data/topLongShortPositionRatio (weight: 0)
+// period can be: "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"
+func (c *BinanceClient) GetTopTraderLongShortRatio(ctx context.Context, symbol string, period string, limit int) ([]LongShortRatioData, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("period", period)
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	} else {
+		params.Set("limit", "1") // Just get latest
+	}
+
+	body, err := c.doRequest(ctx, "GET", "/futures/data/topLongShortPositionRatio", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var ratios []LongShortRatioData
+	if err := json.Unmarshal(body, &ratios); err != nil {
+		return nil, fmt.Errorf("failed to parse long/short ratio: %w", err)
+	}
+
+	return ratios, nil
+}
+
+// GetLatestLongShortRatio fetches the latest long/short ratio for a symbol (FREE)
+func (c *BinanceClient) GetLatestLongShortRatio(ctx context.Context, symbol string) (*LongShortRatioData, error) {
+	ratios, err := c.GetTopTraderLongShortRatio(ctx, symbol, "5m", 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(ratios) == 0 {
+		return nil, fmt.Errorf("no long/short ratio data available")
+	}
+	return &ratios[0], nil
+}
+
 func parseFloat(v interface{}) float64 {
 	switch val := v.(type) {
 	case string:
