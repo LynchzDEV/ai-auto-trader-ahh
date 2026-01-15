@@ -70,6 +70,15 @@ const primaryNavItems = navItems.slice(0, 5);
 // Secondary items shown in "More" menu
 const secondaryNavItems = navItems.slice(5);
 
+// Development-time sanity check to catch future configuration errors
+if (process.env.NODE_ENV !== "production") {
+  if (primaryNavItems.length + secondaryNavItems.length !== navItems.length) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "Navigation configuration error: primaryNavItems and secondaryNavItems do not cover all navItems."
+    );
+  }
+}
 export default function Layout() {
   const location = useLocation();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
