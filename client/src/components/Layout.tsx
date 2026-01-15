@@ -71,7 +71,7 @@ const primaryNavItems = navItems.slice(0, 5);
 const secondaryNavItems = navItems.slice(5);
 
 // Development-time sanity check to catch future configuration errors
-if (process.env.NODE_ENV !== "production") {
+if (import.meta.env.MODE !== "production") {
   if (primaryNavItems.length + secondaryNavItems.length !== navItems.length) {
     // eslint-disable-next-line no-console
     console.error(
