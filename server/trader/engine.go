@@ -1137,6 +1137,29 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	e.lastDecisions[symbol] = decision
 	e.mu.Unlock()
 
+	// 🚨 CRITICAL: HARD BLOCK for Counter-Trend "Dip Buying" 🚨
+	// If AI tries to BUY when Price < EMA9 (downtrend), BLOCK IT.
+	// If AI tries to SELL when Price > EMA9 (uptrend), BLOCK IT.
+	if !hasPosition && (decision.Action == "BUY" || decision.Action == "SELL") {
+		// Use EMA9 from MarketData we already have
+		ema9 := marketData.EMA9
+		currentPrice := marketData.CurrentPrice
+
+		if decision.Action == "BUY" && currentPrice < ema9 {
+			log.Printf("[%s][%s] ❌ BLOCKED: Counter-trend BUY attempt. Price $%.4f is BELOW EMA9 $%.4f. Wait for momentum.",
+				e.name, symbol, currentPrice, ema9)
+			tradeLog.Error = "blocked: counter-trend buy (price < EMA9)"
+			return tradeLog
+		}
+
+		if decision.Action == "SELL" && currentPrice > ema9 {
+			log.Printf("[%s][%s] ❌ BLOCKED: Counter-trend SELL attempt. Price $%.4f is ABOVE EMA9 $%.4f. Wait for momentum.",
+				e.name, symbol, currentPrice, ema9)
+			tradeLog.Error = "blocked: counter-trend sell (price > EMA9)"
+			return tradeLog
+		}
+	}
+
 	// Execute trade if confidence is high enough
 	minConfidence := float64(e.getMinConfidence())
 	if decision.Confidence >= minConfidence {
