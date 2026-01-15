@@ -19,7 +19,8 @@ All notable changes to this project will be documented in this file.
 - **CoinAnk Integration**:
   - Added `server/provider/coinank` client for aggregated market data
   - Supports `GetOIRanking`, `VolumeRank`, `PriceRank`
-  - Requires `COINANK_API_KEY` (falls back to Binance Tickers if missing)
+  - Requires `COINANK_API_KEY` (Premium)
+  - **Free Fallback**: If API key is missing, automatically scans top 50 liquid pairs on Binance for OI surges (No cost)
 
 ## [v3.52.0] - 2026-01-16
 
