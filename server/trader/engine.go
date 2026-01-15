@@ -564,10 +564,8 @@ Your response:`, targetCount)
 		}
 	}
 
-	// Remove closing code fence
-	if strings.HasSuffix(jsonStr, "```") {
-		jsonStr = strings.TrimSuffix(jsonStr, "```")
-	}
+	// Remove closing code fence (TrimSuffix is safe even if suffix doesn't exist)
+	jsonStr = strings.TrimSuffix(jsonStr, "```")
 	jsonStr = strings.TrimSpace(jsonStr)
 
 	// Extract JSON array
@@ -2684,6 +2682,39 @@ func (e *Engine) shouldStopTrading() bool {
 	}
 
 	return false
+}
+
+// CancelTradingPause clears the trading pause, allowing trading to resume immediately
+func (e *Engine) CancelTradingPause() {
+	e.mu.Lock()
+	waspaused := !e.stopUntil.IsZero() && time.Now().Before(e.stopUntil)
+	e.stopUntil = time.Time{}
+	e.mu.Unlock()
+
+	// Clear persisted state
+	e.saveDailyLossState()
+
+	if waspaused {
+		log.Printf("[%s] ✅ Trading pause cancelled - resuming trading", e.name)
+	}
+}
+
+// GetPauseStatus returns current pause status
+func (e *Engine) GetPauseStatus() map[string]interface{} {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	isPaused := !e.stopUntil.IsZero() && time.Now().Before(e.stopUntil)
+	result := map[string]interface{}{
+		"is_paused": isPaused,
+	}
+
+	if isPaused {
+		result["pause_until"] = e.stopUntil.Format(time.RFC3339)
+		result["remaining_seconds"] = int(time.Until(e.stopUntil).Seconds())
+	}
+
+	return result
 }
 
 // checkDailyLoss checks if daily loss limit has been exceeded

@@ -221,3 +221,33 @@ func (m *EngineManager) ReloadStrategyForTraders(strategyID string) error {
 
 	return nil
 }
+
+// CancelTradingPause cancels the trading pause for a specific trader
+func (m *EngineManager) CancelTradingPause(traderID string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	engine, exists := m.engines[traderID]
+	if !exists {
+		return fmt.Errorf("trader %s is not running", traderID)
+	}
+
+	engine.CancelTradingPause()
+	return nil
+}
+
+// GetPauseStatus returns the pause status for a specific trader
+func (m *EngineManager) GetPauseStatus(traderID string) map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	engine, exists := m.engines[traderID]
+	if !exists {
+		return map[string]interface{}{
+			"is_paused": false,
+			"error":     "Trader not running",
+		}
+	}
+
+	return engine.GetPauseStatus()
+}

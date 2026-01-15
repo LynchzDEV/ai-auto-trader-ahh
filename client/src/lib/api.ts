@@ -62,6 +62,8 @@ export const updateTrader = (id: string, data: any) => api.put(`/traders/${id}`,
 export const deleteTrader = (id: string) => api.delete(`/traders/${id}`);
 export const startTrader = (id: string) => api.post(`/traders/${id}/start`);
 export const stopTrader = (id: string) => api.post(`/traders/${id}/stop`);
+export const resumeTrading = (id: string) => api.post(`/traders/${id}/resume`);
+export const getPauseStatus = (id: string) => api.get(`/traders/${id}/pause-status`);
 
 // Data API
 export const getStatus = (traderId: string) => api.get(`/status?trader_id=${traderId}`);

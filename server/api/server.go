@@ -605,6 +605,26 @@ func (s *Server) handleTrader(w http.ResponseWriter, r *http.Request) {
 			s.traderStore.UpdateStatus(id, "stopped")
 			s.jsonResponse(w, map[string]string{"status": "stopped"})
 
+		case "resume":
+			// Cancel trading pause and resume trading
+			if err := s.engineManager.CancelTradingPause(id); err != nil {
+				s.errorResponse(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.jsonResponse(w, map[string]string{"status": "resumed"})
+
+		default:
+			s.errorResponse(w, http.StatusBadRequest, "Unknown action")
+		}
+		return
+	}
+
+	// Handle GET actions (pause-status)
+	if action != "" && r.Method == "GET" {
+		switch action {
+		case "pause-status":
+			status := s.engineManager.GetPauseStatus(id)
+			s.jsonResponse(w, status)
 		default:
 			s.errorResponse(w, http.StatusBadRequest, "Unknown action")
 		}

@@ -7,6 +7,8 @@ import {
   getAccount,
   startTrader,
   stopTrader,
+  resumeTrading,
+  getPauseStatus,
 } from "../lib/api";
 import type { Trader, Position } from "../types";
 import {
@@ -20,6 +22,7 @@ import {
   DollarSign,
   Target,
   Zap,
+  Pause,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -43,6 +46,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState<any>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [pauseStatus, setPauseStatus] = useState<{ is_paused: boolean; pause_until?: string; remaining_seconds?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { alert, AlertDialog } = useAlert();
@@ -92,14 +96,16 @@ export default function Dashboard() {
     if (!selectedTrader) return;
     setRefreshing(true);
     try {
-      const [statusRes, positionsRes, accountRes] = await Promise.all([
+      const [statusRes, positionsRes, accountRes, pauseRes] = await Promise.all([
         getStatus(selectedTrader),
         getPositions(selectedTrader),
         getAccount(selectedTrader).catch(() => ({ data: null })),
+        getPauseStatus(selectedTrader).catch(() => ({ data: null })),
       ]);
       setStatus(statusRes.data);
       setPositions(positionsRes.data.positions || []);
       setAccount(accountRes.data);
+      setPauseStatus(pauseRes.data);
     } catch (err) {
       console.error("Failed to load trader data:", err);
     } finally {
@@ -128,6 +134,25 @@ export default function Dashboard() {
       loadTraderData();
     } catch (err) {
       console.error("Failed to stop trader:", err);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!selectedTrader) return;
+    try {
+      await resumeTrading(selectedTrader);
+      loadTraderData();
+      alert({
+        title: "Trading Resumed",
+        description: "Trading pause has been cancelled. Trading will resume on the next cycle.",
+        variant: "success",
+      });
+    } catch (err: any) {
+      alert({
+        title: "Error",
+        description: err.response?.data?.error || "Failed to resume trading",
+        variant: "danger",
+      });
     }
   };
 
@@ -172,9 +197,9 @@ export default function Dashboard() {
   const totalPnLPercent =
     totalNotional > 0
       ? positions.reduce((sum, p) => {
-          const notional = Math.abs(p.amount * p.entry_price);
-          return sum + p.pnl_percent * notional;
-        }, 0) / totalNotional
+        const notional = Math.abs(p.amount * p.entry_price);
+        return sum + p.pnl_percent * notional;
+      }, 0) / totalNotional
       : 0;
 
   return (
@@ -197,7 +222,28 @@ export default function Dashboard() {
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-3"
         >
-          {selectedTrader && status?.running && (
+          {/* Pause Status Alert */}
+          {selectedTrader && pauseStatus?.is_paused && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-2 bg-yellow-500/20 border border-yellow-500/40 rounded-lg px-3 py-1.5"
+            >
+              <Pause className="w-4 h-4 text-yellow-400" />
+              <span className="text-sm text-yellow-400 font-medium">
+                Paused ({Math.ceil((pauseStatus.remaining_seconds || 0) / 60)}m)
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-xs border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/20"
+                onClick={handleResume}
+              >
+                Resume
+              </Button>
+            </motion.div>
+          )}
+          {selectedTrader && status?.running && !pauseStatus?.is_paused && (
             <GlowBadge variant="success" glow pulse dot>
               Live Trading
             </GlowBadge>
@@ -210,9 +256,8 @@ export default function Dashboard() {
             className="glass"
           >
             <RefreshCw
-              className={`h-4 w-4 transition-opacity ${
-                refreshing ? "opacity-50" : ""
-              }`}
+              className={`h-4 w-4 transition-opacity ${refreshing ? "opacity-50" : ""
+                }`}
             />
           </Button>
         </motion.div>
@@ -288,11 +333,10 @@ export default function Dashboard() {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedTrader(trader.id)}
-                      className={`group cursor-pointer p-4 rounded-xl transition-all duration-200 ${
-                        selectedTrader === trader.id
-                          ? "bg-primary/20 border border-primary/30"
-                          : "bg-white/5 hover:bg-white/10 border border-transparent"
-                      }`}
+                      className={`group cursor-pointer p-4 rounded-xl transition-all duration-200 ${selectedTrader === trader.id
+                        ? "bg-primary/20 border border-primary/30"
+                        : "bg-white/5 hover:bg-white/10 border border-transparent"
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium">{trader.name}</span>
@@ -402,9 +446,8 @@ export default function Dashboard() {
                     align: "right",
                     render: (v, pos) => (
                       <span
-                        className={`font-mono font-medium ${
-                          v >= 0 ? "text-green-400" : "text-red-400"
-                        }`}
+                        className={`font-mono font-medium ${v >= 0 ? "text-green-400" : "text-red-400"
+                          }`}
                       >
                         ${v.toFixed(2)} ({pos.pnl_percent >= 0 ? "+" : ""}
                         {pos.pnl_percent.toFixed(2)}%)
@@ -520,8 +563,8 @@ export default function Dashboard() {
                             dec.action === "BUY"
                               ? "rgba(34, 197, 94, 0.1)"
                               : dec.action === "SELL"
-                              ? "rgba(239, 68, 68, 0.1)"
-                              : "rgba(59, 130, 246, 0.1)"
+                                ? "rgba(239, 68, 68, 0.1)"
+                                : "rgba(59, 130, 246, 0.1)"
                           }
                         >
                           <div>
@@ -536,10 +579,10 @@ export default function Dashboard() {
                                   dec.action === "BUY"
                                     ? "success"
                                     : dec.action === "SELL"
-                                    ? "danger"
-                                    : dec.action === "CLOSE"
-                                    ? "warning"
-                                    : "secondary"
+                                      ? "danger"
+                                      : dec.action === "CLOSE"
+                                        ? "warning"
+                                        : "secondary"
                                 }
                                 glow
                                 className="font-bold"
@@ -554,13 +597,12 @@ export default function Dashboard() {
                                   Confidence
                                 </div>
                                 <div
-                                  className={`font-mono font-medium ${
-                                    dec.confidence >= 70
-                                      ? "text-green-400"
-                                      : dec.confidence >= 40
+                                  className={`font-mono font-medium ${dec.confidence >= 70
+                                    ? "text-green-400"
+                                    : dec.confidence >= 40
                                       ? "text-yellow-400"
                                       : "text-red-400"
-                                  }`}
+                                    }`}
                                 >
                                   {dec.confidence}%
                                 </div>
