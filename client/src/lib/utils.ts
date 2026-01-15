@@ -14,12 +14,10 @@ export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false;
   
   // Check for touch capability
-  const hasTouchScreen = 'ontouchstart' in window || 
-                         navigator.maxTouchPoints > 0 || 
-                         (navigator as any).msMaxTouchPoints > 0;
+  const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   
-  // Check for small screen size (mobile breakpoint)
-  const isSmallScreen = window.matchMedia('(max-width: 768px)').matches;
+  // Check for small screen size (mobile breakpoint: 768px)
+  const isSmallScreen = window.innerWidth <= 768;
   
   // Consider it mobile if it has touch AND small screen
   // This prevents tablets with keyboards from being treated as mobile
