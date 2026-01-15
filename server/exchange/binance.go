@@ -638,13 +638,75 @@ func (c *BinanceClient) ClosePosition(ctx context.Context, symbol string, positi
 	return c.PlaceOrder(ctx, symbol, side, "MARKET", quantity, 0, true)
 }
 
-// CancelAllOrders cancels all open orders for a symbol
+// CancelAllOrders cancels all open orders for a symbol (both regular and algo orders)
 func (c *BinanceClient) CancelAllOrders(ctx context.Context, symbol string) error {
+	// 1. Cancel regular orders
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	_, err := c.doRequest(ctx, "DELETE", "/fapi/v1/allOpenOrders", params, true)
+	if err != nil {
+		log.Printf("[Binance] Warning: failed to cancel regular orders for %s: %v", symbol, err)
+	}
+
+	// 2. Cancel algo orders (SL/TP placed via /fapi/v1/algoOrder)
+	if err := c.CancelAllAlgoOrders(ctx, symbol); err != nil {
+		log.Printf("[Binance] Warning: failed to cancel algo orders for %s: %v", symbol, err)
+	}
+
+	return nil
+}
+
+// GetOpenAlgoOrders returns all open algo orders (SL/TP) for a symbol
+func (c *BinanceClient) GetOpenAlgoOrders(ctx context.Context, symbol string) ([]map[string]interface{}, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
 
-	_, err := c.doRequest(ctx, "DELETE", "/fapi/v1/allOpenOrders", params, true)
-	return err
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/openAlgoOrders", params, true)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		AlgoOrders []map[string]interface{} `json:"algoOrders"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		// Fallback: try parsing as direct array
+		var orders []map[string]interface{}
+		if err := json.Unmarshal(body, &orders); err != nil {
+			return nil, fmt.Errorf("failed to parse algo orders: %w", err)
+		}
+		return orders, nil
+	}
+
+	return result.AlgoOrders, nil
+}
+
+// CancelAllAlgoOrders cancels all open algo orders (SL/TP) for a symbol
+func (c *BinanceClient) CancelAllAlgoOrders(ctx context.Context, symbol string) error {
+	// Get all open algo orders
+	algoOrders, err := c.GetOpenAlgoOrders(ctx, symbol)
+	if err != nil {
+		return err
+	}
+
+	if len(algoOrders) == 0 {
+		return nil
+	}
+
+	log.Printf("[Binance] Found %d open algo orders for %s, cancelling...", len(algoOrders), symbol)
+
+	// Cancel each algo order
+	for _, order := range algoOrders {
+		algoID, ok := order["algoId"].(float64)
+		if !ok {
+			continue
+		}
+		if err := c.CancelAlgoOrder(ctx, symbol, int64(algoID)); err != nil {
+			log.Printf("[Binance] Warning: failed to cancel algo order %d: %v", int64(algoID), err)
+		}
+	}
+
+	return nil
 }
 
 // PlaceStopLoss places a stop-loss order (STOP_MARKET) using Algo Order API
