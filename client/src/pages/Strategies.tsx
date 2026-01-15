@@ -906,6 +906,8 @@ export default function Strategies() {
                                 config: {
                                   ...editingStrategy.config,
                                   smart_find_use_oi: e.target.checked,
+                                  // UX Match: If enabling OI mode, user likely wants to enable the auto-finder too
+                                  smart_find_auto_refresh: e.target.checked ? true : editingStrategy.config.smart_find_auto_refresh,
                                 },
                               })
                             }
@@ -914,8 +916,9 @@ export default function Strategies() {
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Use Open Interest data (CoinAnk) to find "Smart Money"
-                        movements. Requires COINANK_API_KEY.
+                        Use Open Interest data (CoinAnk) to find "Smart Money" movements.
+                        <strong> Enabling this automatically activates Auto Smart Find.</strong>
+                        Requires COINANK_API_KEY (falls back to Binance scan if missing).
                       </p>
                     </div>
 

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.54.0] - 2026-01-16
+
+### Added
+- **Binance Testnet Market Data Reliability**:
+  - Implemented `doPublicRequest` to automatically route public market data (Open Interest, Long/Short Ratio, Sentiment) to the **Binance Mainnet API**.
+  - This solves the common "insufficient data" errors on Testnet, allowing the bot to use real-world analysis while executing trades safely on Testnet.
+- **Enhanced Smart Find UX & Logic**:
+  - **Auto-Enable**: UI now automatically activates "Auto Smart Find" when "OI-Based Smart Find" is enabled to ensure the scanner actually runs.
+  - **Improved Logging**: Added explicit log messages for Smart Find refreshes and configuration updates to aid production monitoring.
+  - **Fallback Documentation**: Enhanced UI tooltips to explain the "Binance Scan" fallback behavior for users without CoinAnk API keys.
+
 ## [v3.53.0] - 2026-01-16
 
 ### Added

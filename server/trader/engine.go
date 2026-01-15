@@ -339,6 +339,7 @@ func (e *Engine) SetStrategy(strategy *store.Strategy) {
 	// Log important changes
 	newSimpleMode := strategy.Config.SimpleMode
 	newTrailingStop := strategy.Config.RiskControl.EnableTrailingStop
+	newSmartFind := strategy.Config.SmartFindAutoRefresh
 
 	if oldSimpleMode != newSimpleMode {
 		log.Printf("[%s] Strategy updated: SimpleMode changed from %v to %v", e.name, oldSimpleMode, newSimpleMode)
@@ -346,6 +347,8 @@ func (e *Engine) SetStrategy(strategy *store.Strategy) {
 	if oldTrailingStop != newTrailingStop {
 		log.Printf("[%s] Strategy updated: TrailingStop changed from %v to %v", e.name, oldTrailingStop, newTrailingStop)
 	}
+	// Always log Smart Find status on reload to be explicit
+	log.Printf("[%s] Strategy updated: Smart Find Auto-Refresh is now %v", e.name, newSmartFind)
 
 	log.Printf("[%s] Strategy config reloaded successfully", e.name)
 }
