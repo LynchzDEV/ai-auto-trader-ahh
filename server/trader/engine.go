@@ -487,10 +487,11 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 	var sourceDesc string
 
 	// Check if using OI-based discovery
-	useOI := e.strategy != nil && e.strategy.Config.SmartFindUseOI && e.coinank != nil
+	useOI := e.strategy != nil && e.strategy.Config.SmartFindUseOI
+	foundOI := false
 
-	if useOI {
-		// --- OI Discovery Mode ---
+	if useOI && e.coinank != nil {
+		// --- OI Discovery Mode (CoinAnk) ---
 		filter := e.strategy.Config.SmartFindFilter
 		if filter == "" {
 			filter = "volatility"
@@ -513,8 +514,7 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 		}
 
 		if err != nil {
-			log.Printf("[%s] CoinAnk ranking failed, falling back to Binance: %v", e.name, err)
-			useOI = false
+			log.Printf("[%s] CoinAnk ranking failed, trying Binance fallback: %v", e.name, err)
 		} else {
 			for _, item := range items {
 				// Filter avoided symbols
@@ -531,10 +531,105 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 					OpenInterest: item.OpenInterest,
 				})
 			}
+			foundOI = true
 		}
 	}
 
-	if !useOI {
+	if useOI && !foundOI {
+		// --- OI Discovery Mode (Binance Free Fallback) ---
+		sourceDesc = "Top OI Change pairs (Binance Scan)"
+		log.Printf("[%s] Using Binance OI Scan (Free Fallback)", e.name)
+
+		// 1. Get Tickers just to find detailed candidates
+		tickers, err := e.binance.Get24hTicker(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch market data: %w", err)
+		}
+
+		// 2. Filter Top 50 by Liquidity (QuoteVolume) to find relevant OI
+		// We can't scan all 300 symbols efficiently without hitting limits, so we check top liquid ones.
+		var potential []exchange.Ticker24h
+		for _, t := range tickers {
+			if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" {
+				if !e.binance.IsActiveSymbol(t.Symbol) {
+					continue
+				}
+				if avoidSet[t.Symbol] {
+					continue
+				}
+				if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" || t.Symbol == "TUSDUSDT" {
+					continue
+				}
+				if t.QuoteVolume > 1000000 { // >1M volume
+					potential = append(potential, t)
+				}
+			}
+		}
+
+		// Sort by Volume DESC
+		sort.Slice(potential, func(i, j int) bool {
+			return potential[i].QuoteVolume > potential[j].QuoteVolume
+		})
+		// Take top 50
+		if len(potential) > 50 {
+			potential = potential[:50]
+		}
+
+		// 3. Fetch OI Hist for each (Concurrency controlled)
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 5) // Limit concurrency to 5
+
+		for _, p := range potential {
+			wg.Add(1)
+			go func(sym string, priceChange, vol float64) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				// Get 4h OI Change using Binance Hist (Top-tier only)
+				// Weight: 0 (from docs above?) No, usually weighted. Using openInterestHist endpoint.
+				// Requesting 1h period, limit 4 (Last 4 hours)
+				hist, err := e.binance.GetOpenInterestHist(ctx, sym, "1h", 4)
+				if err == nil && len(hist) > 0 {
+					latest := hist[len(hist)-1].SumOpenInterestValue
+					oldest := hist[0].SumOpenInterestValue
+					if oldest > 0 {
+						change := ((latest - oldest) / oldest) * 100
+
+						mu.Lock()
+						candidates = append(candidates, MarketCoin{
+							Symbol:       sym,
+							PriceChange:  priceChange,
+							Volume:       vol,
+							QuoteVolume:  vol,
+							OIChange:     change,
+							OpenInterest: latest,
+						})
+						mu.Unlock()
+					}
+				}
+			}(p.Symbol, p.PriceChange, p.QuoteVolume)
+		}
+		wg.Wait()
+
+		// 4. Sort by OI Change Magnitude (find big moves)
+		sort.Slice(candidates, func(i, j int) bool {
+			valI := candidates[i].OIChange
+			if valI < 0 {
+				valI = -valI
+			}
+			valJ := candidates[j].OIChange
+			if valJ < 0 {
+				valJ = -valJ
+			}
+			return valI > valJ
+		})
+
+		foundOI = true
+	}
+
+	if !useOI && !foundOI {
 		// --- Standard Binance Mode ---
 		sourceDesc = "Top 30 pairs by Volatility (Price Change)"
 		tickers, err := e.binance.Get24hTicker(ctx)
