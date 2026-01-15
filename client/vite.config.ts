@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => {
     siteDescription:
       env.VITE_SITE_DESCRIPTION ||
       "AI-powered cryptocurrency trading platform using OpenRouter and Binance Futures. Automate your trading with multi-AI debate consensus, backtesting, and real-time portfolio management.",
+    socialDescription:
+      env.VITE_SOCIAL_DESCRIPTION ||
+      env.VITE_SITE_DESCRIPTION ||
+      "Automate your crypto trading with AI. Multi-AI debate consensus, backtesting, and real-time portfolio management.",
     twitterHandle: env.VITE_TWITTER_HANDLE || "",
     fbAppId: env.VITE_FB_APP_ID || "",
   };
@@ -33,6 +37,7 @@ export default defineConfig(({ mode }) => {
             .replace(/%VITE_SITE_URL%/g, seoConfig.siteUrl)
             .replace(/%VITE_SITE_NAME%/g, seoConfig.siteName)
             .replace(/%VITE_SITE_DESCRIPTION%/g, seoConfig.siteDescription)
+            .replace(/%VITE_SOCIAL_DESCRIPTION%/g, seoConfig.socialDescription)
             .replace(/%VITE_TWITTER_HANDLE%/g, seoConfig.twitterHandle)
             .replace(/%VITE_FB_APP_ID%/g, seoConfig.fbAppId);
         },
@@ -41,11 +46,6 @@ export default defineConfig(({ mode }) => {
           const outDir = options.dir || "dist";
           const filesToTransform = ["robots.txt", "sitemap.xml", "manifest.json"];
 
-          for (const file of filesToTransform) {
-            const filePath = path.join(outDir, file);
-            if (fs.existsSync(filePath)) {
-              let content = fs.readFileSync(filePath, "utf-8");
-              content = content
           try {
             for (const file of filesToTransform) {
               const filePath = path.join(outDir, file);
