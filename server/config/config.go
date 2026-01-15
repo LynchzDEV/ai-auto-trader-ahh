@@ -23,6 +23,9 @@ type Config struct {
 	MaxPositionPct  float64 // Max % of balance per position
 	TradingInterval int     // Minutes between AI decisions
 
+	// Intel Providers
+	CoinAnkAPIKey string
+
 	// Server
 	APIPort string
 
@@ -44,6 +47,9 @@ func Load() *Config {
 		BinanceAPIKey:    getEnv("BINANCE_API_KEY", ""),
 		BinanceSecretKey: getEnv("BINANCE_SECRET_KEY", ""),
 		BinanceTestnet:   getEnvBool("BINANCE_TESTNET", true),
+
+		// Intel
+		CoinAnkAPIKey: getEnv("COINANK_API_KEY", ""),
 
 		// Trading
 		TradingPairs:    []string{"BTCUSDT", "ETHUSDT"},

@@ -19,6 +19,7 @@ import (
 	"auto-trader-ahh/intel"
 	"auto-trader-ahh/market"
 	"auto-trader-ahh/mcp"
+	"auto-trader-ahh/provider/coinank"
 	"auto-trader-ahh/store"
 )
 
@@ -36,6 +37,7 @@ type Engine struct {
 	aiClient     *ai.Client          // Legacy AI client (for backward compatibility)
 	binance      *exchange.BinanceClient
 	dataProvider *market.DataProvider
+	coinank      *coinank.Client
 	notifier     Notifier
 
 	// Decision Engine (NOFX-style XML parsing with CoT)
@@ -172,6 +174,15 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 	}
 	intelProvider := intel.NewProvider(intelCfg)
 
+	// Initialize CoinAnk client
+	var coinAnkClient *coinank.Client
+	if apiKey := cfg.CoinAnkAPIKey; apiKey != "" {
+		coinAnkClient = coinank.NewClient(apiKey)
+		log.Printf("[CoinAnk] Client initialized with API key")
+	} else {
+		log.Printf("[CoinAnk] Warning: COINANK_API_KEY not set. OI-Ranking features will be disabled.")
+	}
+
 	return &Engine{
 		id:             id,
 		name:           name,
@@ -181,6 +192,7 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		aiClient:       aiClient,
 		binance:        binance,
 		dataProvider:   dataProvider,
+		coinank:        coinAnkClient,
 		mcpClient:      mcpClient,
 		decisionEngine: decisionEngine,
 		startTime:      time.Now(),
@@ -442,26 +454,6 @@ func (e *Engine) maybeRefreshSmartFind(ctx context.Context) {
 
 // runSmartFind finds risky symbols using AI analysis
 func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, error) {
-	// 1. Get 24h tickers from Binance
-	tickers, err := e.binance.Get24hTicker(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch market data: %w", err)
-	}
-
-	// 2. Get account info for balance context
-	account, err := e.binance.GetAccountInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch account info: %w", err)
-	}
-
-	// 3. Filter and prepare candidates
-	type MarketCoin struct {
-		Symbol      string
-		PriceChange float64
-		Volume      float64
-		QuoteVolume float64
-	}
-
 	// Prepare auto-avoid list
 	avoidSet := make(map[string]bool)
 	if e.strategy != nil && e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
@@ -469,96 +461,163 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 		if minLoss <= 0 {
 			minLoss = 5.0
 		}
-
-		worst, err := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
-		if err == nil {
-			minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
-			if minTrades <= 0 {
-				minTrades = 2
-			}
-			for _, w := range worst {
-				if w.TradeCount >= minTrades {
-					avoidSet[w.Symbol] = true
-					log.Printf("[%s] SmartFind avoiding %s (loss > $%.2f)", e.name, w.Symbol, minLoss)
-				}
+		worst, _ := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
+		minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
+		if minTrades <= 0 {
+			minTrades = 2
+		}
+		for _, w := range worst {
+			if w.TradeCount >= minTrades {
+				avoidSet[w.Symbol] = true
+				log.Printf("[%s] SmartFind avoiding %s (loss > $%.2f)", e.name, w.Symbol, minLoss)
 			}
 		}
 	}
 
+	type MarketCoin struct {
+		Symbol       string
+		PriceChange  float64
+		Volume       float64
+		QuoteVolume  float64
+		OIChange     float64 // Smart Find OI feature
+		OpenInterest float64
+	}
+
 	var candidates []MarketCoin
-	for _, t := range tickers {
-		// Basic filter: USDT pairs, reasonable volume
-		if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" {
-			// Ensure symbol is actively trading (Futures)
-			if !e.binance.IsActiveSymbol(t.Symbol) {
-				continue
-			}
+	var sourceDesc string
 
-			// AUTO-AVOID: Skip known losers
-			if avoidSet[t.Symbol] {
-				continue
-			}
+	// Check if using OI-based discovery
+	useOI := e.strategy != nil && e.strategy.Config.SmartFindUseOI && e.coinank != nil
 
-			// Skip stables
-			if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" || t.Symbol == "TUSDUSDT" || t.Symbol == "USDPUSDT" {
-				continue
-			}
+	if useOI {
+		// --- OI Discovery Mode ---
+		filter := e.strategy.Config.SmartFindFilter
+		if filter == "" {
+			filter = "volatility"
+		}
+		sourceDesc = fmt.Sprintf("Top 30 pairs by %s", filter)
 
-			// Only consider decent volume (>500k)
-			if t.QuoteVolume > 500000 {
+		limit := 40
+		var items []coinank.OIRankItem
+		var err error
+
+		switch filter {
+		case "volume":
+			items, err = e.coinank.VolumeRank(ctx, limit)
+		case "price", "volatility":
+			items, err = e.coinank.PriceRank(ctx, limit)
+		case "oi_change":
+			items, err = e.coinank.GetOIRanking(ctx, limit)
+		default:
+			items, err = e.coinank.PriceRank(ctx, limit)
+		}
+
+		if err != nil {
+			log.Printf("[%s] CoinAnk ranking failed, falling back to Binance: %v", e.name, err)
+			useOI = false
+		} else {
+			for _, item := range items {
+				// Filter avoided symbols
+				if avoidSet[item.Symbol] {
+					continue
+				}
+
 				candidates = append(candidates, MarketCoin{
-					Symbol:      t.Symbol,
-					PriceChange: t.PriceChange,
-					Volume:      t.Volume,
-					QuoteVolume: t.QuoteVolume,
+					Symbol:       item.Symbol,
+					PriceChange:  item.PriceChange24H,
+					Volume:       item.Volume24H, // Note: response turnover24h is QuoteVolume
+					QuoteVolume:  item.Volume24H,
+					OIChange:     item.OIChange24H,
+					OpenInterest: item.OpenInterest,
 				})
 			}
 		}
 	}
 
-	// 4. Build prompt - Always sort by volatility for Smart Find (find movers, not just safe coins)
-	// Turbo Mode only affects the risk tolerance in the prompt
-	var prompt string
-	isTurbo := e.strategy.Config.TurboMode
+	if !useOI {
+		// --- Standard Binance Mode ---
+		sourceDesc = "Top 30 pairs by Volatility (Price Change)"
+		tickers, err := e.binance.Get24hTicker(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch market data: %w", err)
+		}
 
-	// Smart Find always prioritizes volatility - we want coins that are MOVING
-	sort.Slice(candidates, func(i, j int) bool {
-		absI := candidates[i].PriceChange
-		if absI < 0 {
-			absI = -absI
+		for _, t := range tickers {
+			// Basic filter: USDT pairs, reasonable volume
+			if len(t.Symbol) > 4 && t.Symbol[len(t.Symbol)-4:] == "USDT" {
+				if !e.binance.IsActiveSymbol(t.Symbol) {
+					continue
+				}
+				if avoidSet[t.Symbol] {
+					continue
+				}
+				if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" || t.Symbol == "TUSDUSDT" || t.Symbol == "USDPUSDT" {
+					continue
+				}
+				if t.QuoteVolume > 500000 {
+					candidates = append(candidates, MarketCoin{
+						Symbol:      t.Symbol,
+						PriceChange: t.PriceChange,
+						Volume:      t.Volume,
+						QuoteVolume: t.QuoteVolume,
+					})
+				}
+			}
 		}
-		absJ := candidates[j].PriceChange
-		if absJ < 0 {
-			absJ = -absJ
-		}
-		return absI > absJ
-	})
+
+		// Sort by Volatility
+		sort.Slice(candidates, func(i, j int) bool {
+			absI := candidates[i].PriceChange
+			if absI < 0 {
+				absI = -absI
+			}
+			absJ := candidates[j].PriceChange
+			if absJ < 0 {
+				absJ = -absJ
+			}
+			return absI > absJ
+		})
+	}
+
 	if len(candidates) > 30 {
 		candidates = candidates[:30]
 	}
 
+	// Get account info for balance context
+	account, err := e.binance.GetAccountInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch account info: %w", err)
+	}
+
+	var prompt string
+	isTurbo := e.strategy != nil && e.strategy.Config.TurboMode
+
 	if isTurbo {
-		// TURBO MODE: Aggressive, ignore safety
+		// TURBO MODE
 		prompt = fmt.Sprintf(`You are a HIGH RISK crypto degen trader.
 My current balance: $%.2f
-Objective: Find the %d MOST EXPLOSIVE trading pairs for aggressive scalping. I am willing to take extreme risks (80-90%% loss) for high rewards.
-Criteria: High Volatility, Momentum, Meme Coins, or Breakout candidates. Ignore safety.
+Objective: Find the %d MOST EXPLOSIVE trading pairs for aggressive scalping.
+Criteria: High Volatility, Momentum, Meme Coins. Ignore safety.
 
-Here are the Top 30 pairs by Volatility (Price Change):
-`, account.TotalWalletBalance, targetCount)
+Here are the %s:
+`, account.TotalWalletBalance, targetCount, sourceDesc)
 	} else {
-		// STANDARD MODE: Still find volatile coins, but with some risk awareness
+		// STANDARD MODE
 		prompt = fmt.Sprintf(`You are a crypto trading expert.
 My current balance: $%.2f
 Objective: Find the %d best trading pairs with good momentum for scalping/day-trading.
-Criteria: Look for coins with significant price movement, clear trends, and reasonable volume. Avoid extremely low liquidity coins.
+Criteria: Significant price movement, clear trends, and reasonable volume.
 
-Here are the Top 30 pairs by Volatility (Price Change):
-`, account.TotalWalletBalance, targetCount)
+Here are the %s:
+`, account.TotalWalletBalance, targetCount, sourceDesc)
 	}
 
 	for _, c := range candidates {
-		prompt += fmt.Sprintf("- %s: Vol=$%.0fM, Chg=%.2f%%\n", c.Symbol, c.QuoteVolume/1000000, c.PriceChange)
+		if c.OIChange != 0 {
+			prompt += fmt.Sprintf("- %s: Vol=$%.0fM, Chg=%.2f%%, OI Chg=%.2f%%\n", c.Symbol, c.QuoteVolume/1000000, c.PriceChange, c.OIChange)
+		} else {
+			prompt += fmt.Sprintf("- %s: Vol=$%.0fM, Chg=%.2f%%\n", c.Symbol, c.QuoteVolume/1000000, c.PriceChange)
+		}
 	}
 
 	prompt += fmt.Sprintf(`

@@ -120,17 +120,17 @@ Provide bilingual explanations of all metrics to the AI with formulas and common
 ---
 
 ### 5. OI-Based Smart Find
-**Impact:** 🔥🔥 | **Effort:** Medium | **Status:** 🔲 Not Started
+**Impact:** 🔥🔥 | **Effort:** Medium | **Status:** ✅ Completed
 
 **Description:**  
 Use OI ranking data to find coins with significant capital inflows for Smart Find.
 
 **Implementation:**
-- [ ] Add `OiRank()` to CoinAnk client
-- [ ] Add `VolumeRank()` for volume spikes
-- [ ] Add `PriceRank()` for price movers
-- [ ] Create OI-based coin discovery mode
-- [ ] Add UI toggle for OI-based Smart Find
+- [x] Add `OiRank()` to CoinAnk client (implemented as GetOIRanking)
+- [x] Add `VolumeRank()` for volume spikes
+- [x] Add `PriceRank()` for price movers
+- [x] Create OI-based coin discovery mode (runSmartFindOI)
+- [x] Add config for OI-based Smart Find (SmartFindUseOI, SmartFindFilter)
 
 **Reference:** `nofx-modify/provider/coinank/instrument_agg_rank.go`
 

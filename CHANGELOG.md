@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.53.0] - 2026-01-16
+
+### Added
+- **Data Dictionary / Schema System**:
+  - Implemented bilingual (English/Chinese) definitions for all trading metrics (OI, Funding, Liquidation, etc.)
+  - Integrated into AI Prompt to reduce hallucinations and improve understanding of complex metrics
+  - Added "Common Mistakes" section to guide AI away from known pitfalls
+
+- **OI-Based Smart Find**:
+  - New discovery mode using **Open Interest Ranking** (via CoinAnk/Coinglass) to find where Smart Money is flowing
+  - **Volume Rank**: Find high-volume coins among top OI pairs
+  - **Price Rank**: Find most volatile movers among top OI pairs (Breakout detection)
+  - Configurable via `smart_find_filter` ("volatility", "volume", "oi_change")
+
+- **CoinAnk Integration**:
+  - Added `server/provider/coinank` client for aggregated market data
+  - Supports `GetOIRanking`, `VolumeRank`, `PriceRank`
+  - Requires `COINANK_API_KEY` (falls back to Binance Tickers if missing)
+
 ## [v3.52.0] - 2026-01-16
 
 ### Added

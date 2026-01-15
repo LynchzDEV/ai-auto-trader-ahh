@@ -50,8 +50,10 @@ type StrategyConfig struct {
 	TradingMode string `json:"trading_mode"`
 
 	// Smart Find Auto-Refresh (cycles to find new risky symbols periodically)
-	SmartFindAutoRefresh bool `json:"smart_find_auto_refresh"` // Enable auto-refresh of smart find
-	SmartFindRefreshMins int  `json:"smart_find_refresh_mins"` // Interval in minutes (30, 60, 120, etc.)
+	SmartFindAutoRefresh bool   `json:"smart_find_auto_refresh"` // Enable auto-refresh of smart find
+	SmartFindRefreshMins int    `json:"smart_find_refresh_mins"` // Interval in minutes (30, 60, 120, etc.)
+	SmartFindUseOI       bool   `json:"smart_find_use_oi"`       // Use OI Ranking instead of Binance Tickers
+	SmartFindFilter      string `json:"smart_find_filter"`       // "volatility", "volume", "oi_change"
 
 	// Market Intelligence (Fear & Greed, News, CoinGecko data injected into AI prompts)
 	EnableMarketIntel bool `json:"enable_market_intel"` // Enable market intelligence data in AI prompts (default: false)
@@ -311,7 +313,9 @@ func DefaultStrategyConfig() StrategyConfig {
 
 		// Smart Find Auto-Refresh (disabled by default - opt-in)
 		SmartFindAutoRefresh: false,
-		SmartFindRefreshMins: 60, // Default: 1 hour
+		SmartFindRefreshMins: 60,           // Default: 1 hour
+		SmartFindUseOI:       false,        // Default: use Binance
+		SmartFindFilter:      "volatility", // Default: find movers
 
 		// Market Intelligence (disabled by default - can cause noise in AI decisions)
 		EnableMarketIntel: false,
