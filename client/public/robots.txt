@@ -1,0 +1,13 @@
+# robots.txt for this site
+# %VITE_SITE_URL%
+
+User-agent: *
+Allow: /
+
+# Disallow sensitive areas
+Disallow: /api/
+Disallow: /config/
+Disallow: /logs/
+
+# Sitemap location
+Sitemap: %VITE_SITE_URL%/sitemap.xml

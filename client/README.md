@@ -179,3 +179,68 @@ npm run build
 # Output in dist/ folder
 # Serve with any static file server
 ```
+
+## SEO & Multi-Platform Deployment
+
+The app includes full SEO optimization for social sharing (Twitter/X, Facebook, LinkedIn) and mobile platforms (iOS, Android PWA).
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure for your deployment:
+
+```env
+# Required: Your production URL (no trailing slash)
+VITE_SITE_URL=https://trade.lynchz.dev
+
+# Optional: Customize branding
+VITE_SITE_NAME=Passive Income Ahh
+VITE_SITE_DESCRIPTION=AI-powered cryptocurrency trading platform...
+
+# Optional: Social media attribution
+VITE_TWITTER_HANDLE=@YourHandle
+VITE_FB_APP_ID=your-fb-app-id
+```
+
+### What's Included
+
+| Feature | Files |
+|---------|-------|
+| **Open Graph** (Facebook, LinkedIn) | `index.html` |
+| **Twitter/X Cards** | `index.html` |
+| **iOS Web App** | `index.html`, touch icons |
+| **Android PWA** | `manifest.json` |
+| **Search Engines** | `robots.txt`, `sitemap.xml` |
+| **Structured Data** | JSON-LD in `index.html` |
+
+### Generated Assets (in `/public`)
+
+- `og-image.png` - Social sharing preview (1200×630)
+- `apple-touch-icon*.png` - iOS home screen icons
+- `icon-*.png` - PWA icons (192, 512)
+- `favicon-*.png` - Browser favicons (16, 32)
+
+### Deployment Checklist
+
+1. **Set your domain** in `client/.env`:
+   ```env
+   VITE_SITE_URL=https://your-domain.com
+   ```
+
+2. **Build the app**:
+   ```bash
+   npm run build
+   ```
+
+3. **Verify SEO files** in `dist/`:
+   - Check `robots.txt` has correct sitemap URL
+   - Check `sitemap.xml` has correct domain
+   - Check `index.html` meta tags
+
+4. **Deploy** the `dist/` folder to your server
+
+### Testing Social Sharing
+
+After deploying, test your meta tags:
+- [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/)
+- [Twitter Card Validator](https://cards-dev.twitter.com/validator)
+- [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/)
