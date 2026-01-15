@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.52.0] - 2026-01-16
+
+### Added
+- **Open Interest (OI) Analysis**: Integrated Coinglass API for real money flow analysis, revealing whether trends are backed by new capital or position exits:
+  - **OI + Price Interpretation**: 
+    - OI Up + Price Up = Strong bullish (new longs opening)
+    - OI Up + Price Down = Strong bearish (new shorts opening)
+    - OI Down + Price Up = Shorts covering (potential reversal)
+    - OI Down + Price Down = Longs capitulating (potential reversal)
+  - **Long/Short Ratio Tracking**: Crowding detection warns when >70% of traders are on one side
+  - **OI-based Entry Safety Checks**: 
+    - Blocks LONG entries during "shorts covering" pattern (OI down >2%)
+    - Blocks SHORT entries during "longs capitulating" pattern (OI down >2%)
+    - Blocks entries when positioning is extremely crowded (>75%)
+  - **AI Context Enhancement**: OI analysis with trading guidance included in AI prompts
+
+### Technical
+- New `provider/coinank/` package with Coinglass API client
+- Added OI fields to `MarketData` struct: OIValue, OIChange1H/4H/24H, OISignal, LongRatio, ShortRatio
+- Enable with environment variable: `COINGLASS_API_KEY`
+
 ## [v3.51.0] - 2026-01-16
 
 ### Added
