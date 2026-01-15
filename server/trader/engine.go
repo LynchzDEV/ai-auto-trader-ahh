@@ -172,9 +172,6 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 	}
 	intelProvider := intel.NewProvider(intelCfg)
 
-	// OI Analysis uses Binance's FREE API endpoints - no additional API key needed!
-	log.Printf("[OI] Open Interest analysis enabled (using free Binance API)")
-
 	return &Engine{
 		id:             id,
 		name:           name,
@@ -1147,17 +1144,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	// Add Global Safety Rules (Always Active)
-	formattedData += "\n--- CRITICAL ENTRY RULES (CODE-ENFORCED) ---\n"
-	formattedData += "The following rules are ENFORCED by the backend. Trades violating these will be BLOCKED:\n\n"
-	formattedData += "1. EMA SPREAD GATE: EMA spread must be >= 0.6% for any new entry. Weak/choppy trends are rejected.\n"
-	formattedData += "2. NO COUNTER-TREND: For LONG, price must be ABOVE EMA9. For SHORT, price must be BELOW EMA9.\n"
-	formattedData += "3. MOMENTUM EXHAUSTION: If price is extended >1% from EMA9 with opposite MACD direction = BLOCKED.\n"
-	formattedData += "4. WICK REJECTION: If 3+ of last 5 candles show rejection wicks (sellers at highs/buyers at lows) = BLOCKED.\n"
-	formattedData += "5. VOLUME CONFIRMATION: If current volume < 60% of 5-candle average = weak move, BLOCKED.\n"
-	formattedData += "6. RESISTANCE/SUPPORT: If price within 0.5% of 40-candle high (for longs) or low (for shorts) = BLOCKED.\n"
-	formattedData += "7. RSI EXTREMES: LONG blocked if RSI > 75 (overbought). SHORT blocked if RSI < 25 (oversold).\n"
-	formattedData += "8. MULTI-TF CONFIRMATION: Higher timeframe must confirm trend, price action, AND momentum direction.\n\n"
-	formattedData += "⚠️ Check the 'ENTRY QUALITY CHECK' section above for specific warnings about current conditions.\n"
+	formattedData += "\n--- CRITICAL ENTRY RULES ---\n"
+	formattedData += "1. DO NOT FOMO: If price is at 'Recent High' or 'Resistance', YOU MUST WAIT for a breakout + retest.\n"
+	formattedData += "2. NO WICK ENTRIES: If the last candle has a long upper wick (rejection), DO NOT BUY.\n"
+	formattedData += "3. PULLBACKS ONLY: Prefer entering on pullbacks to EMA, not when extended far above it.\n"
+	formattedData += "4. TREND ALIGNMENT: If Price < EMA9 but EMA9 > EMA21, this is a pullback. Verify support before buying.\n"
 
 	// Add 24h trading history for this symbol (with reasons and P&L)
 	// This helps AI learn from recent trades and avoid repeating mistakes
@@ -1307,30 +1298,24 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					// Check if higher timeframe agrees with trade direction
 					htfBullish := htfData.EMA9 > htfData.EMA21
 
-					// ENHANCED CHECK 1: Ensure Price is also respecting the trend
+					// ENHANCED CHECK: Ensure Price is also respecting the trend
+					// If buying, price should be above 15m EMA21 (not crashing through it)
+					// If selling, price should be below 15m EMA21 (not pumping through it)
 					priceRespectsTrend := false
 					if htfBullish {
+						// Bullish trend: Price > EMA21
 						priceRespectsTrend = htfData.CurrentPrice >= htfData.EMA21
 					} else {
+						// Bearish trend: Price < EMA21
 						priceRespectsTrend = htfData.CurrentPrice <= htfData.EMA21
-					}
-
-					// ENHANCED CHECK 2: Verify momentum direction (MACD histogram)
-					htfMomentumBullish := htfData.MACDHist > 0
-
-					// ENHANCED CHECK 3: Verify EMA spread strength on higher TF
-					htfEmaSpread := 0.0
-					if htfData.EMA21 > 0 {
-						htfEmaSpread = ((htfData.EMA9 - htfData.EMA21) / htfData.EMA21) * 100
-					}
-					htfAbsSpread := htfEmaSpread
-					if htfAbsSpread < 0 {
-						htfAbsSpread = -htfAbsSpread
 					}
 
 					wantLong := decision.Action == "BUY"
 
-					// Validation 1: Trend Direction must match (EMA structure)
+					// Validation:
+					// 1. Trend Direction must match (EMA structure)
+					// 2. Price Action must match (Price vs EMA relation)
+
 					isTrendAligned := (wantLong && htfBullish) || (!wantLong && !htfBullish)
 
 					if !isTrendAligned {
@@ -1342,36 +1327,16 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 						return tradeLog
 					}
 
-					// Validation 2: Price Action must match
 					if !priceRespectsTrend {
-						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Price Action Warning. Price countering trend. Price: $%.4f, EMA21: $%.4f",
+						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Price Action Warning. Trend is correct but Price is countering it (Breaking EMA21). Price: $%.4f, EMA21: $%.4f",
 							e.name, symbol, htfData.CurrentPrice, htfData.EMA21)
-						tradeLog.Error = fmt.Sprintf("blocked: %s price action failure", confirmTF)
+						tradeLog.Error = fmt.Sprintf("blocked: %s price action failure (breaking trend support/resistance)", confirmTF)
 						return tradeLog
 					}
 
-					// Validation 3: MACD momentum must support trade direction
-					momentumSupports := (wantLong && htfMomentumBullish) || (!wantLong && !htfMomentumBullish)
-					if !momentumSupports {
-						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Momentum Weakening. Want %s but %s MACD histogram is %.4f (opposite direction)",
-							e.name, symbol, decision.Action, confirmTF, htfData.MACDHist)
-						tradeLog.Error = fmt.Sprintf("blocked: %s momentum weakening (MACD histogram: %.4f)", confirmTF, htfData.MACDHist)
-						return tradeLog
-					}
-
-					// Validation 4: Higher TF must have meaningful trend strength
-					if htfAbsSpread < 0.4 {
-						log.Printf("[%s][%s] ❌ BLOCKED: Multi-TF Weak Trend. %s EMA spread is only %.2f%% (need >= 0.4%%)",
-							e.name, symbol, confirmTF, htfAbsSpread)
-						tradeLog.Error = fmt.Sprintf("blocked: %s has weak trend (EMA spread: %.2f%%)", confirmTF, htfAbsSpread)
-						return tradeLog
-					}
-
-					// All checks passed!
-					log.Printf("[%s][%s] ✅ Multi-TF FULL confirmed: %s trend=%s, MACD=%.4f, EMA spread=%.2f%%",
-						e.name, symbol, confirmTF,
-						map[bool]string{true: "BULLISH", false: "BEARISH"}[htfBullish],
-						htfData.MACDHist, htfEmaSpread)
+					// If we get here, both Trend and Price Action are aligned
+					log.Printf("[%s][%s] ✅ Multi-TF confirmed: %s trend agrees on %s AND Price is respecting EMA21",
+						e.name, symbol, confirmTF, decision.Action)
 				}
 			}
 
@@ -1527,7 +1492,6 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 }
 
 // checkEntrySafety enforces strict rules to prevent bad entries (FOMO at resistance, counter-trend)
-// Enhanced with: momentum exhaustion, wick rejection, volume decline, and EMA spread gate
 func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, marketData *market.MarketData) error {
 	if decision.Action != "BUY" && decision.Action != "SELL" &&
 		decision.Action != "open_long" && decision.Action != "open_short" {

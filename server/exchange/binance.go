@@ -978,6 +978,18 @@ func (c *BinanceClient) GetIncomeHistory(ctx context.Context, symbol, incomeType
 	return income, nil
 }
 
+func parseFloat(v interface{}) float64 {
+	switch val := v.(type) {
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	case float64:
+		return val
+	default:
+		return 0
+	}
+}
+
 // OpenInterestData represents current open interest for a symbol
 type OpenInterestData struct {
 	Symbol       string  `json:"symbol"`
@@ -1269,16 +1281,4 @@ func (c *BinanceClient) GetLongShortAnalysis(ctx context.Context, symbol string)
 	}
 
 	return analysis, nil
-}
-
-func parseFloat(v interface{}) float64 {
-	switch val := v.(type) {
-	case string:
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	case float64:
-		return val
-	default:
-		return 0
-	}
 }
