@@ -951,9 +951,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	// Add Account-Wide Worst Performers Ranking (Context)
+	// We calculate this early to inject CRITICAL WARNINGS at the top
 	worstSymbols, err := e.positionStore.GetWorstSymbols24h(e.id, 0) // Get all losers
+	var criticalContext string
+
 	if err == nil && len(worstSymbols) > 0 {
-		formattedData += "\n--- Account Worst Performers (24h) ---\n"
 		var worstList string
 		isCurrentSymbolWorst := false
 
@@ -971,11 +973,18 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 			}
 		}
 
-		formattedData += worstList
+		// If this is a bad symbol, put it at the VERY TOP of the prompt
 		if isCurrentSymbolWorst {
-			formattedData += fmt.Sprintf("\n⚠️ CRITICAL CONTEXT: This symbol (%s) is one of your WORST performers!\n", symbol)
-			formattedData += "Be EXTREMELY cautious. Do not force trades on losing assets.\n"
+			criticalContext += fmt.Sprintf("\n🚨🚨🚨 CRITICAL WARNING: THIS IS A LOSING SYMBOL (%s) 🚨🚨🚨\n", symbol)
+			criticalContext += "You have consistently LOST money on this symbol in the last 24h.\n"
+			criticalContext += "Account-wide stats show it is one of your WORST performers.\n"
+			criticalContext += "Unless the setup is PERFECT (A+), you should REJECT this trade.\n"
+			criticalContext += "Do not try to 'make back' losses. Protect capital.\n\n"
 		}
+
+		// Append the list to the end of context for reference
+		formattedData += "\n--- Account Worst Performers (24h) ---\n"
+		formattedData += worstList
 	}
 
 	// Add position info if exists
@@ -1002,6 +1011,13 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	if e.strategy != nil && e.strategy.Config.CustomPrompt != "" {
 		formattedData += fmt.Sprintf("\n--- Strategy Rules ---\n%s\n", e.strategy.Config.CustomPrompt)
 	}
+
+	// Add Global Safety Rules (Always Active)
+	formattedData += "\n--- CRITICAL ENTRY RULES ---\n"
+	formattedData += "1. DO NOT FOMO: If price is at 'Recent High' or 'Resistance', YOU MUST WAIT for a breakout + retest.\n"
+	formattedData += "2. NO WICK ENTRIES: If the last candle has a long upper wick (rejection), DO NOT BUY.\n"
+	formattedData += "3. PULLBACKS ONLY: Prefer entering on pullbacks to EMA, not when extended far above it.\n"
+	formattedData += "4. TREND ALIGNMENT: If Price < EMA9 but EMA9 > EMA21, this is a pullback. Verify support before buying.\n"
 
 	// Add 24h trading history for this symbol (with reasons and P&L)
 	// This helps AI learn from recent trades and avoid repeating mistakes
@@ -1067,11 +1083,18 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 
 		formattedData += fmt.Sprintf("  SUMMARY: %d trades, %s total, %.0f%% win rate\n", len(symbolHistory), totalPnLStr, winRate)
 
-		if totalPnL < -5 {
-			formattedData += "  ⚠️ WARNING: This symbol has been LOSING money recently. Consider NOT trading or use tighter SL.\n"
+		if totalPnL < -2.0 { // Tighter threshold for warning
+			msg := fmt.Sprintf("🚨 You are DOWN %s on this symbol today. Be CAREFUL. 🚨\n", totalPnLStr)
+			formattedData += "  ⚠️ " + msg
+			criticalContext += msg // Add to top as well
 		} else if totalPnL > 10 {
 			formattedData += "  ✅ This symbol has been profitable. Current strategy may be working.\n"
 		}
+	}
+
+	// Prepend critical warnings to the very top
+	if criticalContext != "" {
+		formattedData = criticalContext + "\n" + formattedData
 	}
 
 	// Log if reasoning mode is enabled

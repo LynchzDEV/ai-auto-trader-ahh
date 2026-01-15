@@ -161,8 +161,15 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		pctFromRecentLow := ((data.CurrentPrice - recentLow) / recentLow) * 100
 
 		sb.WriteString("--- Recent Range (Last 10 Candles) ---\n")
-		sb.WriteString(fmt.Sprintf("Recent High: $%.2f (current is %.1f%% below)\n", recentHigh, pctFromRecentHigh))
-		sb.WriteString(fmt.Sprintf("Recent Low: $%.2f (current is %.1f%% above)\n", recentLow, pctFromRecentLow))
+		sb.WriteString(fmt.Sprintf("Recent High: $%.2f (current is %.2f%% below)\n", recentHigh, pctFromRecentHigh))
+		if pctFromRecentHigh < 0.2 {
+			sb.WriteString("⚠️ DANGER: Price is AT RESISTANCE (Recent High). Do not FOMO BUY unless breakout is confirmed.\n")
+		}
+
+		sb.WriteString(fmt.Sprintf("Recent Low: $%.2f (current is %.2f%% above)\n", recentLow, pctFromRecentLow))
+		if pctFromRecentLow < 0.2 {
+			sb.WriteString("⚠️ DANGER: Price is AT SUPPORT (Recent Low). Do not FOMO SELL unless breakdown is confirmed.\n")
+		}
 		sb.WriteString("\n")
 	}
 
@@ -207,9 +214,9 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		sb.WriteString(fmt.Sprintf("⚠️ Minimum Profit to Break Even: %.2f%%\n", totalCostPct))
 
 		if fundingPct > 0.03 {
-			sb.WriteString("🔴 HIGH POSITIVE FUNDING: LONG positions pay funding. Consider SHORT bias.\n")
+			sb.WriteString("🔴 HIGH POSITIVE FUNDING: Longs pay fees. High fees = crowded trade. Watch for reversals.\n")
 		} else if fundingPct < -0.03 {
-			sb.WriteString("🟢 HIGH NEGATIVE FUNDING: SHORT positions pay funding. Consider LONG bias.\n")
+			sb.WriteString("🟢 HIGH NEGATIVE FUNDING: Shorts pay fees. Watch for short squeezes.\n")
 		} else {
 			sb.WriteString("🟡 Neutral funding rate.\n")
 		}
@@ -226,23 +233,42 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 	if absEmaSpread < 0 {
 		absEmaSpread = -absEmaSpread
 	}
+
+	// Check Price vs EMA relation (Immediate Trend)
+
 	if data.EMA9 > data.EMA21 {
 		sb.WriteString(fmt.Sprintf("EMA Trend: BULLISH (EMA9 > EMA21 by %.2f%%)\n", emaSpread))
-		if emaSpread > 0.8 {
-			sb.WriteString("📈 Strong bullish trend. Good for LONG.\n")
-		} else if emaSpread > 0.4 {
-			sb.WriteString("📊 Moderate bullish trend. LONG possible with caution.\n")
+
+		// Add Price Action Context
+		if data.CurrentPrice < data.EMA9 {
+			sb.WriteString("⚠️ WARNING: Price is BELOW EMA9. Constructive pullback or starting reversal?\n")
 		} else {
-			sb.WriteString("🚫 VERY WEAK TREND (<0.4%). DO NOT OPEN NEW POSITIONS. Wait for stronger momentum.\n")
+			sb.WriteString("✅ Price is ABOVE EMA9 (Strong Momentum).\n")
+		}
+
+		if emaSpread > 0.8 {
+			sb.WriteString("📈 Strong bullish structure.\n")
+		} else if emaSpread > 0.4 {
+			sb.WriteString("📊 Moderate bullish structure.\n")
+		} else {
+			sb.WriteString("🚫 WEAK/FLAT TREND. Choppy market likely.\n")
 		}
 	} else {
 		sb.WriteString(fmt.Sprintf("EMA Trend: BEARISH (EMA9 < EMA21 by %.2f%%)\n", -emaSpread))
-		if emaSpread < -0.8 {
-			sb.WriteString("📉 Strong bearish trend. Good for SHORT.\n")
-		} else if emaSpread < -0.4 {
-			sb.WriteString("📊 Moderate bearish trend. SHORT possible with caution.\n")
+
+		// Add Price Action Context
+		if data.CurrentPrice > data.EMA9 {
+			sb.WriteString("⚠️ WARNING: Price is ABOVE EMA9. Bearish relief rally or starting reversal?\n")
 		} else {
-			sb.WriteString("🚫 VERY WEAK TREND (<0.4%). DO NOT OPEN NEW POSITIONS. Wait for stronger momentum.\n")
+			sb.WriteString("✅ Price is BELOW EMA9 (Strong Downside Momentum).\n")
+		}
+
+		if emaSpread < -0.8 {
+			sb.WriteString("📉 Strong bearish structure.\n")
+		} else if emaSpread < -0.4 {
+			sb.WriteString("📊 Moderate bearish structure.\n")
+		} else {
+			sb.WriteString("🚫 WEAK/FLAT TREND. Choppy market likely.\n")
 		}
 	}
 
