@@ -19,10 +19,24 @@ All notable changes to this project will be documented in this file.
     - Blocks entries when positioning is extremely crowded (>75%)
   - **AI Context Enhancement**: OI analysis with trading guidance included in AI prompts
 
+- **OI Caching for Rate Limit Protection**:
+  - 1-minute TTL cache per symbol to stay well under Binance's 1000 req/5min limit
+  - Thread-safe cache with `sync.RWMutex`
+  - With 5 symbols at 1-min interval = ~50 req/5min (20x safety margin)
+
+- **Comprehensive OI Test Suite** (`server/exchange/oi_test.go`):
+  - `TestOIAnalysisInterpretation`: 6 test cases for signal interpretation
+  - `TestOIChangeCalculation`: 4 test cases for % change calculation
+  - `TestLongShortRatioInterpretation`: 6 test cases for crowding detection
+  - `TestOIDataStructs`: Structure validation tests
+  - `TestOIEntrySafetyLogic`: 7 test cases for entry blocking logic
+  - `TestOIIntegration`: Live API tests (skipped with `-short` flag)
+
 ### Technical
-- Added OI methods to `exchange/binance.go`: `GetOpenInterest()`, `GetOpenInterestHist()`, `GetOIAnalysis()`, `GetTopTraderLongShortRatio()`
+- Added OI methods to `exchange/binance.go`: `GetOpenInterest()`, `GetOpenInterestHist()`, `GetOIAnalysis()`, `GetTopTraderLongShortRatio()`, `GetLatestLongShortRatio()`
 - Added OI fields to `MarketData` struct: OIValue, OIChange1H/4H/24H, OISignal, LongRatio, ShortRatio
-- Created `provider/coinank/` package (kept for reference, but primary integration uses Binance)
+- Added `oiCacheEntry` struct and cache map to Engine for rate limit protection
+- Created `provider/coinank/` package (kept for reference, primary integration uses Binance)
 
 
 ## [v3.51.0] - 2026-01-16
