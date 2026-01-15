@@ -6,8 +6,8 @@ import fs from "fs";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on mode
-  const env = loadEnv(mode, process.cwd(), "");
+  // Load env file based on mode, relative to the client directory
+  const env = loadEnv(mode, path.resolve(__dirname), "");
 
   // SEO configuration with fallbacks
   const seoConfig = {
