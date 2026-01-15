@@ -130,7 +130,7 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 }
 
 // FormatForAI formats market data as a string for AI analysis
-func (d *DataProvider) FormatForAI(data *MarketData) string {
+func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("=== %s Market Analysis ===\n\n", data.Symbol))
@@ -360,7 +360,7 @@ func (d *DataProvider) FormatForAI(data *MarketData) string {
 			wickPct = ((totalRange - bodySize) / totalRange) * 100
 		}
 		wickWarning := ""
-		if wickPct > 60 {
+		if enableHighWickWarning && wickPct > 60 {
 			wickWarning = " [HIGH WICK ⚠️]"
 		}
 
