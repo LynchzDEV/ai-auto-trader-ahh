@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.55.0] - 2026-01-16
+
+### Added
+- **Configurable Entry Safety Thresholds**:
+  - **No more hardcoded values** - All AI prompt warnings now use strategy config
+  - New settings in UI (Risk Control > Entry Safety Checks):
+    - `Min EMA Spread (%)` - Minimum trend strength (default: 0.3%)
+    - `Min Volume Ratio (%)` - Minimum volume vs average (default: 40%)
+    - `Max Wick Rejections` - Max rejection wicks before blocking (default: 4)
+    - `Resistance/Support Buffer (%)` - Distance from highs/lows (default: 1%)
+  - **Master Toggle**: `Enable Entry Safety Checks` - Turn ON/OFF all entry warnings
+  - When disabled, AI sees NO warnings about weak trends, low volume, etc.
+
+### Fixed
+- **Relaxed AI Prompt Warnings**: Removed aggressive "TREND STRENGTH GATE: TOO WEAK" messages
+- **Consistent Thresholds**: Both AI prompt warnings AND Go code safety checks use same config values
+
 ## [v3.54.0] - 2026-01-16
 
 ### Added
