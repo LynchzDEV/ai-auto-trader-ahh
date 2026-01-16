@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion, useSpring, useTransform, useMotionValue } from 'framer-motion';
-import { cn } from '@/lib/utils';
+import { useEffect, useRef, useState } from "react";
+import { motion, useSpring, useTransform, useMotionValue } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface NumberTickerProps {
   value: number;
-  direction?: 'up' | 'down';
+  direction?: "up" | "down";
   className?: string;
   decimalPlaces?: number;
   prefix?: string;
@@ -16,18 +16,18 @@ interface NumberTickerProps {
 
 export function NumberTicker({
   value,
-  direction = 'up',
+  direction = "up",
   className,
   decimalPlaces = 2,
-  prefix = '',
-  suffix = '',
+  prefix = "",
+  suffix = "",
   delay = 0,
   duration = 1,
   colorize = false,
 }: NumberTickerProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [hasAnimated, setHasAnimated] = useState(false);
-  const motionValue = useMotionValue(direction === 'down' ? value : 0);
+  const motionValue = useMotionValue(direction === "down" ? value : 0);
 
   const springValue = useSpring(motionValue, {
     stiffness: 100,
@@ -41,7 +41,7 @@ export function NumberTicker({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      motionValue.set(direction === 'down' ? 0 : value);
+      motionValue.set(direction === "down" ? 0 : value);
       setHasAnimated(true);
     }, delay * 1000);
 
@@ -55,15 +55,17 @@ export function NumberTicker({
   }, [value, hasAnimated, motionValue]);
 
   const colorClass = colorize
-    ? value >= 0
-      ? 'text-green-500'
-      : 'text-red-500'
-    : '';
+    ? value > 0
+      ? "text-green-500"
+      : value < 0
+      ? "text-red-500"
+      : ""
+    : "";
 
   return (
     <motion.span
       ref={ref}
-      className={cn('tabular-nums font-mono', colorClass, className)}
+      className={cn("tabular-nums font-mono", colorClass, className)}
     >
       {displayValue}
     </motion.span>
@@ -82,8 +84,8 @@ interface StatNumberProps {
 
 export function StatNumber({
   value,
-  prefix = '',
-  suffix = '',
+  prefix = "",
+  suffix = "",
   decimals = 2,
   colorize = false,
   className,
@@ -97,12 +99,14 @@ export function StatNumber({
   }, [value]);
 
   const diff = displayValue - prevValue;
-  const animationClass = diff > 0 ? 'price-up' : diff < 0 ? 'price-down' : '';
+  const animationClass = diff > 0 ? "price-up" : diff < 0 ? "price-down" : "";
   const colorClass = colorize
-    ? displayValue >= 0
-      ? 'text-green-500'
-      : 'text-red-500'
-    : '';
+    ? displayValue > 0
+      ? "text-green-500"
+      : displayValue < 0
+      ? "text-red-500"
+      : ""
+    : "";
 
   return (
     <motion.span
@@ -110,7 +114,7 @@ export function StatNumber({
       initial={{ opacity: 0.5, y: diff > 0 ? 5 : -5 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        'tabular-nums font-mono',
+        "tabular-nums font-mono",
         animationClass,
         colorClass,
         className

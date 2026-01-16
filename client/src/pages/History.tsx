@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   History as HistoryIcon,
   RefreshCw,
@@ -8,18 +8,23 @@ import {
   TrendingUp,
   TrendingDown,
   Filter,
+} from "lucide-react";
+import { getTraders, getDecisions, getTrades } from "../lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-} from 'lucide-react';
-import { getTraders, getDecisions, getTrades } from '../lib/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
-
-import { GlassCard } from '@/components/ui/glass-card';
-import { GlowBadge } from '@/components/ui/glow-badge';
-import { StatCard } from '@/components/ui/stat-card';
-import { MobileCardTable } from '@/components/ui/mobile-card-table';
+import { GlassCard } from "@/components/ui/glass-card";
+import { GlowBadge } from "@/components/ui/glow-badge";
+import { StatCard } from "@/components/ui/stat-card";
+import { MobileCardTable } from "@/components/ui/mobile-card-table";
 
 interface RawDecision {
   id: number;
@@ -57,19 +62,19 @@ interface Trade {
 
 export default function History() {
   const [traders, setTraders] = useState<any[]>([]);
-  const [selectedTrader, setSelectedTrader] = useState<string>('');
+  const [selectedTrader, setSelectedTrader] = useState<string>("");
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [filteredDecisions, setFilteredDecisions] = useState<Decision[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [filteredTrades, setFilteredTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'trades' | 'decisions'>('trades');
+  const [viewMode, setViewMode] = useState<"trades" | "decisions">("trades");
 
   // Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [actionFilter, setActionFilter] = useState<string>('all');
-  const [sortField] = useState<'created_at' | 'symbol' | 'pnl'>('created_at');
-  const [sortDir] = useState<'asc' | 'desc'>('desc');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [actionFilter, setActionFilter] = useState<string>("all");
+  const [sortField] = useState<"created_at" | "symbol" | "pnl">("created_at");
+  const [sortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     loadTraders();
@@ -98,27 +103,31 @@ export default function History() {
         setSelectedTrader(res.data.traders[0].id);
       }
     } catch (err) {
-      console.error('Failed to load traders:', err);
+      console.error("Failed to load traders:", err);
     } finally {
       setLoading(false);
     }
   };
 
   // Check if a decision is an error/failed entry
-  const isErrorDecision = (reasoning: string, action: string, confidence: number): boolean => {
+  const isErrorDecision = (
+    reasoning: string,
+    action: string,
+    confidence: number
+  ): boolean => {
     if (!reasoning) return false;
     const lowerReasoning = reasoning.toLowerCase();
     const errorPatterns = [
-      'failed',
-      'error',
-      'timeout',
-      'context deadline exceeded',
-      'unable to',
-      'could not',
+      "failed",
+      "error",
+      "timeout",
+      "context deadline exceeded",
+      "unable to",
+      "could not",
     ];
     return (
-      errorPatterns.some(pattern => lowerReasoning.includes(pattern)) ||
-      (confidence === 0 && action === 'NONE')
+      errorPatterns.some((pattern) => lowerReasoning.includes(pattern)) ||
+      (confidence === 0 && action === "NONE")
     );
   };
 
@@ -131,10 +140,11 @@ export default function History() {
       const flatDecisions: Decision[] = [];
       for (const raw of rawDecisions) {
         try {
-          const innerDecisions = JSON.parse(raw.decisions || '[]');
+          const innerDecisions = JSON.parse(raw.decisions || "[]");
           for (const dec of innerDecisions) {
-            const reasoning = dec.reasoning || dec.error || 'No reasoning provided';
-            const action = dec.action || 'NONE';
+            const reasoning =
+              dec.reasoning || dec.error || "No reasoning provided";
+            const action = dec.action || "NONE";
             const confidence = dec.confidence || 0;
 
             // Skip error entries - they shouldn't be shown in trade history
@@ -145,7 +155,7 @@ export default function History() {
             flatDecisions.push({
               id: `${raw.id}-${dec.symbol}`,
               trader_id: raw.trader_id,
-              symbol: dec.symbol || 'UNKNOWN',
+              symbol: dec.symbol || "UNKNOWN",
               action: action,
               confidence: confidence,
               reasoning: reasoning,
@@ -160,7 +170,7 @@ export default function History() {
       }
       setDecisions(flatDecisions);
     } catch (err) {
-      console.error('Failed to load decisions:', err);
+      console.error("Failed to load decisions:", err);
     }
   };
 
@@ -169,7 +179,7 @@ export default function History() {
       const res = await getTrades(selectedTrader);
       setTrades(res.data.trades || []);
     } catch (err) {
-      console.error('Failed to load trades:', err);
+      console.error("Failed to load trades:", err);
     }
   };
 
@@ -183,14 +193,14 @@ export default function History() {
     }
 
     // Action filter
-    if (actionFilter !== 'all') {
+    if (actionFilter !== "all") {
       filtered = filtered.filter((t) => {
         const side = t.side.toLowerCase();
         switch (actionFilter) {
-          case 'buy':
-            return side === 'buy';
-          case 'sell':
-            return side === 'sell';
+          case "buy":
+            return side === "buy";
+          case "sell":
+            return side === "sell";
           default:
             return true;
         }
@@ -201,15 +211,15 @@ export default function History() {
     filtered.sort((a, b) => {
       let aVal: any, bVal: any;
       switch (sortField) {
-        case 'created_at':
+        case "created_at":
           aVal = new Date(a.timestamp).getTime();
           bVal = new Date(b.timestamp).getTime();
           break;
-        case 'symbol':
+        case "symbol":
           aVal = a.symbol;
           bVal = b.symbol;
           break;
-        case 'pnl':
+        case "pnl":
           aVal = a.realized_pnl || 0;
           bVal = b.realized_pnl || 0;
           break;
@@ -217,7 +227,7 @@ export default function History() {
           aVal = new Date(a.timestamp).getTime();
           bVal = new Date(b.timestamp).getTime();
       }
-      if (sortDir === 'asc') {
+      if (sortDir === "asc") {
         return aVal > bVal ? 1 : -1;
       }
       return aVal < bVal ? 1 : -1;
@@ -240,18 +250,22 @@ export default function History() {
     }
 
     // Action filter - handle various action name formats
-    if (actionFilter !== 'all') {
+    if (actionFilter !== "all") {
       filtered = filtered.filter((d) => {
         const action = d.action.toLowerCase();
         switch (actionFilter) {
-          case 'buy':
-            return action === 'buy' || action === 'open_long';
-          case 'sell':
-            return action === 'sell' || action === 'open_short';
-          case 'close':
-            return action === 'close' || action === 'close_long' || action === 'close_short';
-          case 'hold':
-            return action === 'hold' || action === 'wait';
+          case "buy":
+            return action === "buy" || action === "open_long";
+          case "sell":
+            return action === "sell" || action === "open_short";
+          case "close":
+            return (
+              action === "close" ||
+              action === "close_long" ||
+              action === "close_short"
+            );
+          case "hold":
+            return action === "hold" || action === "wait";
           default:
             return action === actionFilter;
         }
@@ -262,15 +276,15 @@ export default function History() {
     filtered.sort((a, b) => {
       let aVal: any, bVal: any;
       switch (sortField) {
-        case 'created_at':
+        case "created_at":
           aVal = new Date(a.created_at).getTime();
           bVal = new Date(b.created_at).getTime();
           break;
-        case 'symbol':
+        case "symbol":
           aVal = a.symbol;
           bVal = b.symbol;
           break;
-        case 'pnl':
+        case "pnl":
           aVal = a.pnl || 0;
           bVal = b.pnl || 0;
           break;
@@ -278,7 +292,7 @@ export default function History() {
           aVal = a.created_at;
           bVal = b.created_at;
       }
-      if (sortDir === 'asc') {
+      if (sortDir === "asc") {
         return aVal > bVal ? 1 : -1;
       }
       return aVal < bVal ? 1 : -1;
@@ -287,35 +301,43 @@ export default function History() {
     setFilteredDecisions(filtered);
   };
 
-
-
   const exportToCsv = () => {
-    const headers = ['Date', 'Symbol', 'Action', 'Confidence', 'PnL', 'Reasoning'];
+    const headers = [
+      "Date",
+      "Symbol",
+      "Action",
+      "Confidence",
+      "PnL",
+      "Reasoning",
+    ];
     const rows = filteredDecisions.map((d) => [
       new Date(d.created_at).toISOString(),
       d.symbol,
       d.action,
       d.confidence,
-      d.pnl || 'N/A',
+      d.pnl || "N/A",
       `"${d.reasoning.replace(/"/g, '""')}"`,
     ]);
 
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `trade-history-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `trade-history-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
   };
 
   // Calculate stats based on view mode
   const tradeStats = {
     total: filteredTrades.length,
-    buys: filteredTrades.filter((t) => t.side === 'BUY').length,
-    sells: filteredTrades.filter((t) => t.side === 'SELL').length,
+    buys: filteredTrades.filter((t) => t.side === "BUY").length,
+    sells: filteredTrades.filter((t) => t.side === "SELL").length,
     totalPnl: filteredTrades.reduce((sum, t) => sum + (t.realized_pnl || 0), 0),
-    totalCommission: filteredTrades.reduce((sum, t) => sum + (t.commission || 0), 0),
+    totalCommission: filteredTrades.reduce(
+      (sum, t) => sum + (t.commission || 0),
+      0
+    ),
   };
 
   const decisionStats = {
@@ -324,7 +346,8 @@ export default function History() {
     totalPnl: filteredDecisions.reduce((sum, d) => sum + (d.pnl || 0), 0),
     avgConfidence:
       filteredDecisions.length > 0
-        ? filteredDecisions.reduce((sum, d) => sum + d.confidence, 0) / filteredDecisions.length
+        ? filteredDecisions.reduce((sum, d) => sum + d.confidence, 0) /
+          filteredDecisions.length
         : 0,
   };
 
@@ -336,23 +359,31 @@ export default function History() {
             <motion.div
               className="absolute inset-0 border-4 border-primary/20 rounded-full"
               animate={{ opacity: [0.3, 0.8, 0.3] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
             />
             <motion.div
               className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center"
               animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
             >
               <div className="w-4 h-4 bg-primary rounded" />
             </motion.div>
           </div>
-          <span className="text-muted-foreground">Loading trade history...</span>
+          <span className="text-muted-foreground">
+            Loading trade history...
+          </span>
         </div>
       </div>
     );
   }
-
-
 
   return (
     <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
@@ -368,7 +399,9 @@ export default function History() {
               <HistoryIcon className="w-6 h-6 lg:w-8 lg:h-8" />
               Trade History
             </h1>
-            <p className="text-sm lg:text-base text-muted-foreground">Complete log of all AI trading decisions</p>
+            <p className="text-sm lg:text-base text-muted-foreground">
+              Complete log of all AI trading decisions
+            </p>
           </div>
 
           <div className="flex gap-2 w-full sm:w-auto">
@@ -384,14 +417,31 @@ export default function History() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={exportToCsv} className="glass hidden sm:flex">
+            <Button
+              variant="outline"
+              onClick={exportToCsv}
+              className="glass hidden sm:flex"
+            >
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button variant="outline" size="icon" onClick={exportToCsv} className="glass sm:hidden">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={exportToCsv}
+              className="glass sm:hidden"
+            >
               <Download className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => { loadDecisions(); loadTrades(); }} className="glass">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                loadDecisions();
+                loadTrades();
+              }}
+              className="glass"
+            >
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
@@ -401,17 +451,17 @@ export default function History() {
       {/* View Mode Tabs */}
       <div className="flex gap-2">
         <Button
-          variant={viewMode === 'trades' ? 'default' : 'outline'}
-          onClick={() => setViewMode('trades')}
-          className={viewMode === 'trades' ? '' : 'glass'}
+          variant={viewMode === "trades" ? "default" : "outline"}
+          onClick={() => setViewMode("trades")}
+          className={viewMode === "trades" ? "" : "glass"}
         >
           <TrendingUp className="h-4 w-4 mr-2" />
           Executed Trades ({trades.length})
         </Button>
         <Button
-          variant={viewMode === 'decisions' ? 'default' : 'outline'}
-          onClick={() => setViewMode('decisions')}
-          className={viewMode === 'decisions' ? '' : 'glass'}
+          variant={viewMode === "decisions" ? "default" : "outline"}
+          onClick={() => setViewMode("decisions")}
+          className={viewMode === "decisions" ? "" : "glass"}
         >
           <HistoryIcon className="h-4 w-4 mr-2" />
           AI Decisions ({decisions.length})
@@ -419,7 +469,7 @@ export default function History() {
       </div>
 
       {/* Stats */}
-      {viewMode === 'trades' ? (
+      {viewMode === "trades" ? (
         <div className="grid gap-4 md:grid-cols-4">
           <StatCard
             title="Total Trades"
@@ -519,61 +569,79 @@ export default function History() {
       <GlassCard className="p-0 overflow-hidden">
         <ScrollArea className="h-[400px] lg:h-[500px]">
           <div className="p-4 lg:p-0">
-            {viewMode === 'trades' ? (
+            {viewMode === "trades" ? (
               <MobileCardTable<Trade>
                 data={filteredTrades}
                 keyExtractor={(trade) => trade.id}
                 columns={[
                   {
-                    key: 'symbol',
-                    label: 'Symbol',
+                    key: "symbol",
+                    label: "Symbol",
                     primary: true,
                     render: (v) => <span className="font-medium">{v}</span>,
                   },
                   {
-                    key: 'side',
-                    label: 'Side',
+                    key: "side",
+                    label: "Side",
                     primary: true,
                     render: (v) => (
-                      <GlowBadge variant={v === 'BUY' ? 'success' : 'danger'}>
+                      <GlowBadge variant={v === "BUY" ? "success" : "danger"}>
                         {v}
                       </GlowBadge>
                     ),
                   },
                   {
-                    key: 'realized_pnl',
-                    label: 'PnL',
+                    key: "realized_pnl",
+                    label: "PnL",
                     primary: true,
-                    align: 'right',
+                    align: "right",
                     render: (v) => (
-                      <span className={`font-mono font-medium ${v >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {v !== 0 ? `$${v.toFixed(4)}` : '-'}
+                      <span
+                        className={`font-mono font-medium ${
+                          v > 0
+                            ? "text-green-400"
+                            : v < 0
+                            ? "text-red-400"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {v !== 0 ? `$${v.toFixed(4)}` : "-"}
                       </span>
                     ),
                   },
                   {
-                    key: 'timestamp',
-                    label: 'Date',
+                    key: "timestamp",
+                    label: "Date",
                     primary: true,
-                    render: (v) => <span className="text-xs text-muted-foreground">{new Date(v).toLocaleDateString()}</span>,
+                    render: (v) => (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(v).toLocaleDateString()}
+                      </span>
+                    ),
                   },
                   {
-                    key: 'price',
-                    label: 'Price',
-                    align: 'right',
-                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                    key: "price",
+                    label: "Price",
+                    align: "right",
+                    render: (v) => (
+                      <span className="font-mono">${v.toFixed(2)}</span>
+                    ),
                   },
                   {
-                    key: 'quantity',
-                    label: 'Quantity',
-                    align: 'right',
-                    render: (v) => <span className="font-mono">{v.toFixed(4)}</span>,
+                    key: "quantity",
+                    label: "Quantity",
+                    align: "right",
+                    render: (v) => (
+                      <span className="font-mono">{v.toFixed(4)}</span>
+                    ),
                   },
                   {
-                    key: 'quote_qty',
-                    label: 'Value',
-                    align: 'right',
-                    render: (v) => <span className="font-mono">${v.toFixed(2)}</span>,
+                    key: "quote_qty",
+                    label: "Value",
+                    align: "right",
+                    render: (v) => (
+                      <span className="font-mono">${v.toFixed(2)}</span>
+                    ),
                   },
                 ]}
                 emptyState={
@@ -589,68 +657,84 @@ export default function History() {
                 keyExtractor={(d) => d.id}
                 columns={[
                   {
-                    key: 'symbol',
-                    label: 'Symbol',
+                    key: "symbol",
+                    label: "Symbol",
                     primary: true,
                     render: (v) => <span className="font-medium">{v}</span>,
                   },
                   {
-                    key: 'action',
-                    label: 'Action',
+                    key: "action",
+                    label: "Action",
                     primary: true,
                     render: (v) => (
                       <GlowBadge
                         variant={
-                          ['buy', 'open_long'].includes(v?.toLowerCase())
-                            ? 'success'
-                            : ['sell', 'open_short'].includes(v?.toLowerCase())
-                              ? 'danger'
-                              : ['close', 'close_long', 'close_short'].includes(v?.toLowerCase())
-                                ? 'warning'
-                                : 'secondary'
+                          ["buy", "open_long"].includes(v?.toLowerCase())
+                            ? "success"
+                            : ["sell", "open_short"].includes(v?.toLowerCase())
+                            ? "danger"
+                            : ["close", "close_long", "close_short"].includes(
+                                v?.toLowerCase()
+                              )
+                            ? "warning"
+                            : "secondary"
                         }
                       >
-                        {v?.toUpperCase() || 'N/A'}
+                        {v?.toUpperCase() || "N/A"}
                       </GlowBadge>
                     ),
                   },
                   {
-                    key: 'pnl',
-                    label: 'PnL',
+                    key: "pnl",
+                    label: "PnL",
                     primary: true,
-                    align: 'right',
+                    align: "right",
                     render: (v) => (
-                      <span className={`font-mono font-medium ${(v || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {v !== undefined ? `$${v.toFixed(2)}` : '-'}
+                      <span
+                        className={`font-mono font-medium ${
+                          (v || 0) > 0
+                            ? "text-green-400"
+                            : (v || 0) < 0
+                            ? "text-red-400"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {v !== undefined ? `$${v.toFixed(2)}` : "-"}
                       </span>
                     ),
                   },
                   {
-                    key: 'created_at',
-                    label: 'Date',
+                    key: "created_at",
+                    label: "Date",
                     primary: true,
-                    render: (v) => <span className="text-xs text-muted-foreground">{new Date(v).toLocaleDateString()}</span>,
+                    render: (v) => (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(v).toLocaleDateString()}
+                      </span>
+                    ),
                   },
                   {
-                    key: 'confidence',
-                    label: 'Confidence',
-                    align: 'right',
+                    key: "confidence",
+                    label: "Confidence",
+                    align: "right",
                     render: (v) => <span className="font-mono">{v}%</span>,
                   },
                   {
-                    key: 'executed',
-                    label: 'Status',
+                    key: "executed",
+                    label: "Status",
                     render: (v) => (
-                      <GlowBadge variant={v ? 'success' : 'secondary'} dot={v}>
-                        {v ? 'Executed' : 'Pending'}
+                      <GlowBadge variant={v ? "success" : "secondary"} dot={v}>
+                        {v ? "Executed" : "Pending"}
                       </GlowBadge>
                     ),
                   },
                   {
-                    key: 'reasoning',
-                    label: 'Reasoning',
+                    key: "reasoning",
+                    label: "Reasoning",
                     render: (v) => (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{v}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {v}
+                      </p>
                     ),
                   },
                 ]}
