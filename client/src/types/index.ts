@@ -61,6 +61,8 @@ export interface IndicatorConfig {
 export interface RiskControlConfig {
   max_positions: number;
   max_leverage: number;
+  btc_eth_max_leverage: number;
+  altcoin_max_leverage: number;
   max_position_percent: number;
   max_margin_usage: number;
   min_position_usd: number;

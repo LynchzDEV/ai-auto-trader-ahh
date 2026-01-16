@@ -542,7 +542,7 @@ export default function Strategies() {
               editingStrategy &&
               originalStrategy &&
               JSON.stringify(editingStrategy) !==
-                JSON.stringify(originalStrategy)
+              JSON.stringify(originalStrategy)
             ) {
               try {
                 await updateStrategy(editingStrategy.id, {
@@ -1402,17 +1402,17 @@ export default function Strategies() {
                           />
                         </div>
 
+                        {/* BTC/ETH Leverage */}
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <Label>Max Leverage</Label>
+                            <Label>BTC/ETH Leverage</Label>
                             <span className="text-sm font-mono text-primary">
-                              {editingStrategy.config.risk_control.max_leverage}
-                              x
+                              {editingStrategy.config.risk_control.btc_eth_max_leverage ?? 10}x
                             </span>
                           </div>
                           <Slider
                             value={[
-                              editingStrategy.config.risk_control.max_leverage,
+                              editingStrategy.config.risk_control.btc_eth_max_leverage ?? 10,
                             ]}
                             onValueChange={([v]) =>
                               setEditingStrategy({
@@ -1421,13 +1421,44 @@ export default function Strategies() {
                                   ...editingStrategy.config,
                                   risk_control: {
                                     ...editingStrategy.config.risk_control,
-                                    max_leverage: v,
+                                    btc_eth_max_leverage: v,
                                   },
                                 },
                               })
                             }
                             min={1}
                             max={50}
+                            step={1}
+                            className="w-full"
+                          />
+                        </div>
+
+                        {/* Altcoin Leverage */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <Label>Altcoin Leverage</Label>
+                            <span className="text-sm font-mono text-primary">
+                              {editingStrategy.config.risk_control.altcoin_max_leverage ?? 10}x
+                            </span>
+                          </div>
+                          <Slider
+                            value={[
+                              editingStrategy.config.risk_control.altcoin_max_leverage ?? 10,
+                            ]}
+                            onValueChange={([v]) =>
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  risk_control: {
+                                    ...editingStrategy.config.risk_control,
+                                    altcoin_max_leverage: v,
+                                  },
+                                },
+                              })
+                            }
+                            min={1}
+                            max={25}
                             step={1}
                             className="w-full"
                           />

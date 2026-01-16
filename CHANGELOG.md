@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Trust AI Custom TP/SL Toggle**: Fixed UI bug where the toggle was not clickable on the label text - users had to click the tiny checkbox itself. Now the entire toggle area is clickable, matching the UX of other risk control settings.
+- **Settings Persistence**: Fixed bug where "Trust AI Custom TP/SL" setting was not saving/loading correctly due to a property name mismatch between frontend (`trust_ai_for_tpsl`) and backend (`trust_ai_for_tp_sl`).
+
+### Changed
+- **Leverage Configuration UI**:
+  - Replaced single "Max Leverage" slider with **two separate sliders**:
+    - **BTC/ETH Leverage**: Configurable up to **50x**
+    - **Altcoin Leverage**: Configurable up to **25x**
+  - Raised absolute backend safety caps (`ABSOLUTE_MAX_LEVERAGE`) to support these higher limits.
+
 
 ## [v3.55.0] - 2026-01-16
 
