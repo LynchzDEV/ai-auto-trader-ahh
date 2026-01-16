@@ -1804,19 +1804,21 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 	}
 
 	// 5. Volume Decline Detection - Declining volume on trend = weak move
-	if len(marketData.Klines) >= 6 {
-		recentVol := marketData.Klines[len(marketData.Klines)-1].Volume
+	// Note: Compare COMPLETED candles only (index -2), not the forming candle (index -1)
+	if len(marketData.Klines) >= 7 {
+		// Use the last COMPLETED candle (index -2), not the currently forming one
+		recentVol := marketData.Klines[len(marketData.Klines)-2].Volume
 
-		// Calculate average of previous 5 candles
+		// Calculate average of previous 5 COMPLETED candles (indices -7 to -3)
 		var avgVol float64
-		for i := len(marketData.Klines) - 6; i < len(marketData.Klines)-1; i++ {
+		for i := len(marketData.Klines) - 7; i < len(marketData.Klines)-2; i++ {
 			avgVol += marketData.Klines[i].Volume
 		}
 		avgVol /= 5
 
-		// If current volume below threshold of average = weak conviction (configurable)
+		// If recent completed candle volume below threshold of average = weak conviction (configurable)
 		if avgVol > 0 && recentVol < avgVol*minVolumeRatio {
-			return fmt.Errorf("weak volume: current volume %.0f is %.0f%% below average %.0f - weak conviction move",
+			return fmt.Errorf("weak volume: last candle volume %.0f is %.0f%% below average %.0f - weak conviction move",
 				recentVol, (1-(recentVol/avgVol))*100, avgVol)
 		}
 	}
