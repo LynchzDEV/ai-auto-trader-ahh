@@ -337,6 +337,36 @@ func DefaultStrategyConfig() StrategyConfig {
 	}
 }
 
+// applyConfigDefaults fills in default values for new config fields that may be missing
+// from old strategies stored in the database. This prevents Go's zero-value defaults
+// from being used (e.g., bool = false when we want true).
+func applyConfigDefaults(cfg *StrategyConfig) {
+	defaults := DefaultStrategyConfig()
+
+	// Entry Safety Thresholds - new fields that default to true/non-zero
+	// Only apply default if the value is the Go zero-value (unset)
+	if cfg.RiskControl.MinEMASpreadPct == 0 {
+		cfg.RiskControl.MinEMASpreadPct = defaults.RiskControl.MinEMASpreadPct
+	}
+	if cfg.RiskControl.MinVolumeRatioPct == 0 {
+		cfg.RiskControl.MinVolumeRatioPct = defaults.RiskControl.MinVolumeRatioPct
+	}
+	if cfg.RiskControl.MaxWickRejectionCount == 0 {
+		cfg.RiskControl.MaxWickRejectionCount = defaults.RiskControl.MaxWickRejectionCount
+	}
+	if cfg.RiskControl.ResistanceSupportPct == 0 {
+		cfg.RiskControl.ResistanceSupportPct = defaults.RiskControl.ResistanceSupportPct
+	}
+	// For boolean fields, we use a sentinel approach:
+	// If EnableEntrySafetyChecks is false AND all threshold values were zero (unset),
+	// it means this is an old strategy - set the toggle to true
+	// If it was explicitly set to false by the user, the thresholds would be set too
+	if !cfg.RiskControl.EnableEntrySafetyChecks && cfg.RiskControl.MinEMASpreadPct == defaults.RiskControl.MinEMASpreadPct && cfg.RiskControl.MinVolumeRatioPct == defaults.RiskControl.MinVolumeRatioPct {
+		// Old strategy with no entry safety config - enable by default
+		cfg.RiskControl.EnableEntrySafetyChecks = true
+	}
+}
+
 // StrategyStore handles strategy persistence
 type StrategyStore struct{}
 
@@ -487,6 +517,9 @@ func (s *StrategyStore) scanStrategy(row *sql.Row) (*Strategy, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Apply defaults for new fields that may be missing from old strategies
+	applyConfigDefaults(&strategy.Config)
+
 	return &strategy, nil
 }
 
@@ -506,6 +539,9 @@ func (s *StrategyStore) scanStrategyRow(rows *sql.Rows) (*Strategy, error) {
 	if err := json.Unmarshal([]byte(configJSON), &strategy.Config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	// Apply defaults for new fields that may be missing from old strategies
+	applyConfigDefaults(&strategy.Config)
 
 	return &strategy, nil
 }
