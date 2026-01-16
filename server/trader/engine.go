@@ -1805,21 +1805,25 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 
 	// 5. Volume Decline Detection - Declining volume on trend = weak move
 	// Note: Compare COMPLETED candles only (index -2), not the forming candle (index -1)
+	// Uses MEDIAN instead of MEAN to avoid spike candles inflating the average
 	if len(marketData.Klines) >= 7 {
 		// Use the last COMPLETED candle (index -2), not the currently forming one
 		recentVol := marketData.Klines[len(marketData.Klines)-2].Volume
 
-		// Calculate average of previous 5 COMPLETED candles (indices -7 to -3)
-		var avgVol float64
-		for i := len(marketData.Klines) - 7; i < len(marketData.Klines)-2; i++ {
-			avgVol += marketData.Klines[i].Volume
+		// Collect volumes of previous 5 COMPLETED candles (indices -7 to -3)
+		volumes := make([]float64, 5)
+		for i := 0; i < 5; i++ {
+			volumes[i] = marketData.Klines[len(marketData.Klines)-7+i].Volume
 		}
-		avgVol /= 5
 
-		// If recent completed candle volume below threshold of average = weak conviction (configurable)
-		if avgVol > 0 && recentVol < avgVol*minVolumeRatio {
-			return fmt.Errorf("weak volume: last candle volume %.0f is %.0f%% below average %.0f - weak conviction move",
-				recentVol, (1-(recentVol/avgVol))*100, avgVol)
+		// Sort to find median (middle value - ignores outlier spikes)
+		sort.Float64s(volumes)
+		medianVol := volumes[2] // Middle of 5 sorted values
+
+		// If recent completed candle volume below threshold of median = weak conviction (configurable)
+		if medianVol > 0 && recentVol < medianVol*minVolumeRatio {
+			return fmt.Errorf("weak volume: last candle volume %.0f is %.0f%% below median %.0f - weak conviction move",
+				recentVol, (1-(recentVol/medianVol))*100, medianVol)
 		}
 	}
 
