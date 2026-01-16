@@ -1704,12 +1704,16 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 	}
 
-	// 1. Counter-Trend Check (EMA9)
-	if isLong && currentPrice < ema9 {
-		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f", currentPrice, ema9)
+	// 1. Counter-Trend Check (EMA9) - With 0.2% tolerance band for volatile coins
+	// Price slightly above/below EMA9 (within 0.2%) is acceptable
+	emaTolerance := ema9 * 0.002 // 0.2% tolerance
+	if isLong && currentPrice < (ema9-emaTolerance) {
+		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f (by %.2f%%)",
+			currentPrice, ema9, ((ema9-currentPrice)/ema9)*100)
 	}
-	if !isLong && currentPrice > ema9 {
-		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f", currentPrice, ema9)
+	if !isLong && currentPrice > (ema9+emaTolerance) {
+		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f (by %.2f%%)",
+			currentPrice, ema9, ((currentPrice-ema9)/ema9)*100)
 	}
 
 	// 2. EMA Spread Strength Gate - Require minimum trend strength for entries
