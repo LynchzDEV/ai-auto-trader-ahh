@@ -265,10 +265,10 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 
 		if emaSpread > 0.8 {
 			sb.WriteString("📈 Strong bullish structure.\n")
-		} else if emaSpread > 0.4 {
+		} else if emaSpread > 0.2 {
 			sb.WriteString("📊 Moderate bullish structure.\n")
 		} else {
-			sb.WriteString("🚫 WEAK/FLAT TREND. Choppy market likely.\n")
+			sb.WriteString("📊 Mild/Choppy trend - smaller positions recommended.\n")
 		}
 	} else {
 		sb.WriteString(fmt.Sprintf("EMA Trend: BEARISH (EMA9 < EMA21 by %.2f%%)\n", -emaSpread))
@@ -282,18 +282,17 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 
 		if emaSpread < -0.8 {
 			sb.WriteString("📉 Strong bearish structure.\n")
-		} else if emaSpread < -0.4 {
+		} else if emaSpread < -0.2 {
 			sb.WriteString("📊 Moderate bearish structure.\n")
 		} else {
-			sb.WriteString("🚫 WEAK/FLAT TREND. Choppy market likely.\n")
+			sb.WriteString("📊 Mild/Choppy trend - smaller positions recommended.\n")
 		}
 	}
 
-	// Add explicit trend strength gate (stricter for high volatility coins)
-	if absEmaSpread < 0.4 {
-		sb.WriteString(fmt.Sprintf("\n⛔ TREND STRENGTH GATE: EMA spread is only %.2f%% - TOO WEAK for new entries!\n", absEmaSpread))
-		sb.WriteString("   Action: WAIT or HOLD existing positions. Do not open new trades.\n")
-		sb.WriteString("   High volatility coins require at least 0.4%% EMA spread for reliable trends.\n\n")
+	// Add explicit trend strength gate (only for extremely weak trends)
+	if absEmaSpread < 0.15 {
+		sb.WriteString(fmt.Sprintf("\n⚠️ VERY WEAK TREND: EMA spread is only %.2f%% - exercise caution.\n", absEmaSpread))
+		sb.WriteString("   Consider smaller position sizes in choppy conditions.\n\n")
 	}
 
 	// RSI with entry guidance
@@ -483,9 +482,9 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		if absSpread < 0 {
 			absSpread = -absSpread
 		}
-		if absSpread < 0.6 {
-			longWarnings = append(longWarnings, fmt.Sprintf("WEAK TREND: EMA spread only %.2f%% (need >0.6%%)", absSpread))
-			shortWarnings = append(shortWarnings, fmt.Sprintf("WEAK TREND: EMA spread only %.2f%% (need >0.6%%)", absSpread))
+		if absSpread < 0.2 {
+			longWarnings = append(longWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%% - consider smaller size", absSpread))
+			shortWarnings = append(shortWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%% - consider smaller size", absSpread))
 		}
 	}
 
