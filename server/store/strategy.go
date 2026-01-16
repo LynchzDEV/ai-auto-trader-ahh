@@ -208,10 +208,10 @@ type RiskControlConfig struct {
 
 // SECURITY: Absolute maximum leverage limits (cannot be bypassed)
 const (
-	ABSOLUTE_MAX_LEVERAGE_BTCETH  = 20  // Maximum leverage for BTC/ETH
-	ABSOLUTE_MAX_LEVERAGE_ALTCOIN = 15  // Maximum leverage for altcoins
-	ABSOLUTE_MAX_LEGACY_LEVERAGE  = 20  // Maximum for legacy MaxLeverage field
-	ABSOLUTE_MIN_LEVERAGE         = 1   // Minimum leverage (must be at least 1x)
+	ABSOLUTE_MAX_LEVERAGE_BTCETH  = 50 // Maximum leverage for BTC/ETH (raised from 20)
+	ABSOLUTE_MAX_LEVERAGE_ALTCOIN = 25 // Maximum leverage for altcoins (raised from 15)
+	ABSOLUTE_MAX_LEGACY_LEVERAGE  = 50 // Maximum for legacy MaxLeverage field
+	ABSOLUTE_MIN_LEVERAGE         = 1  // Minimum leverage (must be at least 1x)
 )
 
 // ValidateStrategyConfig validates strategy configuration for security
