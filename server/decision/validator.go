@@ -89,14 +89,14 @@ func validateOpeningDecision(d *Decision, cfg *ValidationConfig) error {
 			d.PositionSizeUSD, minPositionSize)
 	}
 
-	// Maximum position value validation with tolerance
-	tolerance := maxPositionValue * 0.01
-	if d.PositionSizeUSD > maxPositionValue+tolerance {
+	// SECURITY: Maximum position value validation (STRICT - no tolerance)
+	// Removed 1% tolerance to prevent consistent over-leverage abuse
+	if d.PositionSizeUSD > maxPositionValue {
 		if isBTCOrETH(d.Symbol) {
-			return fmt.Errorf("BTC/ETH single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f",
+			return fmt.Errorf("BTC/ETH single coin position value cannot exceed %.2f USDT (%.1fx account equity), actual: %.2f",
 				maxPositionValue, posRatio, d.PositionSizeUSD)
 		}
-		return fmt.Errorf("altcoin single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f",
+		return fmt.Errorf("altcoin single coin position value cannot exceed %.2f USDT (%.1fx account equity), actual: %.2f",
 			maxPositionValue, posRatio, d.PositionSizeUSD)
 	}
 

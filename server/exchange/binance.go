@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,10 @@ type BinanceClient struct {
 
 	// Symbol precision cache (fetched from exchange)
 	symbolInfo map[string]*SymbolInfo
+
+	// SECURITY: Goroutine lifecycle management
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // SymbolInfo holds precision info for a trading symbol
@@ -106,6 +111,7 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 		},
 		serverTimeOffset: 0,
 		symbolInfo:       make(map[string]*SymbolInfo),
+		stopCh:           make(chan struct{}),
 	}
 
 	// Sync time with Binance server
@@ -123,15 +129,36 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 // startPeriodicTimeSync starts a goroutine that syncs server time every 15 minutes
 // This prevents timestamp drift issues during long-running sessions
 func (c *BinanceClient) startPeriodicTimeSync() {
+	c.wg.Add(1)
 	go func() {
+		defer c.wg.Done()
 		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			c.syncServerTime()
+		for {
+			select {
+			case <-ticker.C:
+				c.syncServerTime()
+			case <-c.stopCh:
+				log.Printf("[Binance] Periodic time sync stopped")
+				return
+			}
 		}
 	}()
 	log.Printf("[Binance] Periodic time sync started (every 15 minutes)")
+}
+
+// Close stops all background goroutines and cleans up resources
+// SECURITY: Prevents goroutine leaks
+func (c *BinanceClient) Close() error {
+	// Signal all goroutines to stop
+	close(c.stopCh)
+
+	// Wait for all goroutines to finish
+	c.wg.Wait()
+
+	log.Printf("[Binance] Client closed, all goroutines stopped")
+	return nil
 }
 
 // fetchExchangeInfo fetches symbol precision info from Binance

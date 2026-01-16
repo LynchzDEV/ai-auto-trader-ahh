@@ -1738,7 +1738,7 @@ export default function Strategies() {
                                 })}
                               />
                             </div>
-                            <div className="flex items-center space-x-2 pt-6">
+                            <label className="flex items-center gap-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20 cursor-pointer hover:bg-blue-400/10 transition-colors">
                               <Checkbox
                                 checked={editingStrategy.config.risk_control.trust_ai_for_tp_sl ?? false}
                                 onCheckedChange={(c) => setEditingStrategy({
@@ -1751,9 +1751,10 @@ export default function Strategies() {
                                     }
                                   }
                                 })}
+                                className="data-[state=checked]:bg-blue-400 data-[state=checked]:border-blue-400 data-[state=checked]:text-black"
                               />
-                              <Label className="text-xs">Trust AI Custom TP/SL</Label>
-                            </div>
+                              <span className="text-xs font-medium text-blue-300">Trust AI Custom TP/SL</span>
+                            </label>
                           </div>
                         </div>
 

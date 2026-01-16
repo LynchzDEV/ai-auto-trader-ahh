@@ -206,6 +206,73 @@ type RiskControlConfig struct {
 	EMATrendTolerancePct    float64 `json:"ema_trend_tolerance_pct"`    // Tolerance % for counter-trend check (default: 0.2)
 }
 
+// SECURITY: Absolute maximum leverage limits (cannot be bypassed)
+const (
+	ABSOLUTE_MAX_LEVERAGE_BTCETH  = 20  // Maximum leverage for BTC/ETH
+	ABSOLUTE_MAX_LEVERAGE_ALTCOIN = 15  // Maximum leverage for altcoins
+	ABSOLUTE_MAX_LEGACY_LEVERAGE  = 20  // Maximum for legacy MaxLeverage field
+	ABSOLUTE_MIN_LEVERAGE         = 1   // Minimum leverage (must be at least 1x)
+)
+
+// ValidateStrategyConfig validates strategy configuration for security
+func ValidateStrategyConfig(cfg *StrategyConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("strategy config cannot be nil")
+	}
+
+	// RiskControl is a value type, so we can access it directly
+	rc := &cfg.RiskControl
+
+	// SECURITY: Validate BTC/ETH leverage
+	if rc.BTCETHMaxLeverage < 0 {
+		return fmt.Errorf("BTC/ETH leverage cannot be negative (got %d)", rc.BTCETHMaxLeverage)
+	}
+	if rc.BTCETHMaxLeverage > ABSOLUTE_MAX_LEVERAGE_BTCETH {
+		return fmt.Errorf("BTC/ETH leverage %dx exceeds absolute maximum %dx", rc.BTCETHMaxLeverage, ABSOLUTE_MAX_LEVERAGE_BTCETH)
+	}
+
+	// SECURITY: Validate Altcoin leverage
+	if rc.AltcoinMaxLeverage < 0 {
+		return fmt.Errorf("Altcoin leverage cannot be negative (got %d)", rc.AltcoinMaxLeverage)
+	}
+	if rc.AltcoinMaxLeverage > ABSOLUTE_MAX_LEVERAGE_ALTCOIN {
+		return fmt.Errorf("Altcoin leverage %dx exceeds absolute maximum %dx", rc.AltcoinMaxLeverage, ABSOLUTE_MAX_LEVERAGE_ALTCOIN)
+	}
+
+	// SECURITY: Validate legacy leverage field
+	if rc.MaxLeverage < 0 {
+		return fmt.Errorf("Legacy max leverage cannot be negative (got %d)", rc.MaxLeverage)
+	}
+	if rc.MaxLeverage > ABSOLUTE_MAX_LEGACY_LEVERAGE {
+		return fmt.Errorf("Legacy max leverage %dx exceeds absolute maximum %dx", rc.MaxLeverage, ABSOLUTE_MAX_LEGACY_LEVERAGE)
+	}
+
+	// Validate max positions
+	if rc.MaxPositions < 0 {
+		return fmt.Errorf("Max positions cannot be negative (got %d)", rc.MaxPositions)
+	}
+	if rc.MaxPositions > 50 {
+		return fmt.Errorf("Max positions %d exceeds reasonable limit of 50", rc.MaxPositions)
+	}
+
+	// Validate position percentages
+	if rc.MaxPositionPercent < 0 || rc.MaxPositionPercent > 100 {
+		return fmt.Errorf("Max position percent must be between 0-100 (got %.2f)", rc.MaxPositionPercent)
+	}
+
+	// Validate daily loss percentage
+	if rc.MaxDailyLossPct < 0 || rc.MaxDailyLossPct > 100 {
+		return fmt.Errorf("Max daily loss percent must be between 0-100 (got %.2f)", rc.MaxDailyLossPct)
+	}
+
+	// Validate drawdown percentage
+	if rc.MaxDrawdownPct < 0 || rc.MaxDrawdownPct > 100 {
+		return fmt.Errorf("Max drawdown percent must be between 0-100 (got %.2f)", rc.MaxDrawdownPct)
+	}
+
+	return nil
+}
+
 // DefaultStrategyConfig returns a sensible default strategy
 func DefaultStrategyConfig() StrategyConfig {
 	return StrategyConfig{

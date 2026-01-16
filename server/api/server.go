@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"auto-trader-ahh/backtest"
@@ -21,6 +22,8 @@ import (
 	"auto-trader-ahh/mcp"
 	"auto-trader-ahh/store"
 	"auto-trader-ahh/trader"
+
+	"golang.org/x/time/rate"
 )
 
 type Server struct {
@@ -39,6 +42,10 @@ type Server struct {
 	accessPasskey   string
 	cfg             *config.Config
 	hub             *events.Hub
+
+	// SECURITY: Rate limiting
+	rateLimiters map[string]*rate.Limiter
+	limiterMu    sync.RWMutex
 }
 
 func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Server {
@@ -73,6 +80,7 @@ func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Serve
 		accessPasskey:   cfg.AccessPasskey,
 		cfg:             cfg,
 		hub:             em.GetHub(),
+		rateLimiters:    make(map[string]*rate.Limiter),
 	}
 
 	// Wire up debate engine with market context provider and trade executor
@@ -125,16 +133,102 @@ func (s *Server) Start() error {
 	// System endpoints
 	mux.HandleFunc("/api/logs/stream", s.authMiddleware(s.handleLogStream))
 
-	// Wrap with CORS middleware
-	handler := corsMiddleware(mux)
+	// Wrap with middleware layers: Rate Limit -> CORS
+	handler := s.rateLimitHandler(s.corsMiddleware(mux))
 
 	log.Printf("API server starting at http://localhost:%s", s.port)
+	log.Printf("SECURITY: Rate limiting enabled - 10 req/s per IP, burst 20")
 	if s.accessPasskey != "" {
 		log.Printf("Authentication enabled - passkey required")
 	} else {
 		log.Printf("WARNING: No ACCESS_PASSKEY set - server is unprotected!")
 	}
 	return http.ListenAndServe(":"+s.port, handler)
+}
+
+// SECURITY: Rate limiting middleware
+
+// getLimiter returns a rate limiter for the given IP address
+func (s *Server) getLimiter(ip string) *rate.Limiter {
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+
+	limiter, exists := s.rateLimiters[ip]
+	if !exists {
+		// Create new limiter: 10 requests per second with burst of 20
+		limiter = rate.NewLimiter(rate.Limit(10), 20)
+		s.rateLimiters[ip] = limiter
+
+		// Clean up old limiters periodically (every 100 new IPs)
+		if len(s.rateLimiters) > 100 {
+			go s.cleanupLimiters()
+		}
+	}
+
+	return limiter
+}
+
+// cleanupLimiters removes limiters that haven't been used recently
+func (s *Server) cleanupLimiters() {
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+
+	// Simple cleanup: if we have too many, clear all and start fresh
+	// In production, you'd want to track last-used timestamps
+	if len(s.rateLimiters) > 1000 {
+		s.rateLimiters = make(map[string]*rate.Limiter)
+		log.Printf("Rate limiter cache cleared (exceeded 1000 entries)")
+	}
+}
+
+// rateLimitMiddleware enforces rate limits per IP address (for http.HandlerFunc)
+func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract IP from request
+		ip := r.RemoteAddr
+		if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+			// Use first IP in X-Forwarded-For chain
+			ip = strings.Split(forwardedFor, ",")[0]
+			ip = strings.TrimSpace(ip)
+		}
+
+		// Get rate limiter for this IP
+		limiter := s.getLimiter(ip)
+
+		// Check if request is allowed
+		if !limiter.Allow() {
+			log.Printf("SECURITY: Rate limit exceeded for IP %s", ip)
+			s.errorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded. Please try again later.")
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// rateLimitHandler wraps an http.Handler with rate limiting
+func (s *Server) rateLimitHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract IP from request
+		ip := r.RemoteAddr
+		if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+			// Use first IP in X-Forwarded-For chain
+			ip = strings.Split(forwardedFor, ",")[0]
+			ip = strings.TrimSpace(ip)
+		}
+
+		// Get rate limiter for this IP
+		limiter := s.getLimiter(ip)
+
+		// Check if request is allowed
+		if !limiter.Allow() {
+			log.Printf("SECURITY: Rate limit exceeded for IP %s", ip)
+			s.errorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded. Please try again later.")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // authMiddleware checks for valid passkey in X-Access-Key header
@@ -215,9 +309,28 @@ func secureCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+
+		// Check if origin is allowed
+		allowed := false
+		for _, allowedOrigin := range s.cfg.AllowedOrigins {
+			if origin == allowedOrigin {
+				allowed = true
+				break
+			}
+		}
+
+		// Set CORS headers only for allowed origins
+		if allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else if origin != "" {
+			// Origin provided but not allowed - log for security monitoring
+			log.Printf("SECURITY: Blocked CORS request from unauthorized origin: %s", origin)
+		}
+
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Access-Key")
 
@@ -267,6 +380,13 @@ func (s *Server) handleStrategies(w http.ResponseWriter, r *http.Request) {
 			s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
+
+		// SECURITY: Validate strategy config before creation
+		if err := store.ValidateStrategyConfig(&strategy.Config); err != nil {
+			s.errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid strategy config: %v", err))
+			return
+		}
+
 		if err := s.strategyStore.Create(&strategy); err != nil {
 			s.errorResponse(w, http.StatusInternalServerError, err.Error())
 			return
@@ -314,6 +434,13 @@ func (s *Server) handleStrategy(w http.ResponseWriter, r *http.Request) {
 			s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
 			return
 		}
+
+		// SECURITY: Validate strategy config before update
+		if err := store.ValidateStrategyConfig(&strategy.Config); err != nil {
+			s.errorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid strategy config: %v", err))
+			return
+		}
+
 		strategy.ID = id
 		if err := s.strategyStore.Update(&strategy); err != nil {
 			s.errorResponse(w, http.StatusInternalServerError, err.Error())
@@ -1331,21 +1458,42 @@ func (s *Server) executeDebateDecisions(session *debate.Session, decisions []*de
 				closeSide = "BUY"
 			}
 
-			// Place stop-loss order
+			// SECURITY: Place stop-loss order (CRITICAL for position protection)
 			if d.StopLoss > 0 {
 				slOrder, err := binanceClient.PlaceStopLoss(ctx, d.Symbol, closeSide, 0, d.StopLoss)
 				if err != nil {
-					log.Printf("[Debate] Failed to place stop-loss for %s: %v", d.Symbol, err)
+					log.Printf("❌ CRITICAL: Failed to place stop-loss for %s: %v", d.Symbol, err)
+
+					// EMERGENCY ROLLBACK: Close the unprotected position immediately
+					positionAmt := quantity
+					if side == "SELL" {
+						positionAmt = -quantity // Short position has negative amount
+					}
+
+					closeOrder, closeErr := binanceClient.ClosePosition(ctx, d.Symbol, positionAmt)
+					if closeErr != nil {
+						// WORST CASE: Can't close the unprotected position
+						log.Printf("🚨 EMERGENCY: Failed to close unprotected position %s: %v", d.Symbol, closeErr)
+						log.Printf("🚨 MANUAL INTERVENTION REQUIRED: Symbol=%s Side=%s Quantity=%.4f", d.Symbol, side, quantity)
+
+						// Mark decision with critical error
+						d.Error = fmt.Sprintf("SL placement failed AND emergency close failed: %v | %v", err, closeErr)
+					} else {
+						log.Printf("✅ Emergency close successful for %s: OrderID=%d", d.Symbol, closeOrder.OrderID)
+						log.Printf("Position closed at market to prevent unlimited loss exposure")
+						d.Error = fmt.Sprintf("SL placement failed, position emergency closed: %v", err)
+					}
 				} else {
 					log.Printf("[Debate] Stop-loss placed for %s: ID=%d @ %.2f", d.Symbol, slOrder.OrderID, d.StopLoss)
 				}
 			}
 
-			// Place take-profit order
-			if d.TakeProfit > 0 {
+			// Place take-profit order (less critical - position can trade without TP if SL exists)
+			if d.TakeProfit > 0 && d.Error == "" {
 				tpOrder, err := binanceClient.PlaceTakeProfit(ctx, d.Symbol, closeSide, 0, d.TakeProfit)
 				if err != nil {
-					log.Printf("[Debate] Failed to place take-profit for %s: %v", d.Symbol, err)
+					log.Printf("⚠️ WARNING: Failed to place take-profit for %s: %v", d.Symbol, err)
+					// TP failure is acceptable - position still has SL protection
 				} else {
 					log.Printf("[Debate] Take-profit placed for %s: ID=%d @ %.2f", d.Symbol, tpOrder.OrderID, d.TakeProfit)
 				}
@@ -1482,7 +1630,16 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// SECURITY: Set CORS only for allowed origins
+	origin := r.Header.Get("Origin")
+	for _, allowedOrigin := range s.cfg.AllowedOrigins {
+		if origin == allowedOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			break
+		}
+	}
 
 	// Flush now to send headers
 	flusher, ok := w.(http.Flusher)

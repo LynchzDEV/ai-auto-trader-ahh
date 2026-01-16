@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -27,7 +30,8 @@ type Config struct {
 	CoinAnkAPIKey string
 
 	// Server
-	APIPort string
+	APIPort        string
+	AllowedOrigins []string // CORS allowed origins
 
 	// Authentication
 	AccessPasskey string
@@ -58,10 +62,21 @@ func Load() *Config {
 		TradingInterval: getEnvInt("TRADING_INTERVAL", 5),
 
 		// Server
-		APIPort: getEnv("API_PORT", "8080"),
+		APIPort:        getEnv("API_PORT", "8080"),
+		AllowedOrigins: getEnvSlice("ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 
 		// Authentication
 		AccessPasskey: getEnv("ACCESS_PASSKEY", ""),
+	}
+
+	// SECURITY: Require ACCESS_PASSKEY in production mode
+	if !cfg.BinanceTestnet && cfg.AccessPasskey == "" {
+		log.Fatal("FATAL: ACCESS_PASSKEY is required when BINANCE_TESTNET=false (production mode)")
+	}
+
+	// SECURITY: Enforce minimum passkey length
+	if cfg.AccessPasskey != "" && len(cfg.AccessPasskey) < 32 {
+		log.Fatal(fmt.Sprintf("FATAL: ACCESS_PASSKEY must be at least 32 characters (current: %d)", len(cfg.AccessPasskey)))
 	}
 
 	return cfg
@@ -107,6 +122,22 @@ func getEnvFloat(key string, defaultVal float64) float64 {
 		if err == nil {
 			return f
 		}
+	}
+	return defaultVal
+}
+
+func getEnvSlice(key string, defaultVal []string) []string {
+	if val := os.Getenv(key); val != "" {
+		// Split by comma and trim whitespace
+		parts := strings.Split(val, ",")
+		result := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
 	}
 	return defaultVal
 }

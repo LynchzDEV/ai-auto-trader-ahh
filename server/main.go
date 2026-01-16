@@ -50,7 +50,7 @@ func main() {
 	defer store.Close()
 
 	// Create event hub
-	hub := events.NewHub()
+	hub := events.NewHub(cfg.AllowedOrigins)
 	go hub.Run()
 
 	// Create engine manager

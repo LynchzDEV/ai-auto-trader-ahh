@@ -42,12 +42,16 @@ type Hub struct {
 	// Unregister requests from clients.
 	unregister chan chan []byte
 
+	// CORS allowed origins
+	allowedOrigins []string
+
 	mu sync.Mutex
 }
 
-func NewHub() *Hub {
+func NewHub(allowedOrigins []string) *Hub {
 	return &Hub{
-		broadcast:  make(chan []byte),
+		broadcast:      make(chan []byte),
+		allowedOrigins: allowedOrigins,
 		register:   make(chan chan []byte),
 		unregister: make(chan chan []byte),
 		clients:    make(map[chan []byte]bool),
@@ -103,7 +107,16 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// SECURITY: Set CORS only for allowed origins
+	origin := r.Header.Get("Origin")
+	for _, allowedOrigin := range h.allowedOrigins {
+		if origin == allowedOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			break
+		}
+	}
 
 	// Create a channel for this client
 	client := make(chan []byte, 256)
