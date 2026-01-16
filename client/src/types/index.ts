@@ -68,7 +68,7 @@ export interface RiskControlConfig {
   min_confidence: number;
   min_risk_reward_ratio: number;
   // AI TP/SL Freedom - Hybrid mode
-  trust_ai_for_tp_sl?: boolean;
+  trust_ai_for_tpsl?: boolean;
   min_tp_percent?: number;
   min_sl_percent?: number;
   max_sl_percent?: number;

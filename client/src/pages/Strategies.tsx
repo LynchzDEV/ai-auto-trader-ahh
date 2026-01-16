@@ -1655,6 +1655,89 @@ export default function Strategies() {
                           />
                         </div>
 
+                        {/* Stop Loss & Take Profit Settings */}
+                        <div className="col-span-full p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 space-y-4">
+                          <h4 className="text-sm font-medium text-blue-400">
+                            Stop Loss & Take Profit Limits
+                          </h4>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label className="text-xs">Min Stop Loss %</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                className="glass h-8"
+                                value={editingStrategy.config.risk_control.min_sl_percent ?? 2.0}
+                                onChange={(e) => setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    risk_control: {
+                                      ...editingStrategy.config.risk_control,
+                                      min_sl_percent: parseFloat(e.target.value)
+                                    }
+                                  }
+                                })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs">Max Stop Loss %</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                className="glass h-8"
+                                value={editingStrategy.config.risk_control.max_sl_percent ?? 5.0}
+                                onChange={(e) => setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    risk_control: {
+                                      ...editingStrategy.config.risk_control,
+                                      max_sl_percent: parseFloat(e.target.value)
+                                    }
+                                  }
+                                })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs">Min Take Profit %</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                className="glass h-8"
+                                value={editingStrategy.config.risk_control.min_tp_percent ?? 3.0}
+                                onChange={(e) => setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    risk_control: {
+                                      ...editingStrategy.config.risk_control,
+                                      min_tp_percent: parseFloat(e.target.value)
+                                    }
+                                  }
+                                })}
+                              />
+                            </div>
+                            <div className="flex items-center space-x-2 pt-6">
+                              <Checkbox
+                                checked={editingStrategy.config.risk_control.trust_ai_for_tpsl ?? false}
+                                onCheckedChange={(c) => setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    risk_control: {
+                                      ...editingStrategy.config.risk_control,
+                                      trust_ai_for_tpsl: !!c
+                                    }
+                                  }
+                                })}
+                              />
+                              <Label className="text-xs">Trust AI Custom TP/SL</Label>
+                            </div>
+                          </div>
+                        </div>
+
                         <label className="flex items-center gap-3 p-3 rounded-lg bg-orange-400/5 border border-orange-400/20 cursor-pointer hover:bg-orange-400/10 transition-colors col-span-full">
                           <Checkbox
                             checked={
