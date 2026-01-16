@@ -238,6 +238,7 @@ func DefaultStrategyConfig() StrategyConfig {
 			MaxPositions: 3,
 
 			// Leverage limits (0 = use legacy MaxLeverage field)
+			MaxLeverage:        10,
 			BTCETHMaxLeverage:  0,
 			AltcoinMaxLeverage: 0,
 
@@ -357,13 +358,17 @@ func applyConfigDefaults(cfg *StrategyConfig) {
 	if cfg.RiskControl.ResistanceSupportPct == 0 {
 		cfg.RiskControl.ResistanceSupportPct = defaults.RiskControl.ResistanceSupportPct
 	}
-	// For boolean fields, we use a sentinel approach:
-	// If EnableEntrySafetyChecks is false AND all threshold values were zero (unset),
-	// it means this is an old strategy - set the toggle to true
-	// If it was explicitly set to false by the user, the thresholds would be set too
-	if !cfg.RiskControl.EnableEntrySafetyChecks && cfg.RiskControl.MinEMASpreadPct == defaults.RiskControl.MinEMASpreadPct && cfg.RiskControl.MinVolumeRatioPct == defaults.RiskControl.MinVolumeRatioPct {
+	// If EnableEntrySafetyChecks is false AND all threshold values were zero (unset/defaulted),
+	// it means this is an old strategy - set the toggle to true.
+	// Note: We check if thresholds match defaults (which we just set above if they were 0).
+	if !cfg.RiskControl.EnableEntrySafetyChecks && cfg.RiskControl.MinEMASpreadPct == defaults.RiskControl.MinEMASpreadPct {
 		// Old strategy with no entry safety config - enable by default
 		cfg.RiskControl.EnableEntrySafetyChecks = true
+	}
+
+	// Leverage - default to 10 if missing (0)
+	if cfg.RiskControl.MaxLeverage == 0 {
+		cfg.RiskControl.MaxLeverage = defaults.RiskControl.MaxLeverage
 	}
 }
 

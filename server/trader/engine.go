@@ -2824,7 +2824,8 @@ func (e *Engine) getLeverageLimit(symbol string) int {
 	if isBTCETH(symbol) {
 		return 10
 	}
-	return 20
+	// For altcoins, default to 10x (20x is too high and often invalid)
+	return 10
 }
 
 // getPositionKey generates a unique key for position tracking
