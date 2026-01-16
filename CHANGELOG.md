@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.56.0] - 2026-01-17
+
+### Fixed
+- **Trust AI Custom TP/SL Toggle**: Fixed UI bug where the toggle was not clickable on the label text - users had to click the tiny checkbox itself. Now the entire toggle area is clickable, matching the UX of other risk control settings.
+
 ## [v3.55.0] - 2026-01-16
 
 ### Added
