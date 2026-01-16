@@ -195,6 +195,13 @@ type RiskControlConfig struct {
 
 	// HIGH WICK WARNING - Warn AI about rejection wicks
 	EnableHighWickWarning bool `json:"enable_high_wick_warning"` // Enable high wick detection and warning
+
+	// ENTRY SAFETY THRESHOLDS - Configurable filters for entry quality
+	// These control the Go code's safety checks before executing trades
+	MinEMASpreadPct       float64 `json:"min_ema_spread_pct"`       // Min EMA spread % for entry (default: 0.3)
+	MinVolumeRatioPct     float64 `json:"min_volume_ratio_pct"`     // Min volume as % of average (default: 40)
+	MaxWickRejectionCount int     `json:"max_wick_rejection_count"` // Max rejection wicks to allow entry (default: 4)
+	ResistanceSupportPct  float64 `json:"resistance_support_pct"`   // Distance from high/low % to block entry (default: 1.0)
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -303,6 +310,12 @@ func DefaultStrategyConfig() StrategyConfig {
 
 			// High Wick Warning (enabled by default)
 			EnableHighWickWarning: true,
+
+			// Entry Safety Thresholds (relaxed defaults for real market conditions)
+			MinEMASpreadPct:       0.3,  // 0.3% EMA spread minimum (was hardcoded 0.6%)
+			MinVolumeRatioPct:     40.0, // 40% of average volume minimum (was hardcoded 60%)
+			MaxWickRejectionCount: 4,    // Allow up to 4 wick rejections (was hardcoded 3)
+			ResistanceSupportPct:  1.0,  // Block entry within 1% of high/low (was hardcoded 0.5%)
 		},
 		AI: AIConfig{
 			EnableReasoning: false,

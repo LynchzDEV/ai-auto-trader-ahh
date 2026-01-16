@@ -1660,6 +1660,26 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 	ema21 := marketData.EMA21
 	currentPrice := marketData.CurrentPrice
 
+	// Load configurable thresholds (with safe defaults)
+	minEmaSpread := 0.3         // default
+	minVolumeRatio := 0.4       // default (40%)
+	maxWickRejections := 4      // default
+	resistanceSupportPct := 1.0 // default (1%)
+	if e.strategy != nil {
+		if e.strategy.Config.RiskControl.MinEMASpreadPct > 0 {
+			minEmaSpread = e.strategy.Config.RiskControl.MinEMASpreadPct
+		}
+		if e.strategy.Config.RiskControl.MinVolumeRatioPct > 0 {
+			minVolumeRatio = e.strategy.Config.RiskControl.MinVolumeRatioPct / 100.0
+		}
+		if e.strategy.Config.RiskControl.MaxWickRejectionCount > 0 {
+			maxWickRejections = e.strategy.Config.RiskControl.MaxWickRejectionCount
+		}
+		if e.strategy.Config.RiskControl.ResistanceSupportPct > 0 {
+			resistanceSupportPct = e.strategy.Config.RiskControl.ResistanceSupportPct
+		}
+	}
+
 	// 1. Counter-Trend Check (EMA9)
 	if isLong && currentPrice < ema9 {
 		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f", currentPrice, ema9)
@@ -1678,9 +1698,9 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		absEmaSpread = -absEmaSpread
 	}
 
-	// Require at least 0.6% EMA spread for reliable trend (stricter than before)
-	if absEmaSpread < 0.6 {
-		return fmt.Errorf("weak trend: EMA spread %.2f%% is too weak (need >= 0.6%%). Choppy market - WAIT", absEmaSpread)
+	// Require minimum EMA spread for reliable trend (configurable)
+	if absEmaSpread < minEmaSpread {
+		return fmt.Errorf("weak trend: EMA spread %.2f%% is too weak (need >= %.1f%%). Choppy market - WAIT", absEmaSpread, minEmaSpread)
 	}
 
 	// Verify spread direction matches trade direction
@@ -1749,12 +1769,12 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 
 		// Block LONG if multiple upper wick rejections (sellers active at highs)
-		if isLong && upperWickRejections >= 3 {
+		if isLong && upperWickRejections >= maxWickRejections {
 			return fmt.Errorf("wick rejection: %d of last 5 candles show upper wick rejection - sellers defending highs", upperWickRejections)
 		}
 
 		// Block SHORT if multiple lower wick rejections (buyers active at lows)
-		if !isLong && lowerWickRejections >= 3 {
+		if !isLong && lowerWickRejections >= maxWickRejections {
 			return fmt.Errorf("wick rejection: %d of last 5 candles show lower wick rejection - buyers defending lows", lowerWickRejections)
 		}
 	}
@@ -1770,8 +1790,8 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 		avgVol /= 5
 
-		// If current volume < 60% of average = weak conviction
-		if avgVol > 0 && recentVol < avgVol*0.6 {
+		// If current volume below threshold of average = weak conviction (configurable)
+		if avgVol > 0 && recentVol < avgVol*minVolumeRatio {
 			return fmt.Errorf("weak volume: current volume %.0f is %.0f%% below average %.0f - weak conviction move",
 				recentVol, (1-(recentVol/avgVol))*100, avgVol)
 		}
@@ -1792,17 +1812,19 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 			}
 		}
 
-		// Block BUY if too close to Resistance (within 0.5% - increased from 0.3%)
+		// Block BUY if too close to Resistance (configurable threshold)
+		resistanceThreshold := 1.0 - (resistanceSupportPct / 100.0) // e.g., 1.0% -> 0.99
 		if isLong {
-			if currentPrice < recentHigh && currentPrice >= recentHigh*0.995 {
-				return fmt.Errorf("resistance block: price $%.4f is within 0.5%% of 40-candle high $%.4f (BUY THE TOP)", currentPrice, recentHigh)
+			if currentPrice < recentHigh && currentPrice >= recentHigh*resistanceThreshold {
+				return fmt.Errorf("resistance block: price $%.4f is within %.1f%% of 40-candle high $%.4f (BUY THE TOP)", currentPrice, resistanceSupportPct, recentHigh)
 			}
 		}
 
-		// Block SELL if too close to Support (within 0.5%)
+		// Block SELL if too close to Support (configurable threshold)
+		supportThreshold := 1.0 + (resistanceSupportPct / 100.0) // e.g., 1.0% -> 1.01
 		if !isLong {
-			if currentPrice > recentLow && currentPrice <= recentLow*1.005 {
-				return fmt.Errorf("support block: price $%.4f is within 0.5%% of 40-candle low $%.4f (SELL THE BOTTOM)", currentPrice, recentLow)
+			if currentPrice > recentLow && currentPrice <= recentLow*supportThreshold {
+				return fmt.Errorf("support block: price $%.4f is within %.1f%% of 40-candle low $%.4f (SELL THE BOTTOM)", currentPrice, resistanceSupportPct, recentLow)
 			}
 		}
 	}

@@ -110,6 +110,11 @@ export interface RiskControlConfig {
   auto_avoid_min_trades_24h?: number;
   // High Wick Warning
   enable_high_wick_warning?: boolean;
+  // Entry Safety Thresholds (configurable filters)
+  min_ema_spread_pct?: number;
+  min_volume_ratio_pct?: number;
+  max_wick_rejection_count?: number;
+  resistance_support_pct?: number;
 }
 
 export interface Trader {
