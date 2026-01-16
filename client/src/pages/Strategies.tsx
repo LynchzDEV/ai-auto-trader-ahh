@@ -2792,6 +2792,39 @@ export default function Strategies() {
                                   Block near highs/lows (default: 1%)
                                 </p>
                               </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  EMA Trend Tolerance (%)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="2"
+                                  className="glass h-8"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .ema_trend_tolerance_pct ?? 0.2
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config.risk_control,
+                                          ema_trend_tolerance_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Tolerance for counter-trend (default: 0.2%)
+                                </p>
+                              </div>
                             </div>
                           )}
                         </div>

@@ -116,6 +116,7 @@ export interface RiskControlConfig {
   min_volume_ratio_pct?: number;
   max_wick_rejection_count?: number;
   resistance_support_pct?: number;
+  ema_trend_tolerance_pct?: number;
 }
 
 export interface Trader {

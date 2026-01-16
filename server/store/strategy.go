@@ -203,6 +203,7 @@ type RiskControlConfig struct {
 	MinVolumeRatioPct       float64 `json:"min_volume_ratio_pct"`       // Min volume as % of average (default: 40)
 	MaxWickRejectionCount   int     `json:"max_wick_rejection_count"`   // Max rejection wicks to allow entry (default: 4)
 	ResistanceSupportPct    float64 `json:"resistance_support_pct"`     // Distance from high/low % to block entry (default: 1.0)
+	EMATrendTolerancePct    float64 `json:"ema_trend_tolerance_pct"`    // Tolerance % for counter-trend check (default: 0.2)
 }
 
 // DefaultStrategyConfig returns a sensible default strategy
@@ -212,6 +213,7 @@ func DefaultStrategyConfig() StrategyConfig {
 			SourceType:  "static",
 			StaticCoins: []string{"BTCUSDT", "ETHUSDT"},
 		},
+
 		TradingMode: "strategy",
 		Indicators: IndicatorConfig{
 			PrimaryTimeframe: "5m",
@@ -319,6 +321,7 @@ func DefaultStrategyConfig() StrategyConfig {
 			MinVolumeRatioPct:       40.0, // 40% of average volume minimum (was hardcoded 60%)
 			MaxWickRejectionCount:   4,    // Allow up to 4 wick rejections (was hardcoded 3)
 			ResistanceSupportPct:    1.0,  // Block entry within 1% of high/low (was hardcoded 0.5%)
+			EMATrendTolerancePct:    0.2,  // 0.2% tolerance around EMA9
 		},
 		AI: AIConfig{
 			EnableReasoning: false,
@@ -357,6 +360,9 @@ func applyConfigDefaults(cfg *StrategyConfig) {
 	}
 	if cfg.RiskControl.ResistanceSupportPct == 0 {
 		cfg.RiskControl.ResistanceSupportPct = defaults.RiskControl.ResistanceSupportPct
+	}
+	if cfg.RiskControl.EMATrendTolerancePct == 0 {
+		cfg.RiskControl.EMATrendTolerancePct = defaults.RiskControl.EMATrendTolerancePct
 	}
 	// If EnableEntrySafetyChecks is false AND all threshold values were zero (unset/defaulted),
 	// it means this is an old strategy - set the toggle to true.
