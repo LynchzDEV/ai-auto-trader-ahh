@@ -111,6 +111,7 @@ export interface RiskControlConfig {
   // High Wick Warning
   enable_high_wick_warning?: boolean;
   // Entry Safety Thresholds (configurable filters)
+  enable_entry_safety_checks?: boolean; // Enable/disable entry safety checks
   min_ema_spread_pct?: number;
   min_volume_ratio_pct?: number;
   max_wick_rejection_count?: number;

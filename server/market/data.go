@@ -146,8 +146,26 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 	}, nil
 }
 
+// AIPromptConfig contains configurable thresholds for AI prompt warnings
+type AIPromptConfig struct {
+	MinEMASpreadPct      float64 // Min EMA spread before warning (default: 0.15)
+	MinVolumeRatioPct    float64 // Min volume ratio before warning (default: 40)
+	ResistanceSupportPct float64 // Distance from high/low to warn (default: 1.0)
+	EnableEntryWarnings  bool    // Enable/disable entry quality warnings (default: true)
+}
+
+// DefaultAIPromptConfig returns default AI prompt configuration
+func DefaultAIPromptConfig() AIPromptConfig {
+	return AIPromptConfig{
+		MinEMASpreadPct:      0.15,
+		MinVolumeRatioPct:    40.0,
+		ResistanceSupportPct: 1.0,
+		EnableEntryWarnings:  true,
+	}
+}
+
 // FormatForAI formats market data as a string for AI analysis
-func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool) string {
+func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool, cfg AIPromptConfig) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("=== %s Market Analysis ===\n\n", data.Symbol))
@@ -289,10 +307,9 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		}
 	}
 
-	// Add explicit trend strength gate (only for extremely weak trends)
-	if absEmaSpread < 0.15 {
-		sb.WriteString(fmt.Sprintf("\n⚠️ VERY WEAK TREND: EMA spread is only %.2f%% - exercise caution.\n", absEmaSpread))
-		sb.WriteString("   Consider smaller position sizes in choppy conditions.\n\n")
+	// Add trend strength warning if configured and enabled
+	if cfg.EnableEntryWarnings && absEmaSpread < cfg.MinEMASpreadPct {
+		sb.WriteString(fmt.Sprintf("\n⚠️ Mild trend: EMA spread is only %.2f%% - consider smaller positions.\n\n", absEmaSpread))
 	}
 
 	// RSI with entry guidance
@@ -475,16 +492,16 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		}
 	}
 
-	// EMA spread weakness
-	if data.EMA21 > 0 {
+	// EMA spread weakness (use configured threshold)
+	if cfg.EnableEntryWarnings && data.EMA21 > 0 {
 		emaSpread := ((data.EMA9 - data.EMA21) / data.EMA21) * 100
 		absSpread := emaSpread
 		if absSpread < 0 {
 			absSpread = -absSpread
 		}
-		if absSpread < 0.2 {
-			longWarnings = append(longWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%% - consider smaller size", absSpread))
-			shortWarnings = append(shortWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%% - consider smaller size", absSpread))
+		if absSpread < cfg.MinEMASpreadPct {
+			longWarnings = append(longWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%%", absSpread))
+			shortWarnings = append(shortWarnings, fmt.Sprintf("Mild trend: EMA spread %.2f%%", absSpread))
 		}
 	}
 
@@ -525,15 +542,16 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool)
 		}
 	}
 
-	// VOLUME DECLINE DETECTION
-	if len(data.Klines) >= 6 {
+	// VOLUME DECLINE DETECTION (use configured threshold)
+	if cfg.EnableEntryWarnings && len(data.Klines) >= 6 {
 		recentVol := data.Klines[len(data.Klines)-1].Volume
 		var avgVol float64
 		for i := len(data.Klines) - 6; i < len(data.Klines)-1; i++ {
 			avgVol += data.Klines[i].Volume
 		}
 		avgVol /= 5
-		if avgVol > 0 && recentVol < avgVol*0.6 {
+		volRatioThreshold := cfg.MinVolumeRatioPct / 100.0 // Convert % to ratio
+		if avgVol > 0 && recentVol < avgVol*volRatioThreshold {
 			warning := fmt.Sprintf("LOW VOLUME: Current vol %.0f is %.0f%% below average", recentVol, (1-(recentVol/avgVol))*100)
 			longWarnings = append(longWarnings, warning)
 			shortWarnings = append(shortWarnings, warning)

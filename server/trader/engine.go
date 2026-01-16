@@ -1192,10 +1192,23 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	// Format data for AI
 	// Format data for AI
 	enableHighWick := true
+	aiPromptCfg := market.DefaultAIPromptConfig()
 	if e.strategy != nil {
 		enableHighWick = e.strategy.Config.RiskControl.EnableHighWickWarning
+		// Toggle entry warnings based on config
+		aiPromptCfg.EnableEntryWarnings = e.strategy.Config.RiskControl.EnableEntrySafetyChecks
+		// Use configured thresholds if set
+		if e.strategy.Config.RiskControl.MinEMASpreadPct > 0 {
+			aiPromptCfg.MinEMASpreadPct = e.strategy.Config.RiskControl.MinEMASpreadPct
+		}
+		if e.strategy.Config.RiskControl.MinVolumeRatioPct > 0 {
+			aiPromptCfg.MinVolumeRatioPct = e.strategy.Config.RiskControl.MinVolumeRatioPct
+		}
+		if e.strategy.Config.RiskControl.ResistanceSupportPct > 0 {
+			aiPromptCfg.ResistanceSupportPct = e.strategy.Config.RiskControl.ResistanceSupportPct
+		}
 	}
-	formattedData := e.dataProvider.FormatForAI(marketData, enableHighWick)
+	formattedData := e.dataProvider.FormatForAI(marketData, enableHighWick, aiPromptCfg)
 
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
 	// Only fetch intel if enabled in strategy settings
@@ -1551,10 +1564,21 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					// Format fresh data for AI
 					// Format fresh data for AI
 					enableHighWick := true
+					freshAIPromptCfg := market.DefaultAIPromptConfig()
 					if e.strategy != nil {
 						enableHighWick = e.strategy.Config.RiskControl.EnableHighWickWarning
+						freshAIPromptCfg.EnableEntryWarnings = e.strategy.Config.RiskControl.EnableEntrySafetyChecks
+						if e.strategy.Config.RiskControl.MinEMASpreadPct > 0 {
+							freshAIPromptCfg.MinEMASpreadPct = e.strategy.Config.RiskControl.MinEMASpreadPct
+						}
+						if e.strategy.Config.RiskControl.MinVolumeRatioPct > 0 {
+							freshAIPromptCfg.MinVolumeRatioPct = e.strategy.Config.RiskControl.MinVolumeRatioPct
+						}
+						if e.strategy.Config.RiskControl.ResistanceSupportPct > 0 {
+							freshAIPromptCfg.ResistanceSupportPct = e.strategy.Config.RiskControl.ResistanceSupportPct
+						}
 					}
-					freshFormattedData := e.dataProvider.FormatForAI(freshMarketData, enableHighWick)
+					freshFormattedData := e.dataProvider.FormatForAI(freshMarketData, enableHighWick, freshAIPromptCfg)
 
 					// Add account and position info
 					e.mu.RLock()

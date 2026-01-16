@@ -2625,150 +2625,175 @@ export default function Strategies() {
 
                         {/* Entry Safety Thresholds */}
                         <div className="p-4 rounded-lg bg-cyan-400/5 border border-cyan-400/20 space-y-4">
-                          <div className="flex items-center gap-2">
-                            <Shield className="w-4 h-4 text-cyan-400" />
-                            <span className="font-medium text-cyan-300">
-                              Entry Safety Thresholds
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Configurable filters that block low-quality entries.
-                            Lower values = more trades but higher risk.
-                          </p>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label className="text-xs">
-                                Min EMA Spread (%)
-                              </Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                max="2"
-                                className="glass h-8"
-                                value={
-                                  editingStrategy.config.risk_control
-                                    .min_ema_spread_pct ?? 0.3
-                                }
-                                onChange={(e) =>
-                                  setEditingStrategy({
-                                    ...editingStrategy,
-                                    config: {
-                                      ...editingStrategy.config,
-                                      risk_control: {
-                                        ...editingStrategy.config.risk_control,
-                                        min_ema_spread_pct: parseFloat(
-                                          e.target.value
-                                        ),
-                                      },
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <Checkbox
+                              checked={
+                                editingStrategy.config.risk_control
+                                  .enable_entry_safety_checks ?? true
+                              }
+                              onCheckedChange={(c) =>
+                                setEditingStrategy({
+                                  ...editingStrategy,
+                                  config: {
+                                    ...editingStrategy.config,
+                                    risk_control: {
+                                      ...editingStrategy.config.risk_control,
+                                      enable_entry_safety_checks: !!c,
                                     },
-                                  })
-                                }
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Trend strength required (default: 0.3%)
+                                  },
+                                })
+                              }
+                              className="data-[state=checked]:bg-cyan-400 data-[state=checked]:border-cyan-400 data-[state=checked]:text-black"
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Shield className="w-4 h-4 text-cyan-400" />
+                                <span className="font-medium text-cyan-300">
+                                  Entry Safety Checks
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Block low-quality entries + show warnings to AI.
+                                Disable for more aggressive trading.
                               </p>
                             </div>
-                            <div className="space-y-2">
-                              <Label className="text-xs">
-                                Min Volume Ratio (%)
-                              </Label>
-                              <Input
-                                type="number"
-                                step="5"
-                                min="0"
-                                max="100"
-                                className="glass h-8"
-                                value={
-                                  editingStrategy.config.risk_control
-                                    .min_volume_ratio_pct ?? 40
-                                }
-                                onChange={(e) =>
-                                  setEditingStrategy({
-                                    ...editingStrategy,
-                                    config: {
-                                      ...editingStrategy.config,
-                                      risk_control: {
-                                        ...editingStrategy.config.risk_control,
-                                        min_volume_ratio_pct: parseFloat(
-                                          e.target.value
-                                        ),
+                          </label>
+                          {editingStrategy.config.risk_control.enable_entry_safety_checks !== false && (
+                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-cyan-400/10">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Min EMA Spread (%)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="2"
+                                  className="glass h-8"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .min_ema_spread_pct ?? 0.3
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config.risk_control,
+                                          min_ema_spread_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
                                       },
-                                    },
-                                  })
-                                }
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Volume vs average (default: 40%)
-                              </p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label className="text-xs">
-                                Max Wick Rejections
-                              </Label>
-                              <Input
-                                type="number"
-                                step="1"
-                                min="1"
-                                max="5"
-                                className="glass h-8"
-                                value={
-                                  editingStrategy.config.risk_control
-                                    .max_wick_rejection_count ?? 4
-                                }
-                                onChange={(e) =>
-                                  setEditingStrategy({
-                                    ...editingStrategy,
-                                    config: {
-                                      ...editingStrategy.config,
-                                      risk_control: {
-                                        ...editingStrategy.config.risk_control,
-                                        max_wick_rejection_count: parseInt(
-                                          e.target.value
-                                        ),
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Trend strength required (default: 0.3%)
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Min Volume Ratio (%)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="5"
+                                  min="0"
+                                  max="100"
+                                  className="glass h-8"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .min_volume_ratio_pct ?? 40
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config.risk_control,
+                                          min_volume_ratio_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
                                       },
-                                    },
-                                  })
-                                }
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Wicks before block (default: 4)
-                              </p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label className="text-xs">
-                                Resistance/Support Buffer (%)
-                              </Label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                max="3"
-                                className="glass h-8"
-                                value={
-                                  editingStrategy.config.risk_control
-                                    .resistance_support_pct ?? 1.0
-                                }
-                                onChange={(e) =>
-                                  setEditingStrategy({
-                                    ...editingStrategy,
-                                    config: {
-                                      ...editingStrategy.config,
-                                      risk_control: {
-                                        ...editingStrategy.config.risk_control,
-                                        resistance_support_pct: parseFloat(
-                                          e.target.value
-                                        ),
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Volume vs average (default: 40%)
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Max Wick Rejections
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  min="1"
+                                  max="5"
+                                  className="glass h-8"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .max_wick_rejection_count ?? 4
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config.risk_control,
+                                          max_wick_rejection_count: parseInt(
+                                            e.target.value
+                                          ),
+                                        },
                                       },
-                                    },
-                                  })
-                                }
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Block near highs/lows (default: 1%)
-                              </p>
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Wicks before block (default: 4)
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Resistance/Support Buffer (%)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="3"
+                                  className="glass h-8"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .resistance_support_pct ?? 1.0
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config.risk_control,
+                                          resistance_support_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Block near highs/lows (default: 1%)
+                                </p>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       </div>
                     </div>
