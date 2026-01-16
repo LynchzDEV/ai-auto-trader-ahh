@@ -534,8 +534,27 @@ export default function Strategies() {
       {/* Strategy Editor Modal */}
       <Dialog
         open={!!editingStrategy}
-        onOpenChange={(open) => {
+        onOpenChange={async (open) => {
           if (!open) {
+            // Auto-save changes before closing if there are unsaved edits
+            if (
+              !isCreating &&
+              editingStrategy &&
+              originalStrategy &&
+              JSON.stringify(editingStrategy) !==
+                JSON.stringify(originalStrategy)
+            ) {
+              try {
+                await updateStrategy(editingStrategy.id, {
+                  name: editingStrategy.name,
+                  description: editingStrategy.description,
+                  config: editingStrategy.config,
+                });
+                await loadStrategies();
+              } catch (err: any) {
+                console.error("Failed to auto-save strategy:", err);
+              }
+            }
             setEditingStrategy(null);
             setOriginalStrategy(null);
             setIsCreating(false);
@@ -1721,14 +1740,14 @@ export default function Strategies() {
                             </div>
                             <div className="flex items-center space-x-2 pt-6">
                               <Checkbox
-                                checked={editingStrategy.config.risk_control.trust_ai_for_tpsl ?? false}
+                                checked={editingStrategy.config.risk_control.trust_ai_for_tp_sl ?? false}
                                 onCheckedChange={(c) => setEditingStrategy({
                                   ...editingStrategy,
                                   config: {
                                     ...editingStrategy.config,
                                     risk_control: {
                                       ...editingStrategy.config.risk_control,
-                                      trust_ai_for_tpsl: !!c
+                                      trust_ai_for_tp_sl: !!c
                                     }
                                   }
                                 })}
