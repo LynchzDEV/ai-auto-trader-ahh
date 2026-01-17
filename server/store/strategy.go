@@ -443,6 +443,22 @@ func applyConfigDefaults(cfg *StrategyConfig) {
 	if cfg.RiskControl.MaxLeverage == 0 {
 		cfg.RiskControl.MaxLeverage = defaults.RiskControl.MaxLeverage
 	}
+
+	// Position value ratios - CRITICAL: 0 will block ALL trades
+	if cfg.RiskControl.BTCETHMaxPositionValueRatio == 0 {
+		cfg.RiskControl.BTCETHMaxPositionValueRatio = defaults.RiskControl.BTCETHMaxPositionValueRatio
+	}
+	if cfg.RiskControl.AltcoinMaxPositionValueRatio == 0 {
+		cfg.RiskControl.AltcoinMaxPositionValueRatio = defaults.RiskControl.AltcoinMaxPositionValueRatio
+	}
+
+	// Minimum position sizes - 0 is technically valid but likely unintended
+	if cfg.RiskControl.MinPositionSize == 0 {
+		cfg.RiskControl.MinPositionSize = defaults.RiskControl.MinPositionSize
+	}
+	if cfg.RiskControl.MinPositionSizeBTCETH == 0 {
+		cfg.RiskControl.MinPositionSizeBTCETH = defaults.RiskControl.MinPositionSizeBTCETH
+	}
 }
 
 // StrategyStore handles strategy persistence
