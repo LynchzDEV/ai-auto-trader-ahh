@@ -17,7 +17,7 @@ export interface StrategyConfig {
   trading_interval: number;
   turbo_mode: boolean;
   simple_mode?: boolean;
-  trading_mode?: 'strategy' | 'copy_trade';
+  trading_mode?: "strategy" | "copy_trade";
   // Smart Find Auto-Refresh
   smart_find_auto_refresh?: boolean;
   smart_find_refresh_mins?: number;
@@ -63,10 +63,15 @@ export interface RiskControlConfig {
   max_leverage: number;
   btc_eth_max_leverage: number;
   altcoin_max_leverage: number;
+  // Position value ratios (multiplier of account equity)
+  btc_eth_max_position_value_ratio?: number;
+  altcoin_max_position_value_ratio?: number;
+  // Minimum position sizes
+  min_position_size?: number; // For altcoins (USDT)
+  min_position_size_btc_eth?: number; // For BTC/ETH (USDT)
   max_position_percent: number;
   max_margin_usage: number;
   min_position_usd: number;
-  min_position_size_btc_eth?: number;
   min_confidence: number;
   min_risk_reward_ratio: number;
   // AI TP/SL Freedom - Hybrid mode
@@ -126,7 +131,7 @@ export interface Trader {
   name: string;
   strategy_id: string;
   exchange: string;
-  status: 'running' | 'stopped';
+  status: "running" | "stopped";
   initial_balance: number;
   config: TraderConfig;
   created_at: string;

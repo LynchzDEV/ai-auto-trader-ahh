@@ -272,8 +272,9 @@ export default function Strategies() {
           });
           alert({
             title: "Imported!",
-            description: `Settings from "${importData.name || file.name
-              }" applied. Review and save.`,
+            description: `Settings from "${
+              importData.name || file.name
+            }" applied. Review and save.`,
           });
         }
       } catch (err: any) {
@@ -542,7 +543,7 @@ export default function Strategies() {
               editingStrategy &&
               originalStrategy &&
               JSON.stringify(editingStrategy) !==
-              JSON.stringify(originalStrategy)
+                JSON.stringify(originalStrategy)
             ) {
               try {
                 await updateStrategy(editingStrategy.id, {
@@ -869,7 +870,6 @@ export default function Strategies() {
                       </div>
                     </div>
 
-
                     {/* OI-Based Discovery */}
                     <div className="space-y-3 pt-3 border-t border-white/10">
                       <div className="flex items-center justify-between">
@@ -894,9 +894,7 @@ export default function Strategies() {
                                 },
                               })
                             }
-                            disabled={
-                              !editingStrategy.config.smart_find_use_oi
-                            }
+                            disabled={!editingStrategy.config.smart_find_use_oi}
                           >
                             <SelectTrigger className="w-[130px] h-8 text-xs">
                               <SelectValue />
@@ -926,7 +924,10 @@ export default function Strategies() {
                                   ...editingStrategy.config,
                                   smart_find_use_oi: e.target.checked,
                                   // UX Match: If enabling OI mode, user likely wants to enable the auto-finder too
-                                  smart_find_auto_refresh: e.target.checked ? true : editingStrategy.config.smart_find_auto_refresh,
+                                  smart_find_auto_refresh: e.target.checked
+                                    ? true
+                                    : editingStrategy.config
+                                        .smart_find_auto_refresh,
                                 },
                               })
                             }
@@ -935,9 +936,14 @@ export default function Strategies() {
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Use Open Interest data (CoinAnk) to find "Smart Money" movements.
-                        <strong> Enabling this automatically activates Auto Smart Find.</strong>
-                        Requires COINANK_API_KEY (falls back to Binance scan if missing).
+                        Use Open Interest data (CoinAnk) to find "Smart Money"
+                        movements.
+                        <strong>
+                          {" "}
+                          Enabling this automatically activates Auto Smart Find.
+                        </strong>
+                        Requires COINANK_API_KEY (falls back to Binance scan if
+                        missing).
                       </p>
                     </div>
 
@@ -954,7 +960,7 @@ export default function Strategies() {
                           <Select
                             value={String(
                               editingStrategy.config.smart_find_refresh_mins ||
-                              60
+                                60
                             )}
                             onValueChange={(v) =>
                               setEditingStrategy({
@@ -1154,10 +1160,11 @@ export default function Strategies() {
                               className="mr-2 data-[state=checked]:bg-yellow-400 data-[state=checked]:border-yellow-400 data-[state=checked]:text-black"
                             />
                             <span
-                              className={`text-sm ${editingStrategy.config.turbo_mode
-                                ? "text-yellow-400 font-bold"
-                                : "text-muted-foreground"
-                                }`}
+                              className={`text-sm ${
+                                editingStrategy.config.turbo_mode
+                                  ? "text-yellow-400 font-bold"
+                                  : "text-muted-foreground"
+                              }`}
                             >
                               {editingStrategy.config.turbo_mode
                                 ? "AGGRESSIVE (HIGH VOLATILITY)"
@@ -1189,10 +1196,11 @@ export default function Strategies() {
                               className="mr-2 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-black"
                             />
                             <span
-                              className={`text-sm ${editingStrategy.config.simple_mode
-                                ? "text-green-400 font-bold"
-                                : "text-muted-foreground"
-                                }`}
+                              className={`text-sm ${
+                                editingStrategy.config.simple_mode
+                                  ? "text-green-400 font-bold"
+                                  : "text-muted-foreground"
+                              }`}
                             >
                               {editingStrategy.config.simple_mode
                                 ? "ENABLED: Trust SL/TP, no early exits"
@@ -1247,7 +1255,7 @@ export default function Strategies() {
                             <Checkbox
                               checked={
                                 (editingStrategy.config.indicators as any)[
-                                ind.key
+                                  ind.key
                                 ]
                               }
                               onCheckedChange={(checked) =>
@@ -1407,12 +1415,15 @@ export default function Strategies() {
                           <div className="flex justify-between items-center">
                             <Label>BTC/ETH Leverage</Label>
                             <span className="text-sm font-mono text-primary">
-                              {editingStrategy.config.risk_control.btc_eth_max_leverage ?? 10}x
+                              {editingStrategy.config.risk_control
+                                .btc_eth_max_leverage ?? 10}
+                              x
                             </span>
                           </div>
                           <Slider
                             value={[
-                              editingStrategy.config.risk_control.btc_eth_max_leverage ?? 10,
+                              editingStrategy.config.risk_control
+                                .btc_eth_max_leverage ?? 10,
                             ]}
                             onValueChange={([v]) =>
                               setEditingStrategy({
@@ -1438,12 +1449,15 @@ export default function Strategies() {
                           <div className="flex justify-between items-center">
                             <Label>Altcoin Leverage</Label>
                             <span className="text-sm font-mono text-primary">
-                              {editingStrategy.config.risk_control.altcoin_max_leverage ?? 10}x
+                              {editingStrategy.config.risk_control
+                                .altcoin_max_leverage ?? 10}
+                              x
                             </span>
                           </div>
                           <Slider
                             value={[
-                              editingStrategy.config.risk_control.altcoin_max_leverage ?? 10,
+                              editingStrategy.config.risk_control
+                                .altcoin_max_leverage ?? 10,
                             ]}
                             onValueChange={([v]) =>
                               setEditingStrategy({
@@ -1596,6 +1610,64 @@ export default function Strategies() {
                           </p>
                         </div>
                         <div className="space-y-2">
+                          <Label>BTC/ETH Position Ratio</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={
+                              editingStrategy.config.risk_control
+                                .btc_eth_max_position_value_ratio ?? 5.0
+                            }
+                            onChange={(e) =>
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  risk_control: {
+                                    ...editingStrategy.config.risk_control,
+                                    btc_eth_max_position_value_ratio:
+                                      parseFloat(e.target.value),
+                                  },
+                                },
+                              })
+                            }
+                            className="glass"
+                            placeholder="5.0"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Max position = equity × ratio (5.0 = 5x equity)
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Altcoin Position Ratio</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={
+                              editingStrategy.config.risk_control
+                                .altcoin_max_position_value_ratio ?? 1.0
+                            }
+                            onChange={(e) =>
+                              setEditingStrategy({
+                                ...editingStrategy,
+                                config: {
+                                  ...editingStrategy.config,
+                                  risk_control: {
+                                    ...editingStrategy.config.risk_control,
+                                    altcoin_max_position_value_ratio:
+                                      parseFloat(e.target.value),
+                                  },
+                                },
+                              })
+                            }
+                            className="glass"
+                            placeholder="1.0"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Max position = equity × ratio (1.0 = 1x equity)
+                          </p>
+                        </div>
+                        <div className="space-y-2">
                           <Label>Min Risk/Reward</Label>
                           <Input
                             type="number"
@@ -1718,17 +1790,24 @@ export default function Strategies() {
                                 type="number"
                                 step="0.1"
                                 className="glass h-8"
-                                value={editingStrategy.config.risk_control.min_sl_percent ?? 2.0}
-                                onChange={(e) => setEditingStrategy({
-                                  ...editingStrategy,
-                                  config: {
-                                    ...editingStrategy.config,
-                                    risk_control: {
-                                      ...editingStrategy.config.risk_control,
-                                      min_sl_percent: parseFloat(e.target.value)
-                                    }
-                                  }
-                                })}
+                                value={
+                                  editingStrategy.config.risk_control
+                                    .min_sl_percent ?? 2.0
+                                }
+                                onChange={(e) =>
+                                  setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        min_sl_percent: parseFloat(
+                                          e.target.value
+                                        ),
+                                      },
+                                    },
+                                  })
+                                }
                               />
                             </div>
                             <div className="space-y-2">
@@ -1737,54 +1816,77 @@ export default function Strategies() {
                                 type="number"
                                 step="0.1"
                                 className="glass h-8"
-                                value={editingStrategy.config.risk_control.max_sl_percent ?? 5.0}
-                                onChange={(e) => setEditingStrategy({
-                                  ...editingStrategy,
-                                  config: {
-                                    ...editingStrategy.config,
-                                    risk_control: {
-                                      ...editingStrategy.config.risk_control,
-                                      max_sl_percent: parseFloat(e.target.value)
-                                    }
-                                  }
-                                })}
+                                value={
+                                  editingStrategy.config.risk_control
+                                    .max_sl_percent ?? 5.0
+                                }
+                                onChange={(e) =>
+                                  setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        max_sl_percent: parseFloat(
+                                          e.target.value
+                                        ),
+                                      },
+                                    },
+                                  })
+                                }
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-xs">Min Take Profit %</Label>
+                              <Label className="text-xs">
+                                Min Take Profit %
+                              </Label>
                               <Input
                                 type="number"
                                 step="0.1"
                                 className="glass h-8"
-                                value={editingStrategy.config.risk_control.min_tp_percent ?? 3.0}
-                                onChange={(e) => setEditingStrategy({
-                                  ...editingStrategy,
-                                  config: {
-                                    ...editingStrategy.config,
-                                    risk_control: {
-                                      ...editingStrategy.config.risk_control,
-                                      min_tp_percent: parseFloat(e.target.value)
-                                    }
-                                  }
-                                })}
+                                value={
+                                  editingStrategy.config.risk_control
+                                    .min_tp_percent ?? 3.0
+                                }
+                                onChange={(e) =>
+                                  setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        min_tp_percent: parseFloat(
+                                          e.target.value
+                                        ),
+                                      },
+                                    },
+                                  })
+                                }
                               />
                             </div>
                             <label className="flex items-center gap-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20 cursor-pointer hover:bg-blue-400/10 transition-colors">
                               <Checkbox
-                                checked={editingStrategy.config.risk_control.trust_ai_for_tp_sl ?? false}
-                                onCheckedChange={(c) => setEditingStrategy({
-                                  ...editingStrategy,
-                                  config: {
-                                    ...editingStrategy.config,
-                                    risk_control: {
-                                      ...editingStrategy.config.risk_control,
-                                      trust_ai_for_tp_sl: !!c
-                                    }
-                                  }
-                                })}
+                                checked={
+                                  editingStrategy.config.risk_control
+                                    .trust_ai_for_tp_sl ?? false
+                                }
+                                onCheckedChange={(c) =>
+                                  setEditingStrategy({
+                                    ...editingStrategy,
+                                    config: {
+                                      ...editingStrategy.config,
+                                      risk_control: {
+                                        ...editingStrategy.config.risk_control,
+                                        trust_ai_for_tp_sl: !!c,
+                                      },
+                                    },
+                                  })
+                                }
                                 className="data-[state=checked]:bg-blue-400 data-[state=checked]:border-blue-400 data-[state=checked]:text-black"
                               />
-                              <span className="text-xs font-medium text-blue-300">Trust AI Custom TP/SL</span>
+                              <span className="text-xs font-medium text-blue-300">
+                                Trust AI Custom TP/SL
+                              </span>
                             </label>
                           </div>
                         </div>
@@ -1960,73 +2062,73 @@ export default function Strategies() {
 
                           {editingStrategy.config.risk_control
                             .enable_trailing_stop && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Activate at Price %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .trailing_stop_activate_pct ?? 1.0
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            trailing_stop_activate_pct:
-                                              parseFloat(e.target.value),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Activate at Price %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .trailing_stop_activate_pct ?? 1.0
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          trailing_stop_activate_pct:
+                                            parseFloat(e.target.value),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="1.0"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Price move to activate (not ROE)
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Trail Distance %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .trailing_stop_distance_pct ?? 0.5
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            trailing_stop_distance_pct:
-                                              parseFloat(e.target.value),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="0.5"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Trail behind peak price
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="1.0"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Price move to activate (not ROE)
+                                </p>
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Trail Distance %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .trailing_stop_distance_pct ?? 0.5
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          trailing_stop_distance_pct:
+                                            parseFloat(e.target.value),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.5"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Trail behind peak price
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Guaranteed Minimum Profit */}
@@ -2064,74 +2166,74 @@ export default function Strategies() {
 
                           {editingStrategy.config.risk_control
                             .enable_guaranteed_profit && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Activate at Profit %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .guaranteed_profit_activate_pct ?? 0.3
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            guaranteed_profit_activate_pct:
-                                              parseFloat(e.target.value),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Activate at Profit %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .guaranteed_profit_activate_pct ?? 0.3
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          guaranteed_profit_activate_pct:
+                                            parseFloat(e.target.value),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="0.3"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Profit % to activate guarantee
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Minimum Profit %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .guaranteed_min_profit_pct ?? 0.1
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            guaranteed_min_profit_pct: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="0.1"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Guaranteed minimum profit to lock in
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.3"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Profit % to activate guarantee
+                                </p>
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Minimum Profit %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .guaranteed_min_profit_pct ?? 0.1
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          guaranteed_min_profit_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.1"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Guaranteed minimum profit to lock in
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Max Hold Duration */}
@@ -2168,48 +2270,48 @@ export default function Strategies() {
 
                           {editingStrategy.config.risk_control
                             .enable_max_hold_duration && (
-                              <div className="grid grid-cols-1 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Max Hold (minutes)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .max_hold_duration_mins ?? 240
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            max_hold_duration_mins: parseInt(
-                                              e.target.value
-                                            ),
-                                          },
+                            <div className="grid grid-cols-1 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Max Hold (minutes)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .max_hold_duration_mins ?? 240
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          max_hold_duration_mins: parseInt(
+                                            e.target.value
+                                          ),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="240"
-                                  />
-                                  <p className="text-xs text-muted-foreground">
-                                    {Math.floor(
-                                      (editingStrategy.config.risk_control
-                                        .max_hold_duration_mins ?? 240) / 60
-                                    )}
-                                    h{" "}
-                                    {(editingStrategy.config.risk_control
-                                      .max_hold_duration_mins ?? 240) % 60}
-                                    m
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="240"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  {Math.floor(
+                                    (editingStrategy.config.risk_control
+                                      .max_hold_duration_mins ?? 240) / 60
+                                  )}
+                                  h{" "}
+                                  {(editingStrategy.config.risk_control
+                                    .max_hold_duration_mins ?? 240) % 60}
+                                  m
+                                </p>
                               </div>
-                            )}
+                            </div>
+                          )}
                         </div>
 
                         {/* Smart Loss Cut */}
@@ -2246,72 +2348,72 @@ export default function Strategies() {
 
                           {editingStrategy.config.risk_control
                             .enable_smart_loss_cut && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Time Underwater (mins)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .smart_loss_cut_mins ?? 30
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            smart_loss_cut_mins: parseInt(
-                                              e.target.value
-                                            ),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Time Underwater (mins)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .smart_loss_cut_mins ?? 30
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          smart_loss_cut_mins: parseInt(
+                                            e.target.value
+                                          ),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="30"
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Loss Threshold (Price %)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    min="-100"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .smart_loss_cut_pct ?? -1.0
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            smart_loss_cut_pct: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="-1.0"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Raw price move, not ROE
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="30"
+                                />
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Loss Threshold (Price %)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="-100"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .smart_loss_cut_pct ?? -1.0
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          smart_loss_cut_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="-1.0"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Raw price move, not ROE
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Noise Zone Protection */}
@@ -2348,140 +2450,140 @@ export default function Strategies() {
                           </label>
                           {editingStrategy.config.risk_control
                             .enable_noise_zone_protection && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Lower Bound (Price %)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    min="-100"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .noise_zone_lower_bound ?? -1.5
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            noise_zone_lower_bound: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Lower Bound (Price %)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="-100"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .noise_zone_lower_bound ?? -1.5
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          noise_zone_lower_bound: parseFloat(
+                                            e.target.value
+                                          ),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="-1.5"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Below this = allow loss cut
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Upper Bound (Price %)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .noise_zone_upper_bound ?? 1.5
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            noise_zone_upper_bound: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="1.5"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Above this = allow profit take
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Min Hold (mins)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .min_hold_before_close ?? 10
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            min_hold_before_close: parseInt(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="10"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Min time before AI can close
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Override Confidence %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .high_confidence_close_threshold ?? 95
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            high_confidence_close_threshold:
-                                              parseFloat(e.target.value),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="95"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    AI confidence to override noise zone
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="-1.5"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Below this = allow loss cut
+                                </p>
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Upper Bound (Price %)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .noise_zone_upper_bound ?? 1.5
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          noise_zone_upper_bound: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="1.5"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Above this = allow profit take
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Min Hold (mins)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .min_hold_before_close ?? 10
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          min_hold_before_close: parseInt(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="10"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Min time before AI can close
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Override Confidence %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .high_confidence_close_threshold ?? 95
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          high_confidence_close_threshold:
+                                            parseFloat(e.target.value),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="95"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  AI confidence to override noise zone
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Signal Confirmation */}
@@ -2518,106 +2620,106 @@ export default function Strategies() {
                           </label>
                           {editingStrategy.config.risk_control
                             .enable_signal_confirmation && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Confirmation Delay (sec)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .signal_confirmation_delay_sec ?? 60
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            signal_confirmation_delay_sec:
-                                              parseInt(e.target.value),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Confirmation Delay (sec)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .signal_confirmation_delay_sec ?? 60
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          signal_confirmation_delay_sec:
+                                            parseInt(e.target.value),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="60"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Wait time before re-checking AI
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    High Confidence % (skip delay)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .high_confidence_threshold ?? 90
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            high_confidence_threshold: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="90"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Signals above this execute immediately
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Price Stability %
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .price_stability_check_pct ?? 0.5
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            price_stability_check_pct: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="0.5"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Block if price moves more than this
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="60"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Wait time before re-checking AI
+                                </p>
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  High Confidence % (skip delay)
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .high_confidence_threshold ?? 90
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          high_confidence_threshold: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="90"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Signals above this execute immediately
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Price Stability %
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .price_stability_check_pct ?? 0.5
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          price_stability_check_pct: parseFloat(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="0.5"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Block if price moves more than this
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Auto-Avoid Worst Symbols */}
@@ -2647,81 +2749,80 @@ export default function Strategies() {
                                 Auto-Avoid Worst Symbols
                               </span>
                               <p className="text-xs text-muted-foreground">
-                                Automatically blacklist symbols with consistent losses (24h)
+                                Automatically blacklist symbols with consistent
+                                losses (24h)
                               </p>
                             </div>
                           </label>
 
                           {editingStrategy.config.risk_control
                             .enable_auto_avoid_worst_symbols && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Min Loss ($)
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .auto_avoid_min_loss_24h ?? 5.0
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            auto_avoid_min_loss_24h: parseFloat(
-                                              e.target.value
-                                            ),
-                                          },
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs">Min Loss ($)</Label>
+                                <Input
+                                  type="number"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .auto_avoid_min_loss_24h ?? 5.0
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          auto_avoid_min_loss_24h: parseFloat(
+                                            e.target.value
+                                          ),
                                         },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="5.0"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Total 24h loss to trigger avoid
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-xs">
-                                    Min Trades Count
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="1"
-                                    value={
-                                      editingStrategy.config.risk_control
-                                        .auto_avoid_min_trades_24h ?? 2
-                                    }
-                                    onChange={(e) =>
-                                      setEditingStrategy({
-                                        ...editingStrategy,
-                                        config: {
-                                          ...editingStrategy.config,
-                                          risk_control: {
-                                            ...editingStrategy.config
-                                              .risk_control,
-                                            auto_avoid_min_trades_24h: parseInt(
-                                              e.target.value
-                                            ),
-                                          },
-                                        },
-                                      })
-                                    }
-                                    className="glass h-8 text-sm"
-                                    placeholder="2"
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Min number of trades before avoiding
-                                  </p>
-                                </div>
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="5.0"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Total 24h loss to trigger avoid
+                                </p>
                               </div>
-                            )}
+                              <div className="space-y-2">
+                                <Label className="text-xs">
+                                  Min Trades Count
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={
+                                    editingStrategy.config.risk_control
+                                      .auto_avoid_min_trades_24h ?? 2
+                                  }
+                                  onChange={(e) =>
+                                    setEditingStrategy({
+                                      ...editingStrategy,
+                                      config: {
+                                        ...editingStrategy.config,
+                                        risk_control: {
+                                          ...editingStrategy.config
+                                            .risk_control,
+                                          auto_avoid_min_trades_24h: parseInt(
+                                            e.target.value
+                                          ),
+                                        },
+                                      },
+                                    })
+                                  }
+                                  className="glass h-8 text-sm"
+                                  placeholder="2"
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Min number of trades before avoiding
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* High Wick Warning */}
@@ -2751,7 +2852,8 @@ export default function Strategies() {
                                 High Wick Warning
                               </span>
                               <p className="text-xs text-muted-foreground">
-                                Warn AI about large rejection wicks (Potential Reversal)
+                                Warn AI about large rejection wicks (Potential
+                                Reversal)
                               </p>
                             </div>
                           </label>
@@ -2792,7 +2894,8 @@ export default function Strategies() {
                               </p>
                             </div>
                           </label>
-                          {editingStrategy.config.risk_control.enable_entry_safety_checks !== false && (
+                          {editingStrategy.config.risk_control
+                            .enable_entry_safety_checks !== false && (
                             <div className="grid grid-cols-2 gap-4 pt-2 border-t border-cyan-400/10">
                               <div className="space-y-2">
                                 <Label className="text-xs">
@@ -2814,7 +2917,8 @@ export default function Strategies() {
                                       config: {
                                         ...editingStrategy.config,
                                         risk_control: {
-                                          ...editingStrategy.config.risk_control,
+                                          ...editingStrategy.config
+                                            .risk_control,
                                           min_ema_spread_pct: parseFloat(
                                             e.target.value
                                           ),
@@ -2847,7 +2951,8 @@ export default function Strategies() {
                                       config: {
                                         ...editingStrategy.config,
                                         risk_control: {
-                                          ...editingStrategy.config.risk_control,
+                                          ...editingStrategy.config
+                                            .risk_control,
                                           min_volume_ratio_pct: parseFloat(
                                             e.target.value
                                           ),
@@ -2880,7 +2985,8 @@ export default function Strategies() {
                                       config: {
                                         ...editingStrategy.config,
                                         risk_control: {
-                                          ...editingStrategy.config.risk_control,
+                                          ...editingStrategy.config
+                                            .risk_control,
                                           max_wick_rejection_count: parseInt(
                                             e.target.value
                                           ),
@@ -2913,7 +3019,8 @@ export default function Strategies() {
                                       config: {
                                         ...editingStrategy.config,
                                         risk_control: {
-                                          ...editingStrategy.config.risk_control,
+                                          ...editingStrategy.config
+                                            .risk_control,
                                           resistance_support_pct: parseFloat(
                                             e.target.value
                                           ),
@@ -2946,7 +3053,8 @@ export default function Strategies() {
                                       config: {
                                         ...editingStrategy.config,
                                         risk_control: {
-                                          ...editingStrategy.config.risk_control,
+                                          ...editingStrategy.config
+                                            .risk_control,
                                           ema_trend_tolerance_pct: parseFloat(
                                             e.target.value
                                           ),
@@ -3044,7 +3152,7 @@ export default function Strategies() {
                         (!editingStrategy ||
                           !originalStrategy ||
                           JSON.stringify(editingStrategy) ===
-                          JSON.stringify(originalStrategy))
+                            JSON.stringify(originalStrategy))
                       }
                       className="flex-1 sm:flex-none"
                     >
