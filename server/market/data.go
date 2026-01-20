@@ -46,6 +46,12 @@ type MarketData struct {
 	LiquidationPressure string // LONG_LIQUIDATION, SHORT_LIQUIDATION, NONE
 	LiquidationSeverity string // HIGH, MEDIUM, LOW, NONE
 	LiquidationMessage  string // Human-readable explanation
+	// Move Maturity Indicator (Task 1.2)
+	// Tracks how "old" the current trend move is based on EMA crossover
+	// Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
+	MoveMaturity       string // EARLY (1-5 candles), MID (6-12), LATE (13-20), EXHAUSTED (>20)
+	CandlesSinceCross  int    // Number of candles since last EMA9/EMA21 crossover
+	MoveMaturityScore  int    // 1-4 score (1=EARLY best for entry, 4=EXHAUSTED worst)
 }
 
 type DataProvider struct {
@@ -127,22 +133,30 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 		nextFundingTime = fundingInfo.NextFundingTime
 	}
 
+	// Calculate Move Maturity (Task 1.2)
+	// Count candles since last EMA9/EMA21 crossover to determine how "old" the move is
+	// Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
+	candlesSinceCross, moveMaturity, maturityScore := calculateMoveMaturity(closes, 9, 21)
+
 	return &MarketData{
-		Symbol:          symbol,
-		CurrentPrice:    ticker.Price,
-		Klines:          klines,
-		EMA9:            ema9,
-		EMA21:           ema21,
-		RSI:             rsi,
-		MACD:            macd,
-		MACDSignal:      signal,
-		MACDHist:        hist,
-		ATR:             atr,
-		Volume24h:       volume24h,
-		PriceChange24h:  priceChange24h,
-		Trend:           trend,
-		FundingRate:     fundingRate,
-		NextFundingTime: nextFundingTime,
+		Symbol:            symbol,
+		CurrentPrice:      ticker.Price,
+		Klines:            klines,
+		EMA9:              ema9,
+		EMA21:             ema21,
+		RSI:               rsi,
+		MACD:              macd,
+		MACDSignal:        signal,
+		MACDHist:          hist,
+		ATR:               atr,
+		Volume24h:         volume24h,
+		PriceChange24h:    priceChange24h,
+		Trend:             trend,
+		FundingRate:       fundingRate,
+		NextFundingTime:   nextFundingTime,
+		MoveMaturity:      moveMaturity,
+		CandlesSinceCross: candlesSinceCross,
+		MoveMaturityScore: maturityScore,
 	}, nil
 }
 
@@ -346,6 +360,25 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 	sb.WriteString(fmt.Sprintf("--- Overall Trend: %s ---\n", data.Trend))
 	if data.Trend == "NEUTRAL" {
 		sb.WriteString("⚠️ SIDEWAYS MARKET: NO CLEAR TREND. HOLDING IS RECOMMENDED.\n")
+	}
+	sb.WriteString("\n")
+
+	// Move Maturity Indicator (Task 1.2)
+	// Shows how "old" the current trend move is based on EMA crossover
+	sb.WriteString("--- Move Maturity ---\n")
+	sb.WriteString(fmt.Sprintf("Candles Since EMA Cross: %d\n", data.CandlesSinceCross))
+	sb.WriteString(fmt.Sprintf("Move Maturity: %s", data.MoveMaturity))
+	switch data.MoveMaturity {
+	case "EARLY":
+		sb.WriteString(" ✅ [BEST for entry - fresh trend, low risk]\n")
+	case "MID":
+		sb.WriteString(" ✅ [OK for entry - trend confirmed]\n")
+	case "LATE":
+		sb.WriteString(" ⚠️ [CAUTION - trend extended, wait for pullback]\n")
+	case "EXHAUSTED":
+		sb.WriteString(" 🚫 [AVOID entry - trend too old, high reversal risk]\n")
+	default:
+		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
 
@@ -727,4 +760,75 @@ func calculateATR(highs, lows, closes []float64, period int) float64 {
 	}
 
 	return trSum / float64(period)
+}
+
+// calculateMoveMaturity calculates how many candles since the last EMA crossover
+// and classifies the move maturity as EARLY, MID, LATE, or EXHAUSTED
+// This helps identify if we're entering early in a trend or chasing a late move
+// Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
+func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int) (candlesSinceCross int, maturity string, score int) {
+	if len(closes) < longPeriod+10 {
+		return 0, "UNKNOWN", 0
+	}
+
+	// Calculate EMA series for each candle to find crossover point
+	// We need to walk through the data to find where EMA9 crossed EMA21
+	shortMultiplier := 2.0 / float64(shortPeriod+1)
+	longMultiplier := 2.0 / float64(longPeriod+1)
+
+	// Initialize SMAs
+	var shortSum, longSum float64
+	for i := 0; i < shortPeriod; i++ {
+		shortSum += closes[i]
+	}
+	shortEMA := shortSum / float64(shortPeriod)
+
+	for i := 0; i < longPeriod; i++ {
+		longSum += closes[i]
+	}
+	longEMA := longSum / float64(longPeriod)
+
+	// Track the last crossover position
+	lastCrossIndex := longPeriod // Start from where we have both EMAs
+	prevShortAbove := shortEMA > longEMA
+
+	// Walk through remaining candles to find most recent crossover
+	for i := longPeriod; i < len(closes); i++ {
+		// Update EMAs
+		shortEMA = (closes[i]-shortEMA)*shortMultiplier + shortEMA
+		longEMA = (closes[i]-longEMA)*longMultiplier + longEMA
+
+		currentShortAbove := shortEMA > longEMA
+
+		// Detect crossover
+		if currentShortAbove != prevShortAbove {
+			lastCrossIndex = i
+			prevShortAbove = currentShortAbove
+		}
+	}
+
+	// Calculate candles since last crossover
+	candlesSinceCross = len(closes) - 1 - lastCrossIndex
+
+	// Classify maturity
+	// EARLY: 1-5 candles (best for entry - fresh trend)
+	// MID: 6-12 candles (acceptable entry - trend confirmed)
+	// LATE: 13-20 candles (caution - trend may be extended)
+	// EXHAUSTED: >20 candles (avoid entry - wait for pullback or reversal)
+	switch {
+	case candlesSinceCross <= 5:
+		maturity = "EARLY"
+		score = 1
+	case candlesSinceCross <= 12:
+		maturity = "MID"
+		score = 2
+	case candlesSinceCross <= 20:
+		maturity = "LATE"
+		score = 3
+	default:
+		maturity = "EXHAUSTED"
+		score = 4
+	}
+
+	return candlesSinceCross, maturity, score
 }
