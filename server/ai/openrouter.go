@@ -572,12 +572,19 @@ Evaluate if current price is a GOOD ENTRY POINT. You do NOT manage positions.
 ## WAIT_FOR OPTIONS (use when entry_quality is WAIT)
 - "pullback_to_ema9" - wait for price to retrace to EMA9
 - "pullback_to_ema21" - wait for deeper pullback to EMA21
-- "rsi_below_X" - wait for RSI to drop below X (e.g., "rsi_below_45")
-- "rsi_above_X" - wait for RSI to rise above X
-- "bullish_candle" - wait for bullish confirmation candle
+- "rsi_long_pullback" - FOR LONGS: wait for RSI to pull back to 40-50 zone (ideal: 45)
+- "rsi_short_pullback" - FOR SHORTS: wait for RSI to bounce to 50-60 zone (ideal: 55)
+- "bullish_candle" - wait for bullish confirmation candle (hammer, engulfing, pin bar)
 - "bearish_candle" - wait for bearish confirmation candle
 - "volume_increase" - wait for volume spike confirmation
-- "macd_cross" - wait for MACD line to cross signal`
+- "macd_cross" - wait for MACD line to cross signal
+
+## RSI RESEARCH-BASED THRESHOLDS
+Reference: https://indicatorvault.com/5-basic-pullback-trading-strategy-with-the-rsi/
+- LONG pullback entry: RSI should drop to 40-50 zone, then bounce
+- SHORT pullback entry: RSI should rise to 50-60 zone, then turn down
+- Avoid LONG when RSI > 70 (overbought)
+- Avoid SHORT when RSI < 30 (oversold)`
 
 	messages := []Message{
 		{Role: "system", Content: systemPrompt},

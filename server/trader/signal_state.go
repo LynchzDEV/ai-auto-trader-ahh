@@ -39,6 +39,26 @@ const (
 	TriggerMACDCross     = "macd_cross"        // MACD crosses signal line
 )
 
+// RSI Thresholds based on research
+// Reference: https://indicatorvault.com/5-basic-pullback-trading-strategy-with-the-rsi/
+// "In an uptrend, look for RSI to pull back toward the 40–50 zone, then bounce upward"
+// "In a downtrend, watch RSI rise toward 50–60 before turning lower again"
+const (
+	// For LONG entries: wait for RSI to pull back to this zone
+	RSILongPullbackUpper = 50.0 // RSI should drop below this
+	RSILongPullbackLower = 40.0 // Ideal entry zone lower bound
+	RSILongPullbackIdeal = 45.0 // Sweet spot for LONG pullback entry
+
+	// For SHORT entries: wait for RSI to bounce to this zone
+	RSIShortPullbackLower = 50.0 // RSI should rise above this
+	RSIShortPullbackUpper = 60.0 // Ideal entry zone upper bound
+	RSIShortPullbackIdeal = 55.0 // Sweet spot for SHORT pullback entry
+
+	// Extreme levels (avoid entry)
+	RSIOverbought = 70.0 // Avoid LONG entries above this
+	RSIOversold   = 30.0 // Avoid SHORT entries below this
+)
+
 // Signal represents a trading signal waiting for trigger conditions
 // Two-phase entry: Signal (AI identifies opportunity) → Trigger (code determines timing)
 type Signal struct {
@@ -317,22 +337,35 @@ func CreateSignalFromAssessment(symbol string, direction string, entryQuality st
 			Met:  false,
 		}
 
-		// Set description based on type
+		// Set description and target values based on type
+		// RSI thresholds based on research: https://indicatorvault.com/5-basic-pullback-trading-strategy-with-the-rsi/
 		switch waitType {
 		case TriggerPullbackEMA9:
 			condition.Description = "Wait for price pullback to EMA9"
 		case TriggerPullbackEMA21:
 			condition.Description = "Wait for price pullback to EMA21"
 		case TriggerBullishCandle:
-			condition.Description = "Wait for bullish confirmation candle"
+			condition.Description = "Wait for bullish confirmation candle (hammer, engulfing, pin bar)"
 		case TriggerBearishCandle:
 			condition.Description = "Wait for bearish confirmation candle"
 		case TriggerVolumeSpike:
 			condition.Description = "Wait for volume increase confirmation"
 		case TriggerMACDCross:
 			condition.Description = "Wait for MACD to cross signal line"
+		case "rsi_long_pullback":
+			// Research: "In an uptrend, look for RSI to pull back toward the 40–50 zone"
+			condition.Type = TriggerRSIBelow
+			condition.TargetValue = RSILongPullbackUpper // 50
+			condition.Description = fmt.Sprintf("Wait for RSI to pull back below %.0f (ideal zone: %.0f-%.0f)",
+				RSILongPullbackUpper, RSILongPullbackLower, RSILongPullbackUpper)
+		case "rsi_short_pullback":
+			// Research: "In a downtrend, watch RSI rise toward 50–60 before turning lower"
+			condition.Type = TriggerRSIAbove
+			condition.TargetValue = RSIShortPullbackLower // 50
+			condition.Description = fmt.Sprintf("Wait for RSI to bounce above %.0f (ideal zone: %.0f-%.0f)",
+				RSIShortPullbackLower, RSIShortPullbackLower, RSIShortPullbackUpper)
 		default:
-			// Handle RSI conditions with target value
+			// Handle legacy RSI conditions with target value (rsi_below_X, rsi_above_X)
 			if len(waitType) > 10 && waitType[:10] == "rsi_below_" {
 				condition.Description = fmt.Sprintf("Wait for RSI below %s", waitType[10:])
 			} else if len(waitType) > 10 && waitType[:10] == "rsi_above_" {

@@ -48,8 +48,9 @@ type MarketData struct {
 	LiquidationMessage  string // Human-readable explanation
 	// Move Maturity Indicator (Task 1.2)
 	// Tracks how "old" the current trend move is based on EMA crossover
-	// Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
-	MoveMaturity       string // EARLY (1-5 candles), MID (6-12), LATE (13-20), EXHAUSTED (>20)
+	// Reference: https://www.stockforecasttoday.com/post/swing-trading-examples-using-cycle-timing-and-price-structure
+	// "Short-term cycle trades might last 3–7 sessions"
+	MoveMaturity       string // EARLY (1-7 candles), MID (8-14), LATE (15-21), EXHAUSTED (>21)
 	CandlesSinceCross  int    // Number of candles since last EMA9/EMA21 crossover
 	MoveMaturityScore  int    // 1-4 score (1=EARLY best for entry, 4=EXHAUSTED worst)
 }
@@ -370,13 +371,13 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 	sb.WriteString(fmt.Sprintf("Move Maturity: %s", data.MoveMaturity))
 	switch data.MoveMaturity {
 	case "EARLY":
-		sb.WriteString(" ✅ [BEST for entry - fresh trend, low risk]\n")
+		sb.WriteString(" ✅ [BEST for entry - within 3-7 session sweet spot]\n")
 	case "MID":
-		sb.WriteString(" ✅ [OK for entry - trend confirmed]\n")
+		sb.WriteString(" ✅ [OK for entry - trend confirmed but aging]\n")
 	case "LATE":
-		sb.WriteString(" ⚠️ [CAUTION - trend extended, wait for pullback]\n")
+		sb.WriteString(" ⚠️ [CAUTION - approaching cycle end, wait for pullback]\n")
 	case "EXHAUSTED":
-		sb.WriteString(" 🚫 [AVOID entry - trend too old, high reversal risk]\n")
+		sb.WriteString(" 🚫 [AVOID entry - cycle exhausted, high reversal risk]\n")
 	default:
 		sb.WriteString("\n")
 	}
@@ -810,19 +811,21 @@ func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int) (candl
 	// Calculate candles since last crossover
 	candlesSinceCross = len(closes) - 1 - lastCrossIndex
 
-	// Classify maturity
-	// EARLY: 1-5 candles (best for entry - fresh trend)
-	// MID: 6-12 candles (acceptable entry - trend confirmed)
-	// LATE: 13-20 candles (caution - trend may be extended)
-	// EXHAUSTED: >20 candles (avoid entry - wait for pullback or reversal)
+	// Classify maturity based on research:
+	// Reference: https://www.stockforecasttoday.com/post/swing-trading-examples-using-cycle-timing-and-price-structure
+	// "Short-term cycle trades might last 3–7 sessions"
+	// EARLY: 1-7 candles (best for entry - within short-term cycle window)
+	// MID: 8-14 candles (acceptable entry - trend confirmed but aging)
+	// LATE: 15-21 candles (caution - approaching intermediate cycle end)
+	// EXHAUSTED: >21 candles (avoid entry - wait for pullback or reversal)
 	switch {
-	case candlesSinceCross <= 5:
+	case candlesSinceCross <= 7:
 		maturity = "EARLY"
 		score = 1
-	case candlesSinceCross <= 12:
+	case candlesSinceCross <= 14:
 		maturity = "MID"
 		score = 2
-	case candlesSinceCross <= 20:
+	case candlesSinceCross <= 21:
 		maturity = "LATE"
 		score = 3
 	default:
