@@ -3863,11 +3863,12 @@ func (e *Engine) saveDailyLossState() {
 // =============================================================================
 
 // startDrawdownMonitor starts background goroutine for drawdown checks
+// Runs every 5 seconds (was 10) to catch fast profit spikes on volatile altcoins
 func (e *Engine) startDrawdownMonitor(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	log.Printf("[%s] Drawdown monitor started", e.name)
+	log.Printf("[%s] Drawdown monitor started (5s interval)", e.name)
 
 	for {
 		select {
@@ -4038,11 +4039,16 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 				minProfitPct = 0.1 // Default: guarantee at least 0.1% profit
 			}
 
-			// Get peak P&L (already updated by trailing stop or update it here if trailing stop disabled)
-			if !rc.EnableTrailingStop {
-				e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
-			}
+			// ALWAYS update peak P&L when Guaranteed Profit is enabled
+			// This fixes a bug where peak wasn't tracked when Trailing Stop was enabled but not yet activated
+			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
+
+			// Debug logging for profit tracking (log every 30 seconds to avoid spam)
+			if rawPnlPct > 0.1 || peakPnL > activatePct*0.5 {
+				log.Printf("[%s][%s] 📊 Guaranteed Profit Status: Current=%.2f%%, Peak=%.2f%%, ActivateAt=%.2f%%, MinLock=%.2f%%",
+					e.name, pos.Symbol, rawPnlPct, peakPnL, activatePct, minProfitPct)
+			}
 
 			// Check if position ever reached activation threshold
 			if peakPnL >= activatePct {

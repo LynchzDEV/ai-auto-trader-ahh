@@ -492,7 +492,7 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 			}
 
 			// Add trading guidance based on OI signal
-			sb.WriteString("\n💡 OI TRADING GUIDANCE:\n")
+			sb.WriteString("\n💡 OI CONTEXT (informational, not blocking):\n")
 			switch data.OISignal {
 			case "BULLISH":
 				sb.WriteString("✅ OI supports LONG entries - new money flowing into longs\n")
@@ -501,15 +501,15 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 				sb.WriteString("✅ OI supports SHORT entries - new money flowing into shorts\n")
 				sb.WriteString("- Downtrend is backed by real capital inflow\n")
 			case "REVERSAL_UP":
-				sb.WriteString("⚠️ CAUTION for LONG entries - price up but OI down\n")
-				sb.WriteString("- This is SHORT COVERING, not new longs buying\n")
-				sb.WriteString("- Trend may reverse once covering completes\n")
+				sb.WriteString("ℹ️ OI Context: Price up but OI down = short covering rally\n")
+				sb.WriteString("- Rally driven by shorts exiting, not new longs\n")
+				sb.WriteString("- Strong technicals can still justify LONG entry\n")
 			case "REVERSAL_DOWN":
-				sb.WriteString("⚠️ CAUTION for SHORT entries - price down but OI down\n")
-				sb.WriteString("- This is LONG CAPITULATION, not new shorts selling\n")
-				sb.WriteString("- Trend may reverse once capitulation completes\n")
+				sb.WriteString("ℹ️ OI Context: Price down but OI down = long capitulation\n")
+				sb.WriteString("- Selling driven by longs exiting, not new shorts\n")
+				sb.WriteString("- Strong technicals can still justify SHORT entry\n")
 			default:
-				sb.WriteString("⚠️ No clear OI signal - market in transition\n")
+				sb.WriteString("ℹ️ OI Context: No clear signal - market in transition\n")
 			}
 		}
 
