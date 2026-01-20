@@ -1626,7 +1626,7 @@ export default function Strategies() {
                                   risk_control: {
                                     ...editingStrategy.config.risk_control,
                                     btc_eth_max_position_value_ratio:
-                                      parseFloat(e.target.value),
+                                      parseFloat(e.target.value) || 0,
                                   },
                                 },
                               })
@@ -1655,7 +1655,7 @@ export default function Strategies() {
                                   risk_control: {
                                     ...editingStrategy.config.risk_control,
                                     altcoin_max_position_value_ratio:
-                                      parseFloat(e.target.value),
+                                      parseFloat(e.target.value) || 0,
                                   },
                                 },
                               })
