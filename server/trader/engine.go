@@ -126,6 +126,22 @@ type TradeLog struct {
 	RealizedPnL float64 // PnL realized when closing a position
 }
 
+// EntryWarning represents a non-fatal safety check warning with a confidence penalty
+// Instead of hard-blocking trades, warnings reduce confidence. Trade executes if final confidence >= minConfidence
+type EntryWarning struct {
+	Filter   string  // Name of the filter that triggered this warning
+	Message  string  // Human-readable warning message
+	Penalty  float64 // Confidence deduction (e.g., 10 means -10% confidence)
+	Severity string  // "low", "medium", "high" for logging
+}
+
+// EntryCheckResult contains all warnings and any critical errors from entry safety checks
+type EntryCheckResult struct {
+	Warnings     []EntryWarning
+	CriticalErr  error   // Non-nil only for truly dangerous situations (e.g., liquidation cascade)
+	TotalPenalty float64 // Sum of all warning penalties
+}
+
 // NewEngine creates a new trading engine with strategy support
 func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceClient, strategy *store.Strategy, traderCfg *store.TraderConfig, cfg *config.Config, notifier Notifier) *Engine {
 	dataProvider := market.NewDataProvider(binance)
@@ -1438,13 +1454,46 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	e.lastDecisions[symbol] = decision
 	e.mu.Unlock()
 
-	// 🚨 CRITICAL: Entry Safety Checks 🚨
-	// Blocks FOMO entries (at Resistance) and Counter-Trend entries (below EMA9)
+	// 🚨 ENTRY SAFETY CHECKS (Weighted Scoring) 🚨
+	// Instead of hard-blocking, warnings reduce confidence. Trade proceeds if adjusted confidence >= minConfidence.
+	// Only critical errors (liquidation cascades) hard-block.
 	if !hasPosition && (decision.Action == "BUY" || decision.Action == "SELL" || decision.Action == "open_long" || decision.Action == "open_short") {
-		if err := e.checkEntrySafety(symbol, decision, marketData); err != nil {
-			log.Printf("[%s][%s] ❌ BLOCKED: %v", e.name, symbol, err)
-			tradeLog.Error = fmt.Sprintf("blocked: %v", err)
+		safetyResult := e.checkEntrySafety(symbol, decision, marketData)
+
+		// Critical errors are hard blocks (e.g., liquidation cascades)
+		if safetyResult.CriticalErr != nil {
+			log.Printf("[%s][%s] ❌ CRITICAL BLOCK: %v", e.name, symbol, safetyResult.CriticalErr)
+			tradeLog.Error = fmt.Sprintf("critical block: %v", safetyResult.CriticalErr)
 			return tradeLog
+		}
+
+		// Apply confidence penalties from warnings
+		if len(safetyResult.Warnings) > 0 {
+			originalConfidence := decision.Confidence
+			adjustedConfidence := originalConfidence - safetyResult.TotalPenalty
+
+			// Log each warning
+			for _, w := range safetyResult.Warnings {
+				log.Printf("[%s][%s] ⚠️ WARNING [%s] -%0.f%%: %s", e.name, symbol, w.Filter, w.Penalty, w.Message)
+			}
+
+			log.Printf("[%s][%s] 📊 CONFIDENCE ADJUSTED: %.0f%% -> %.0f%% (-%0.f%% total penalty from %d warnings)",
+				e.name, symbol, originalConfidence, adjustedConfidence, safetyResult.TotalPenalty, len(safetyResult.Warnings))
+
+			// Check if adjusted confidence still meets minimum
+			minConf := float64(e.getMinConfidence())
+			if adjustedConfidence < minConf {
+				log.Printf("[%s][%s] ❌ BLOCKED: Adjusted confidence %.0f%% < min %.0f%% (warnings caused block)",
+					e.name, symbol, adjustedConfidence, minConf)
+				tradeLog.Error = fmt.Sprintf("blocked: adjusted confidence %.0f%% < min %.0f%% (penalties: %s)",
+					adjustedConfidence, minConf, formatWarnings(safetyResult.Warnings))
+				return tradeLog
+			}
+
+			// Update decision confidence with adjusted value
+			decision.Confidence = adjustedConfidence
+			log.Printf("[%s][%s] ✅ PROCEEDING: Adjusted confidence %.0f%% >= min %.0f%%",
+				e.name, symbol, adjustedConfidence, minConf)
 		}
 	}
 
@@ -1634,12 +1683,39 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 					tradeLog.Decision = confirmDecision
 					tradeLog.RawAI = confirmRaw
 
-					// 🚨 RE-VERIFY Entry Safety with fresh data
+					// 🚨 RE-VERIFY Entry Safety with fresh data (Weighted Scoring)
 					if !hasPosition {
-						if err := e.checkEntrySafety(symbol, decision, freshMarketData); err != nil {
-							log.Printf("[%s][%s] ❌ BLOCKED (Post-Confirmation): %v", e.name, symbol, err)
-							tradeLog.Error = fmt.Sprintf("blocked after confirmation: %v", err)
+						safetyResult := e.checkEntrySafety(symbol, decision, freshMarketData)
+
+						// Critical errors are hard blocks
+						if safetyResult.CriticalErr != nil {
+							log.Printf("[%s][%s] ❌ CRITICAL BLOCK (Post-Confirmation): %v", e.name, symbol, safetyResult.CriticalErr)
+							tradeLog.Error = fmt.Sprintf("critical block after confirmation: %v", safetyResult.CriticalErr)
 							return tradeLog
+						}
+
+						// Apply confidence penalties from warnings
+						if len(safetyResult.Warnings) > 0 {
+							originalConfidence := decision.Confidence
+							adjustedConfidence := originalConfidence - safetyResult.TotalPenalty
+
+							for _, w := range safetyResult.Warnings {
+								log.Printf("[%s][%s] ⚠️ WARNING (Post-Confirm) [%s] -%0.f%%: %s", e.name, symbol, w.Filter, w.Penalty, w.Message)
+							}
+
+							log.Printf("[%s][%s] 📊 POST-CONFIRM CONFIDENCE: %.0f%% -> %.0f%% (-%0.f%% penalty)",
+								e.name, symbol, originalConfidence, adjustedConfidence, safetyResult.TotalPenalty)
+
+							minConf := float64(e.getMinConfidence())
+							if adjustedConfidence < minConf {
+								log.Printf("[%s][%s] ❌ BLOCKED (Post-Confirmation): Adjusted confidence %.0f%% < min %.0f%%",
+									e.name, symbol, adjustedConfidence, minConf)
+								tradeLog.Error = fmt.Sprintf("blocked after confirmation: adjusted confidence %.0f%% < min %.0f%% (penalties: %s)",
+									adjustedConfidence, minConf, formatWarnings(safetyResult.Warnings))
+								return tradeLog
+							}
+
+							decision.Confidence = adjustedConfidence
 						}
 					}
 				} else {
@@ -1672,11 +1748,20 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	return tradeLog
 }
 
-// checkEntrySafety enforces strict rules to prevent bad entries (FOMO at resistance, counter-trend)
-func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, marketData *market.MarketData) error {
+// checkEntrySafety enforces rules to prevent bad entries using WEIGHTED SCORING
+// Instead of hard-blocking, each check returns a warning with a confidence penalty.
+// Trade proceeds if (originalConfidence - totalPenalties) >= minConfidence.
+// Only truly dangerous situations (liquidation cascades) return critical errors.
+func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, marketData *market.MarketData) *EntryCheckResult {
+	result := &EntryCheckResult{
+		Warnings:     []EntryWarning{},
+		CriticalErr:  nil,
+		TotalPenalty: 0,
+	}
+
 	if decision.Action != "BUY" && decision.Action != "SELL" &&
 		decision.Action != "open_long" && decision.Action != "open_short" {
-		return nil
+		return result
 	}
 
 	isLong := decision.Action == "BUY" || decision.Action == "open_long"
@@ -1684,8 +1769,19 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 	ema21 := marketData.EMA21
 	currentPrice := marketData.CurrentPrice
 
+	// Helper to add warnings
+	addWarning := func(filter, message string, penalty float64, severity string) {
+		result.Warnings = append(result.Warnings, EntryWarning{
+			Filter:   filter,
+			Message:  message,
+			Penalty:  penalty,
+			Severity: severity,
+		})
+		result.TotalPenalty += penalty
+	}
+
 	// Load configurable thresholds (with safe defaults)
-	minEmaSpread := 0.3         // default
+	minEmaSpread := 0.15        // default (reduced from 0.3 - was too strict for volatile altcoins)
 	minVolumeRatio := 0.4       // default (40%)
 	maxWickRejections := 4      // default
 	resistanceSupportPct := 1.0 // default (1%)
@@ -1704,24 +1800,28 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 	}
 
-	// 1. Counter-Trend Check (EMA9)
-	// Use configurable tolerance (default 0.2% in config, but we safeguard here)
-	emaTolerancePct := 0.2
-	if e.strategy != nil && e.strategy.Config.RiskControl.EMATrendTolerancePct > 0 {
-		emaTolerancePct = e.strategy.Config.RiskControl.EMATrendTolerancePct
+	// 1. Late Entry Detection - Penalty: 25% (CRITICAL)
+	// Penalize entries when price is EXTENDED from EMA9 (chasing the move)
+	// This is the OPPOSITE of the old "counter-trend" check which was backwards
+	// Professional traders want to enter on PULLBACKS to EMA, not when extended
+	// Reference: https://highstrike.com/pullback-trading/
+	if ema9 > 0 {
+		if isLong {
+			// For LONG: penalize if price is too far ABOVE EMA9 (chasing pump)
+			extension := ((currentPrice - ema9) / ema9) * 100
+			if extension > 1.5 {
+				addWarning("late-entry", fmt.Sprintf("price extended %.2f%% ABOVE EMA9 - chasing the move, wait for pullback", extension), 25, "critical")
+			}
+		} else {
+			// For SHORT: penalize if price is too far BELOW EMA9 (chasing dump)
+			extension := ((ema9 - currentPrice) / ema9) * 100
+			if extension > 1.5 {
+				addWarning("late-entry", fmt.Sprintf("price extended %.2f%% BELOW EMA9 - chasing the dump, wait for bounce", extension), 25, "critical")
+			}
+		}
 	}
 
-	emaTolerance := ema9 * (emaTolerancePct / 100.0)
-	if isLong && currentPrice < (ema9-emaTolerance) {
-		return fmt.Errorf("counter-trend entry: price $%.4f is below EMA9 $%.4f (by %.2f%%)",
-			currentPrice, ema9, ((ema9-currentPrice)/ema9)*100)
-	}
-	if !isLong && currentPrice > (ema9+emaTolerance) {
-		return fmt.Errorf("counter-trend entry: price $%.4f is above EMA9 $%.4f (by %.2f%%)",
-			currentPrice, ema9, ((currentPrice-ema9)/ema9)*100)
-	}
-
-	// 2. EMA Spread Strength Gate - Require minimum trend strength for entries
+	// 2. EMA Spread Strength Gate - Penalty: 10% for weak, 15% for mismatch
 	emaSpread := 0.0
 	if ema21 > 0 {
 		emaSpread = ((ema9 - ema21) / ema21) * 100
@@ -1731,37 +1831,34 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		absEmaSpread = -absEmaSpread
 	}
 
-	// Require minimum EMA spread for reliable trend (configurable)
 	if absEmaSpread < minEmaSpread {
-		return fmt.Errorf("weak trend: EMA spread %.2f%% is too weak (need >= %.1f%%). Choppy market - WAIT", absEmaSpread, minEmaSpread)
+		addWarning("weak-trend", fmt.Sprintf("EMA spread %.2f%% is too weak (need >= %.1f%%). Choppy market", absEmaSpread, minEmaSpread), 10, "medium")
 	}
 
 	// Verify spread direction matches trade direction
 	if isLong && emaSpread < 0 {
-		return fmt.Errorf("trend mismatch: trying to LONG but EMA9 < EMA21 (bearish structure)")
+		addWarning("trend-mismatch", "trying to LONG but EMA9 < EMA21 (bearish structure)", 15, "high")
 	}
 	if !isLong && emaSpread > 0 {
-		return fmt.Errorf("trend mismatch: trying to SHORT but EMA9 > EMA21 (bullish structure)")
+		addWarning("trend-mismatch", "trying to SHORT but EMA9 > EMA21 (bullish structure)", 15, "high")
 	}
 
-	// 3. Momentum Exhaustion Detection - Price extended from EMA with weakening MACD
+	// 3. Momentum Exhaustion Detection - Penalty: 15%
 	if ema9 > 0 {
 		priceExtension := ((currentPrice - ema9) / ema9) * 100
 
-		// For LONG: If price extended > 1% above EMA9 AND MACD histogram weakening = exhaustion
 		if isLong && priceExtension > 1.0 && marketData.MACDHist < 0 {
-			return fmt.Errorf("momentum exhaustion: price extended %.2f%% above EMA9 with negative MACD histogram (%.4f) - likely reversal",
-				priceExtension, marketData.MACDHist)
+			addWarning("momentum-exhaustion", fmt.Sprintf("price extended %.2f%% above EMA9 with negative MACD histogram (%.4f) - likely reversal",
+				priceExtension, marketData.MACDHist), 15, "high")
 		}
 
-		// For SHORT: If price extended > 1% below EMA9 AND MACD histogram strengthening = exhaustion
 		if !isLong && priceExtension < -1.0 && marketData.MACDHist > 0 {
-			return fmt.Errorf("momentum exhaustion: price extended %.2f%% below EMA9 with positive MACD histogram (%.4f) - likely reversal",
-				priceExtension, marketData.MACDHist)
+			addWarning("momentum-exhaustion", fmt.Sprintf("price extended %.2f%% below EMA9 with positive MACD histogram (%.4f) - likely reversal",
+				priceExtension, marketData.MACDHist), 15, "high")
 		}
 	}
 
-	// 4. Wick Rejection Pattern Detection - Multiple rejection wicks signal reversal
+	// 4. Wick Rejection Pattern Detection - Penalty: 10%
 	if len(marketData.Klines) >= 5 {
 		recentCandles := marketData.Klines[len(marketData.Klines)-5:]
 		upperWickRejections := 0
@@ -1777,8 +1874,6 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 				continue
 			}
 
-			// Upper wick = High - max(Open, Close)
-			// Lower wick = min(Open, Close) - Low
 			maxOC := k.Open
 			if k.Close > k.Open {
 				maxOC = k.Close
@@ -1791,52 +1886,42 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 			upperWick := k.High - maxOC
 			lowerWick := minOC - k.Low
 
-			// If upper wick > 50% of body = rejection at highs
 			if bodySize > 0 && upperWick > bodySize*0.5 {
 				upperWickRejections++
 			}
-			// If lower wick > 50% of body = rejection at lows
 			if bodySize > 0 && lowerWick > bodySize*0.5 {
 				lowerWickRejections++
 			}
 		}
 
-		// Block LONG if multiple upper wick rejections (sellers active at highs)
 		if isLong && upperWickRejections >= maxWickRejections {
-			return fmt.Errorf("wick rejection: %d of last 5 candles show upper wick rejection - sellers defending highs", upperWickRejections)
+			addWarning("wick-rejection", fmt.Sprintf("%d of last 5 candles show upper wick rejection - sellers defending highs", upperWickRejections), 10, "medium")
 		}
 
-		// Block SHORT if multiple lower wick rejections (buyers active at lows)
 		if !isLong && lowerWickRejections >= maxWickRejections {
-			return fmt.Errorf("wick rejection: %d of last 5 candles show lower wick rejection - buyers defending lows", lowerWickRejections)
+			addWarning("wick-rejection", fmt.Sprintf("%d of last 5 candles show lower wick rejection - buyers defending lows", lowerWickRejections), 10, "medium")
 		}
 	}
 
-	// 5. Volume Decline Detection - Declining volume on trend = weak move
-	// Note: Compare COMPLETED candles only (index -2), not the forming candle (index -1)
-	// Uses MEDIAN instead of MEAN to avoid spike candles inflating the average
+	// 5. Volume Decline Detection - Penalty: 5% (lower because volume can be noisy)
 	if len(marketData.Klines) >= 7 {
-		// Use the last COMPLETED candle (index -2), not the currently forming one
 		recentVol := marketData.Klines[len(marketData.Klines)-2].Volume
 
-		// Collect volumes of previous 5 COMPLETED candles (indices -7 to -3)
 		volumes := make([]float64, 5)
 		for i := 0; i < 5; i++ {
 			volumes[i] = marketData.Klines[len(marketData.Klines)-7+i].Volume
 		}
 
-		// Sort to find median (middle value - ignores outlier spikes)
 		sort.Float64s(volumes)
-		medianVol := volumes[2] // Middle of 5 sorted values
+		medianVol := volumes[2]
 
-		// If recent completed candle volume below threshold of median = weak conviction (configurable)
 		if medianVol > 0 && recentVol < medianVol*minVolumeRatio {
-			return fmt.Errorf("weak volume: last candle volume %.0f is %.0f%% below median %.0f - weak conviction move",
-				recentVol, (1-(recentVol/medianVol))*100, medianVol)
+			addWarning("weak-volume", fmt.Sprintf("last candle volume %.0f is %.0f%% below median %.0f - weak conviction move",
+				recentVol, (1-(recentVol/medianVol))*100, medianVol), 5, "low")
 		}
 	}
 
-	// 6. Resistance/Support FOMO Check (expanded to 40 candles for better context)
+	// 6. Resistance/Support FOMO Check - Penalty: 15%
 	if len(marketData.Klines) >= 40 {
 		recentCandles := marketData.Klines[len(marketData.Klines)-40:]
 		var recentHigh, recentLow float64
@@ -1851,74 +1936,77 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 			}
 		}
 
-		// Block BUY if too close to Resistance (configurable threshold)
-		resistanceThreshold := 1.0 - (resistanceSupportPct / 100.0) // e.g., 1.0% -> 0.99
+		resistanceThreshold := 1.0 - (resistanceSupportPct / 100.0)
 		if isLong {
 			if currentPrice < recentHigh && currentPrice >= recentHigh*resistanceThreshold {
-				return fmt.Errorf("resistance block: price $%.4f is within %.1f%% of 40-candle high $%.4f (BUY THE TOP)", currentPrice, resistanceSupportPct, recentHigh)
+				addWarning("resistance-fomo", fmt.Sprintf("price $%.4f is within %.1f%% of 40-candle high $%.4f (BUY THE TOP)", currentPrice, resistanceSupportPct, recentHigh), 15, "high")
 			}
 		}
 
-		// Block SELL if too close to Support (configurable threshold)
-		supportThreshold := 1.0 + (resistanceSupportPct / 100.0) // e.g., 1.0% -> 1.01
+		supportThreshold := 1.0 + (resistanceSupportPct / 100.0)
 		if !isLong {
 			if currentPrice > recentLow && currentPrice <= recentLow*supportThreshold {
-				return fmt.Errorf("support block: price $%.4f is within %.1f%% of 40-candle low $%.4f (SELL THE BOTTOM)", currentPrice, resistanceSupportPct, recentLow)
+				addWarning("support-fomo", fmt.Sprintf("price $%.4f is within %.1f%% of 40-candle low $%.4f (SELL THE BOTTOM)", currentPrice, resistanceSupportPct, recentLow), 15, "high")
 			}
 		}
 	}
 
-	// 7. RSI Extreme Check - Don't chase overbought/oversold
+	// 7. RSI Extreme Check - Penalty: 10%
 	if isLong && marketData.RSI > 75 {
-		return fmt.Errorf("RSI overbought: RSI %.1f > 75 - risky for LONG entry", marketData.RSI)
+		addWarning("rsi-overbought", fmt.Sprintf("RSI %.1f > 75 - risky for LONG entry", marketData.RSI), 10, "medium")
 	}
 	if !isLong && marketData.RSI < 25 {
-		return fmt.Errorf("RSI oversold: RSI %.1f < 25 - risky for SHORT entry", marketData.RSI)
+		addWarning("rsi-oversold", fmt.Sprintf("RSI %.1f < 25 - risky for SHORT entry", marketData.RSI), 10, "medium")
 	}
 
-	// 8. OI-based Safety Check - Block entries when OI shows trend is not backed by new money
-	// REVERSAL_UP = shorts covering (price up but OI down) - dangerous for new longs
-	// REVERSAL_DOWN = longs capitulating (price down but OI down) - dangerous for new shorts
+	// 8. OI-based Safety Check - Penalty: 10%
 	if marketData.OISignal != "" {
 		if isLong && marketData.OISignal == "REVERSAL_UP" {
-			// Price is up but OI is down = shorts covering, not new longs entering
-			// This often precedes a reversal down once covering completes
-			if marketData.OIChange1H < -2 { // Significant OI decrease
-				return fmt.Errorf("OI warning: price up but OI down %.2f%% (shorts covering, not new longs) - wait for OI to turn positive", marketData.OIChange1H)
+			if marketData.OIChange1H < -2 {
+				addWarning("oi-reversal", fmt.Sprintf("price up but OI down %.2f%% (shorts covering, not new longs) - wait for OI to turn positive", marketData.OIChange1H), 10, "medium")
 			}
 		}
 		if !isLong && marketData.OISignal == "REVERSAL_DOWN" {
-			// Price is down but OI is down = longs capitulating, not new shorts entering
-			// This often precedes a bounce once capitulation completes
-			if marketData.OIChange1H < -2 { // Significant OI decrease
-				return fmt.Errorf("OI warning: price down but OI down %.2f%% (longs capitulating, not new shorts) - wait for OI to turn positive", marketData.OIChange1H)
+			if marketData.OIChange1H < -2 {
+				addWarning("oi-reversal", fmt.Sprintf("price down but OI down %.2f%% (longs capitulating, not new shorts) - wait for OI to turn positive", marketData.OIChange1H), 10, "medium")
 			}
 		}
 
-		// Also check for extreme crowding
+		// OI Crowding - Penalty: 10%
 		if isLong && marketData.LongRatio > 75 {
-			return fmt.Errorf("OI crowding: %.1f%% of traders are already LONG - contrarian reversal risk", marketData.LongRatio)
+			addWarning("oi-crowding", fmt.Sprintf("%.1f%% of traders are already LONG - contrarian reversal risk", marketData.LongRatio), 10, "medium")
 		}
 		if !isLong && marketData.ShortRatio > 75 {
-			return fmt.Errorf("OI crowding: %.1f%% of traders are already SHORT - short squeeze risk", marketData.ShortRatio)
+			addWarning("oi-crowding", fmt.Sprintf("%.1f%% of traders are already SHORT - short squeeze risk", marketData.ShortRatio), 10, "medium")
 		}
 	}
 
-	// 9. Liquidation Pressure Check - Don't trade against a cascade
-	// LONG_LIQUIDATION = falling knife. Don't buy until it stops.
-	// SHORT_LIQUIDATION = short squeeze rocket. Don't short into it.
+	// 9. Liquidation Pressure Check - CRITICAL ERROR (hard block)
+	// This is truly dangerous and should NOT be bypassed by high confidence
 	if marketData.LiquidationPressure != "" && marketData.LiquidationPressure != "NONE" {
 		if isLong && marketData.LiquidationPressure == "LONG_LIQUIDATION" {
-			// Trying to LONG while longs are being liquidated? Bad idea.
-			return fmt.Errorf("LIQUIDATION BLOCK: Longs are being liquidated (Severity: %s) - catching a falling knife. Wait for liquidations to settle.", marketData.LiquidationSeverity)
+			result.CriticalErr = fmt.Errorf("LIQUIDATION BLOCK: Longs are being liquidated (Severity: %s) - catching a falling knife. Wait for liquidations to settle.", marketData.LiquidationSeverity)
+			return result
 		}
 		if !isLong && marketData.LiquidationPressure == "SHORT_LIQUIDATION" {
-			// Trying to SHORT while shorts are being squeezed? Suicide.
-			return fmt.Errorf("LIQUIDATION BLOCK: Shorts are being squeezed (Severity: %s) - shorting into a rocket. Wait for squeeze to exhaust.", marketData.LiquidationSeverity)
+			result.CriticalErr = fmt.Errorf("LIQUIDATION BLOCK: Shorts are being squeezed (Severity: %s) - shorting into a rocket. Wait for squeeze to exhaust.", marketData.LiquidationSeverity)
+			return result
 		}
 	}
 
-	return nil
+	return result
+}
+
+// formatWarnings creates a concise string summary of entry warnings for logging
+func formatWarnings(warnings []EntryWarning) string {
+	if len(warnings) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(warnings))
+	for i, w := range warnings {
+		parts[i] = fmt.Sprintf("%s(-%.0f%%)", w.Filter, w.Penalty)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // executeTrade executes the trade and returns realized PnL (if closing) and error
