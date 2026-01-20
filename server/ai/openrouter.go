@@ -505,3 +505,109 @@ TIMING & CONTEXT:
 
 	return &decision, response, nil
 }
+
+// EntryAssessment represents AI's assessment of entry quality (for Phase 2 signal/trigger system)
+type EntryAssessment struct {
+	Symbol        string   `json:"symbol"`
+	Direction     string   `json:"direction"`     // "LONG", "SHORT", or "NONE"
+	EntryQuality  string   `json:"entry_quality"` // "EXCELLENT", "GOOD", "WAIT", "AVOID"
+	Confidence    int      `json:"confidence"`
+	WaitFor       []string `json:"wait_for"`       // Trigger conditions to wait for (e.g., "pullback_to_ema", "rsi_below_45")
+	Reasoning     string   `json:"reasoning"`
+	StopLossPct   float64  `json:"stop_loss_pct"`
+	TakeProfitPct float64  `json:"take_profit_pct"`
+}
+
+// GetEntryAssessment uses a simplified prompt focused ONLY on entry quality
+// This reduces the "distraction effect" from conflicting instructions
+// Reference: https://pmc.ncbi.nlm.nih.gov/articles/PMC12421730/
+func (c *Client) GetEntryAssessment(marketData string) (*EntryAssessment, string, error) {
+	// Simplified prompt - under 50 lines, focused ONLY on entry quality
+	systemPrompt := `You assess ENTRY QUALITY for crypto futures trades. One job: "Is NOW a good time to enter?"
+
+## YOUR ONLY JOB
+Evaluate if current price is a GOOD ENTRY POINT. You do NOT manage positions.
+
+## ENTRY QUALITY RATINGS
+
+**EXCELLENT** (confidence 85+): Enter immediately
+- Price at/near EMA support (for LONG) or resistance (for SHORT)
+- Move Maturity is EARLY or MID
+- Momentum confirming direction
+- RSI not extreme
+
+**GOOD** (confidence 70-84): Enter with caution
+- Decent setup but not perfect
+- Some confirmation missing
+- Acceptable risk/reward
+
+**WAIT** (confidence 50-69): Signal exists, but wait for better entry
+- Trend identified but price extended from EMA
+- Move Maturity is LATE - wait for pullback
+- Use "wait_for" to specify what to wait for
+
+**AVOID** (confidence <50): No trade
+- Conflicting signals
+- Move EXHAUSTED
+- Against trend
+
+## KEY INDICATORS TO CHECK
+1. Move Maturity (EARLY=best, EXHAUSTED=avoid)
+2. Distance from EMA9 (closer=better, >1.5% extended=wait for pullback)
+3. RSI (40-60 ideal for entry, extremes = caution)
+4. MACD direction (should confirm your direction)
+
+## RESPONSE FORMAT (JSON only)
+{
+  "symbol": "BTCUSDT",
+  "direction": "LONG|SHORT|NONE",
+  "entry_quality": "EXCELLENT|GOOD|WAIT|AVOID",
+  "confidence": 75,
+  "wait_for": ["pullback_to_ema9", "rsi_below_45"],
+  "reasoning": "Brief 1-2 sentence explanation",
+  "stop_loss_pct": 3.0,
+  "take_profit_pct": 9.0
+}
+
+## WAIT_FOR OPTIONS (use when entry_quality is WAIT)
+- "pullback_to_ema9" - wait for price to retrace to EMA9
+- "pullback_to_ema21" - wait for deeper pullback to EMA21
+- "rsi_below_X" - wait for RSI to drop below X (e.g., "rsi_below_45")
+- "rsi_above_X" - wait for RSI to rise above X
+- "bullish_candle" - wait for bullish confirmation candle
+- "bearish_candle" - wait for bearish confirmation candle
+- "volume_increase" - wait for volume spike confirmation
+- "macd_cross" - wait for MACD line to cross signal`
+
+	messages := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: "Assess entry quality:\n\n" + marketData},
+	}
+
+	result, err := c.ChatWithReasoning(messages)
+	if err != nil {
+		return nil, "", fmt.Errorf("AI chat failed: %w", err)
+	}
+
+	if result.Reasoning != "" {
+		log.Printf("[OpenRouter] Entry Assessment Reasoning:\n%s", result.Reasoning)
+	}
+
+	response := result.Content
+
+	var assessment EntryAssessment
+	if err := json.Unmarshal([]byte(response), &assessment); err != nil {
+		start := bytes.Index([]byte(response), []byte("{"))
+		end := bytes.LastIndex([]byte(response), []byte("}"))
+		if start >= 0 && end > start {
+			jsonStr := response[start : end+1]
+			if err := json.Unmarshal([]byte(jsonStr), &assessment); err != nil {
+				return nil, response, fmt.Errorf("failed to parse entry assessment: %w", err)
+			}
+		} else {
+			return nil, response, fmt.Errorf("no JSON found in response")
+		}
+	}
+
+	return &assessment, response, nil
+}
