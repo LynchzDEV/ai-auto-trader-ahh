@@ -82,13 +82,14 @@ The AI trading system has poor entry timing, causing losses despite correctly id
 | `oi-crowding` | `engine.go:1911-1916` | Herding indicator, valuable for avoiding crowd |
 | `wick-rejection` | `engine.go:1832-1838` | Multiple rejection wicks signal reversal |
 
-### Task 0.1: Fix Backwards Filters (IMMEDIATE)
-- [ ] **REMOVE** `counter-trend` check entirely
-- [ ] **REDUCE** `weak-trend` threshold from 0.3% to 0.15%
-- [ ] **ADD** `late-entry` check: penalize price EXTENDED >1.5% ABOVE EMA9 (the opposite of current)
+### Task 0.1: Fix Backwards Filters (IMMEDIATE) ✅ COMPLETED
+- [x] **REMOVE** `counter-trend` check entirely
+- [x] **REDUCE** `weak-trend` threshold from 0.3% to 0.15%
+- [x] **ADD** `late-entry` check: penalize price EXTENDED >1.5% ABOVE EMA9 (the opposite of current)
 - **File**: `trader/engine.go` in `checkEntrySafety`
 - **Effort**: 30 minutes
 - **Priority**: Do this FIRST before any other changes
+- **Commit**: `365f293` - feat: Implement weighted scoring and fix backwards entry filters
 
 ```go
 // REMOVE this (lines 1750-1757):
@@ -132,29 +133,36 @@ if data.EMA9 > 0 {
 }
 ```
 
-#### Task 1.2: Add Move Maturity Indicator
-- [ ] Calculate how many candles since EMA crossover (move start)
-- [ ] Classify as EARLY (1-5), MID (6-12), LATE (13-20), EXHAUSTED (>20)
-- [ ] Add to market data fed to AI
+#### Task 1.2: Add Move Maturity Indicator ✅ COMPLETED
+- [x] Calculate how many candles since EMA crossover (move start)
+- [x] Classify as EARLY (1-5), MID (6-12), LATE (13-20), EXHAUSTED (>20)
+- [x] Add to market data fed to AI
 - **File**: `market/data.go`
 - **Effort**: 2 hours
+- **Commit**: `656881b` - feat: Add move maturity indicator to identify trend age
 
-#### Task 1.3: Simplify AI Prompt for Entry Decisions
-- [ ] Create new minimal prompt focused ONLY on "Is this a good entry?"
-- [ ] Remove conflicting rules about position management, trailing stops, etc.
-- [ ] AI should output `wait_for` field describing ideal trigger
-- **File**: `ai/openrouter.go` or `decision/prompt_builder.go`
+#### Task 1.3: Simplify AI Prompt for Entry Decisions ✅ COMPLETED
+- [x] Create new minimal prompt focused ONLY on "Is this a good entry?"
+- [x] Remove conflicting rules about position management, trailing stops, etc.
+- [x] AI should output `wait_for` field describing ideal trigger
+- **File**: `ai/openrouter.go`
 - **Effort**: 2 hours
+- **Commit**: `6fb09e9` - feat: Add entry-focused AI assessment with simplified prompt
+- **New function**: `GetEntryAssessment()` returns `EntryAssessment` with direction, entry_quality, wait_for fields
 
 ---
 
 ### Phase 2: Two-Phase Entry System (Medium Effort, Critical Impact)
 
-#### Task 2.1: Create Signal State Machine
-- [ ] Define new states: `SIGNAL_READY`, `WAITING_TRIGGER`, `TRIGGERED`, `EXPIRED`
-- [ ] Store pending signals with expiry time (e.g., 30 minutes)
+#### Task 2.1: Create Signal State Machine ✅ COMPLETED
+- [x] Define new states: `WAITING_TRIGGER`, `TRIGGERED`, `EXPIRED`, `EXECUTED`, `CANCELED`
+- [x] Store pending signals with expiry time (default 30 minutes)
+- [x] Create TriggerCondition struct with types: pullback_to_ema9/21, rsi_below/above, etc.
+- [x] Create SignalStore with thread-safe operations
+- [x] Add CreateSignalFromAssessment() to bridge AI output
 - **File**: New file `trader/signal_state.go`
 - **Effort**: 4 hours
+- **Commit**: `e6cc817` - feat: Add signal state machine for two-phase entry system
 
 ```go
 type SignalState struct {
@@ -174,18 +182,21 @@ type TriggerConditions struct {
 }
 ```
 
-#### Task 2.2: Implement Trigger Checker
-- [ ] Create function to check if trigger conditions are met
-- [ ] Run every tick/candle for pending signals
-- [ ] Execute trade when all trigger conditions satisfied
+#### Task 2.2: Implement Trigger Checker ✅ COMPLETED
+- [x] Create function to check if trigger conditions are met
+- [x] Run every tick/candle for pending signals
+- [x] Execute trade when all trigger conditions satisfied
 - **File**: `trader/trigger_checker.go`
 - **Effort**: 4 hours
+- **Commit**: `f6a6c84` - feat: Add trigger checker and signal integration for two-phase entry system
 
-#### Task 2.3: Modify AI Output Format
-- [ ] Change AI to output `signal` + `trigger_conditions` instead of immediate action
-- [ ] Parse new format and create SignalState
-- **Files**: `ai/openrouter.go`, `decision/parser.go`
+#### Task 2.3: Modify AI Output Format ✅ COMPLETED
+- [x] Change AI to output `signal` + `trigger_conditions` instead of immediate action
+- [x] Parse new format and create SignalState
+- [x] Create SignalIntegration layer to bridge AI assessment to signal/trigger system
+- **Files**: `ai/openrouter.go`, `trader/signal_integration.go`
 - **Effort**: 3 hours
+- **Commit**: `f6a6c84` - feat: Add trigger checker and signal integration for two-phase entry system
 
 ---
 
