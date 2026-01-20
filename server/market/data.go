@@ -50,9 +50,47 @@ type MarketData struct {
 	// Tracks how "old" the current trend move is based on EMA crossover
 	// Reference: https://www.stockforecasttoday.com/post/swing-trading-examples-using-cycle-timing-and-price-structure
 	// "Short-term cycle trades might last 3–7 sessions"
-	MoveMaturity       string // EARLY (1-7 candles), MID (8-14), LATE (15-21), EXHAUSTED (>21)
-	CandlesSinceCross  int    // Number of candles since last EMA9/EMA21 crossover
-	MoveMaturityScore  int    // 1-4 score (1=EARLY best for entry, 4=EXHAUSTED worst)
+	MoveMaturity      string // EARLY (1-7 candles), MID (8-14), LATE (15-21), EXHAUSTED (>21)
+	CandlesSinceCross int    // Number of candles since last EMA9/EMA21 crossover
+	MoveMaturityScore int    // 1-4 score (1=EARLY best for entry, 4=EXHAUSTED worst)
+
+	// Entry Timing Indicators (Task 3.1)
+	// Reference: https://capital.com/en-int/learn/trading-strategies/pullback-trading
+	DistanceFromEMA9Pct    float64 // How far price is from EMA9 (negative = below, positive = above)
+	DistanceFromEMA21Pct   float64 // How far price is from EMA21
+	RSIRateOfChange        float64 // RSI change over last 3 candles (positive = rising)
+	CandlesSinceRSIExtreme int     // Candles since RSI > 70 or < 30
+	PullbackDepthPct       float64 // Current pullback depth from recent high/low
+	MomentumDecay          bool    // True if MACD histogram declining while price rises (divergence)
+	MomentumDecayBars      int     // Number of bars showing momentum decay
+
+	// Market Regime Detection (Task 4.1)
+	// Reference: https://www.investopedia.com/terms/a/adx.asp
+	MarketRegime      string  // TRENDING, RANGING, VOLATILE, EXHAUSTED
+	ADX               float64 // Average Directional Index (>25 = trending)
+	ADXTrend          string  // STRONG, MODERATE, WEAK
+	BollingerSqueeze  bool    // True if Bollinger Bands are squeezed (low volatility, breakout coming)
+	BollingerWidth    float64 // Current Bollinger Band width percentage
+	ATRRatio          float64 // Current ATR vs 20-period average (>2.0 = high volatility)
+	RegimeDescription string  // Human-readable regime explanation
+
+	// Fibonacci Retracement Detection (Task 3.2)
+	// Reference: https://www.investopedia.com/terms/f/fibonacciretracement.asp
+	FibSwingHigh    float64 // Recent swing high
+	FibSwingLow     float64 // Recent swing low
+	FibLevel382     float64 // 38.2% retracement price level
+	FibLevel500     float64 // 50% retracement price level
+	FibLevel618     float64 // 61.8% retracement price level
+	NearestFibLevel string  // Which Fib level price is closest to (38.2, 50, 61.8, NONE)
+	FibDistancePct  float64 // Distance from nearest Fib level (%)
+	AtFibSupport    bool    // True if price is at a Fib support level (for longs)
+	AtFibResistance bool    // True if price is at a Fib resistance level (for shorts)
+
+	// Volume Profile on Pullback (Task 3.3)
+	// Reference: https://capital.com/en-int/learn/trading-strategies/pullback-trading
+	PullbackVolumeRatio  float64 // Pullback volume vs trend volume (< 1.0 = healthy pullback)
+	PullbackVolumeSignal string  // HEALTHY, UNHEALTHY, NEUTRAL
+	VolumeConfirmation   bool    // True if volume pattern confirms entry
 }
 
 type DataProvider struct {
@@ -137,7 +175,29 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 	// Calculate Move Maturity (Task 1.2)
 	// Count candles since last EMA9/EMA21 crossover to determine how "old" the move is
 	// Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
-	candlesSinceCross, moveMaturity, maturityScore := calculateMoveMaturity(closes, 9, 21)
+	// Note: Thresholds are scaled by timeframe - research was for daily charts (1 session = 1 day)
+	candlesSinceCross, moveMaturity, maturityScore := calculateMoveMaturity(closes, 9, 21, timeframe)
+
+	// Calculate Entry Timing Indicators (Task 3.1)
+	distanceFromEMA9 := calculateDistanceFromEMA(ticker.Price, ema9)
+	distanceFromEMA21 := calculateDistanceFromEMA(ticker.Price, ema21)
+	rsiRateOfChange := calculateRSIRateOfChange(closes, 14, 3)
+	candlesSinceRSIExtreme := calculateCandlesSinceRSIExtreme(closes, 14, 70, 30)
+	isUptrend := ema9 > ema21
+	pullbackDepth := calculatePullbackDepth(highs, lows, closes, 20, isUptrend)
+	momentumDecay, momentumDecayBars := detectMomentumDecay(closes, 5)
+
+	// Calculate Market Regime Indicators (Task 4.1)
+	adx, adxTrend := calculateADX(highs, lows, closes, 14)
+	bollingerWidth, bollingerSqueeze := calculateBollingerBands(closes, 20, 2.0)
+	atrRatio := calculateATRRatio(highs, lows, closes, 14)
+	marketRegime, regimeDescription := detectMarketRegime(adx, adxTrend, bollingerSqueeze, atrRatio, momentumDecay)
+
+	// Calculate Fibonacci Levels (Task 3.2)
+	fibLevels := calculateFibonacciLevels(highs, lows, ticker.Price, 40, isUptrend)
+
+	// Analyze Volume Profile (Task 3.3)
+	volumeProfile := analyzeVolumeProfile(volumes, closes, 20, isUptrend)
 
 	return &MarketData{
 		Symbol:            symbol,
@@ -158,6 +218,36 @@ func (d *DataProvider) GetMarketDataWithConfig(ctx context.Context, symbol, time
 		MoveMaturity:      moveMaturity,
 		CandlesSinceCross: candlesSinceCross,
 		MoveMaturityScore: maturityScore,
+		// Entry Timing Indicators (Task 3.1)
+		DistanceFromEMA9Pct:    distanceFromEMA9,
+		DistanceFromEMA21Pct:   distanceFromEMA21,
+		RSIRateOfChange:        rsiRateOfChange,
+		CandlesSinceRSIExtreme: candlesSinceRSIExtreme,
+		PullbackDepthPct:       pullbackDepth,
+		MomentumDecay:          momentumDecay,
+		MomentumDecayBars:      momentumDecayBars,
+		// Market Regime Detection (Task 4.1)
+		MarketRegime:      marketRegime,
+		ADX:               adx,
+		ADXTrend:          adxTrend,
+		BollingerSqueeze:  bollingerSqueeze,
+		BollingerWidth:    bollingerWidth,
+		ATRRatio:          atrRatio,
+		RegimeDescription: regimeDescription,
+		// Fibonacci Levels (Task 3.2)
+		FibSwingHigh:    fibLevels.SwingHigh,
+		FibSwingLow:     fibLevels.SwingLow,
+		FibLevel382:     fibLevels.Level382,
+		FibLevel500:     fibLevels.Level500,
+		FibLevel618:     fibLevels.Level618,
+		NearestFibLevel: fibLevels.NearestLevel,
+		FibDistancePct:  fibLevels.DistancePct,
+		AtFibSupport:    fibLevels.AtSupport,
+		AtFibResistance: fibLevels.AtResistance,
+		// Volume Profile (Task 3.3)
+		PullbackVolumeRatio:  volumeProfile.PullbackVolumeRatio,
+		PullbackVolumeSignal: volumeProfile.Signal,
+		VolumeConfirmation:   volumeProfile.Confirmation,
 	}, nil
 }
 
@@ -767,7 +857,17 @@ func calculateATR(highs, lows, closes []float64, period int) float64 {
 // and classifies the move maturity as EARLY, MID, LATE, or EXHAUSTED
 // This helps identify if we're entering early in a trend or chasing a late move
 // Reference: https://www.stockforecasttoday.com/post/swing-trading-etfs-with-cycle-timing-how-to-avoid-late-entries-near-market-tops
-func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int) (candlesSinceCross int, maturity string, score int) {
+//
+// IMPORTANT: The original research is based on DAILY stock charts where "3-7 sessions" = 3-7 trading days.
+// For lower timeframes (5m, 15m, 1h), we scale the thresholds accordingly:
+// - Daily = base (1.0x)
+// - 4h = 1.5x
+// - 1h = 2.0x
+// - 30m = 2.5x
+// - 15m = 3.0x
+// - 5m = 4.0x (21 * 4 = 84 candles ≈ 7 hours before EXHAUSTED)
+// - 1m = 6.0x
+func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int, timeframe string) (candlesSinceCross int, maturity string, score int) {
 	if len(closes) < longPeriod+10 {
 		return 0, "UNKNOWN", 0
 	}
@@ -811,21 +911,26 @@ func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int) (candl
 	// Calculate candles since last crossover
 	candlesSinceCross = len(closes) - 1 - lastCrossIndex
 
-	// Classify maturity based on research:
+	// Get timeframe multiplier - lower timeframes need higher thresholds
+	// Base research: "Short-term cycle trades might last 3-7 sessions" on DAILY charts
 	// Reference: https://www.stockforecasttoday.com/post/swing-trading-examples-using-cycle-timing-and-price-structure
-	// "Short-term cycle trades might last 3–7 sessions"
-	// EARLY: 1-7 candles (best for entry - within short-term cycle window)
-	// MID: 8-14 candles (acceptable entry - trend confirmed but aging)
-	// LATE: 15-21 candles (caution - approaching intermediate cycle end)
-	// EXHAUSTED: >21 candles (avoid entry - wait for pullback or reversal)
+	multiplier := getTimeframeMultiplier(timeframe)
+
+	// Scaled thresholds (base: EARLY=7, MID=14, LATE=21)
+	earlyThreshold := int(7 * multiplier)
+	midThreshold := int(14 * multiplier)
+	lateThreshold := int(21 * multiplier)
+
+	// Classify maturity based on scaled thresholds
+	// For 5m with 4x multiplier: EARLY=28, MID=56, LATE=84, EXHAUSTED>84
 	switch {
-	case candlesSinceCross <= 7:
+	case candlesSinceCross <= earlyThreshold:
 		maturity = "EARLY"
 		score = 1
-	case candlesSinceCross <= 14:
+	case candlesSinceCross <= midThreshold:
 		maturity = "MID"
 		score = 2
-	case candlesSinceCross <= 21:
+	case candlesSinceCross <= lateThreshold:
 		maturity = "LATE"
 		score = 3
 	default:
@@ -834,4 +939,627 @@ func calculateMoveMaturity(closes []float64, shortPeriod, longPeriod int) (candl
 	}
 
 	return candlesSinceCross, maturity, score
+}
+
+// getTimeframeMultiplier returns a multiplier for move maturity thresholds based on timeframe
+// Lower timeframes need higher thresholds because more candles form in the same time period
+// Base thresholds (7/14/21) are designed for daily charts
+func getTimeframeMultiplier(timeframe string) float64 {
+	switch timeframe {
+	case "1m":
+		return 6.0 // 21*6=126 candles ≈ 2 hours before EXHAUSTED
+	case "3m":
+		return 5.0 // 21*5=105 candles ≈ 5.25 hours before EXHAUSTED
+	case "5m":
+		return 4.0 // 21*4=84 candles ≈ 7 hours before EXHAUSTED
+	case "15m":
+		return 3.0 // 21*3=63 candles ≈ 15.75 hours before EXHAUSTED
+	case "30m":
+		return 2.5 // 21*2.5=52 candles ≈ 26 hours before EXHAUSTED
+	case "1h":
+		return 2.0 // 21*2=42 candles ≈ 42 hours before EXHAUSTED
+	case "2h":
+		return 1.5 // 21*1.5=31 candles ≈ 62 hours before EXHAUSTED
+	case "4h":
+		return 1.2 // 21*1.2=25 candles ≈ 100 hours before EXHAUSTED
+	case "1d", "1D":
+		return 1.0 // Base: 21 candles = 21 days (as per research)
+	default:
+		// Default to conservative multiplier for unknown timeframes
+		return 4.0
+	}
+}
+
+// ========== Entry Timing Indicators (Task 3.1) ==========
+
+// calculateDistanceFromEMA calculates percentage distance from an EMA
+// Positive = price above EMA, Negative = price below EMA
+func calculateDistanceFromEMA(currentPrice, ema float64) float64 {
+	if ema <= 0 {
+		return 0
+	}
+	return ((currentPrice - ema) / ema) * 100
+}
+
+// calculateRSIRateOfChange calculates how RSI is changing over recent candles
+// Returns the average change per candle (positive = RSI rising, negative = falling)
+// Reference: Used to detect RSI "hook" - when RSI turns direction
+func calculateRSIRateOfChange(closes []float64, period int, lookback int) float64 {
+	if len(closes) < period+lookback+1 {
+		return 0
+	}
+
+	// Calculate RSI for the last 'lookback' candles
+	rsiValues := make([]float64, lookback+1)
+	for i := 0; i <= lookback; i++ {
+		endIdx := len(closes) - lookback + i
+		if endIdx < period+1 {
+			continue
+		}
+		rsiValues[i] = calculateRSIAtIndex(closes[:endIdx], period)
+	}
+
+	// Calculate rate of change
+	if len(rsiValues) < 2 {
+		return 0
+	}
+	return (rsiValues[len(rsiValues)-1] - rsiValues[0]) / float64(lookback)
+}
+
+// calculateRSIAtIndex calculates RSI for data up to a specific index
+func calculateRSIAtIndex(data []float64, period int) float64 {
+	if len(data) < period+1 {
+		return 50
+	}
+
+	gains := 0.0
+	losses := 0.0
+
+	for i := len(data) - period; i < len(data); i++ {
+		change := data[i] - data[i-1]
+		if change > 0 {
+			gains += change
+		} else {
+			losses -= change
+		}
+	}
+
+	avgGain := gains / float64(period)
+	avgLoss := losses / float64(period)
+
+	if avgLoss == 0 {
+		return 100
+	}
+
+	rs := avgGain / avgLoss
+	return 100 - (100 / (1 + rs))
+}
+
+// calculateCandlesSinceRSIExtreme counts candles since RSI was > 70 or < 30
+// Returns the count and whether the extreme was overbought (true) or oversold (false)
+func calculateCandlesSinceRSIExtreme(closes []float64, period int, overbought, oversold float64) int {
+	if len(closes) < period+1 {
+		return 0
+	}
+
+	// Walk backwards through data checking RSI at each point
+	for i := 0; i < len(closes)-period-1; i++ {
+		endIdx := len(closes) - i
+		if endIdx < period+1 {
+			break
+		}
+		rsi := calculateRSIAtIndex(closes[:endIdx], period)
+		if rsi >= overbought || rsi <= oversold {
+			return i
+		}
+	}
+
+	return len(closes) - period - 1 // Never hit extreme in available data
+}
+
+// calculatePullbackDepth calculates the current pullback depth from recent swing high/low
+// For uptrend: measures drop from recent high
+// For downtrend: measures bounce from recent low
+// Reference: https://capital.com/en-int/learn/trading-strategies/pullback-trading
+func calculatePullbackDepth(highs, lows, closes []float64, lookback int, isUptrend bool) float64 {
+	if len(highs) < lookback || len(lows) < lookback || len(closes) < 1 {
+		return 0
+	}
+
+	currentPrice := closes[len(closes)-1]
+	startIdx := len(highs) - lookback
+
+	if isUptrend {
+		// Find recent high
+		recentHigh := highs[startIdx]
+		for i := startIdx; i < len(highs); i++ {
+			if highs[i] > recentHigh {
+				recentHigh = highs[i]
+			}
+		}
+		// Pullback depth = how far we've dropped from the high
+		if recentHigh > 0 {
+			return ((recentHigh - currentPrice) / recentHigh) * 100
+		}
+	} else {
+		// Find recent low
+		recentLow := lows[startIdx]
+		for i := startIdx; i < len(lows); i++ {
+			if lows[i] < recentLow {
+				recentLow = lows[i]
+			}
+		}
+		// Bounce depth = how far we've risen from the low
+		if recentLow > 0 {
+			return ((currentPrice - recentLow) / recentLow) * 100
+		}
+	}
+
+	return 0
+}
+
+// detectMomentumDecay detects divergence where price rises but MACD histogram declines
+// This is a warning sign of weakening momentum
+// Returns: isDecaying, numberOfBarsDecaying
+func detectMomentumDecay(closes []float64, lookback int) (bool, int) {
+	if len(closes) < 26+lookback {
+		return false, 0
+	}
+
+	decayBars := 0
+	isDecaying := false
+
+	// Calculate MACD histogram for recent candles
+	for i := 0; i < lookback-1; i++ {
+		endIdx := len(closes) - lookback + i + 1
+		prevEndIdx := endIdx - 1
+
+		if endIdx < 26 || prevEndIdx < 26 {
+			continue
+		}
+
+		_, _, currentHist := calculateMACD(closes[:endIdx])
+		_, _, prevHist := calculateMACD(closes[:prevEndIdx])
+
+		priceRising := closes[endIdx-1] > closes[prevEndIdx-1]
+		histDeclining := currentHist < prevHist
+
+		if priceRising && histDeclining {
+			decayBars++
+		}
+	}
+
+	// Consider decay significant if 3+ bars show divergence
+	if decayBars >= 3 {
+		isDecaying = true
+	}
+
+	return isDecaying, decayBars
+}
+
+// ========== Market Regime Detection (Task 4.1) ==========
+
+// calculateADX calculates the Average Directional Index
+// ADX > 25 = trending market, ADX < 20 = ranging market
+// Reference: https://www.investopedia.com/terms/a/adx.asp
+func calculateADX(highs, lows, closes []float64, period int) (adx float64, trend string) {
+	if len(highs) < period*2 || len(lows) < period*2 || len(closes) < period*2 {
+		return 0, "UNKNOWN"
+	}
+
+	// Calculate +DM, -DM, and TR for each period
+	plusDM := make([]float64, len(highs)-1)
+	minusDM := make([]float64, len(highs)-1)
+	tr := make([]float64, len(highs)-1)
+
+	for i := 1; i < len(highs); i++ {
+		highDiff := highs[i] - highs[i-1]
+		lowDiff := lows[i-1] - lows[i]
+
+		if highDiff > lowDiff && highDiff > 0 {
+			plusDM[i-1] = highDiff
+		} else {
+			plusDM[i-1] = 0
+		}
+
+		if lowDiff > highDiff && lowDiff > 0 {
+			minusDM[i-1] = lowDiff
+		} else {
+			minusDM[i-1] = 0
+		}
+
+		tr[i-1] = math.Max(
+			highs[i]-lows[i],
+			math.Max(
+				math.Abs(highs[i]-closes[i-1]),
+				math.Abs(lows[i]-closes[i-1]),
+			),
+		)
+	}
+
+	// Calculate smoothed averages
+	smoothedPlusDM := wilder(plusDM, period)
+	smoothedMinusDM := wilder(minusDM, period)
+	smoothedTR := wilder(tr, period)
+
+	if len(smoothedPlusDM) == 0 || len(smoothedTR) == 0 {
+		return 0, "UNKNOWN"
+	}
+
+	// Calculate +DI and -DI
+	plusDI := make([]float64, len(smoothedPlusDM))
+	minusDI := make([]float64, len(smoothedMinusDM))
+	dx := make([]float64, len(smoothedPlusDM))
+
+	for i := range smoothedPlusDM {
+		if smoothedTR[i] > 0 {
+			plusDI[i] = (smoothedPlusDM[i] / smoothedTR[i]) * 100
+			minusDI[i] = (smoothedMinusDM[i] / smoothedTR[i]) * 100
+		}
+
+		diSum := plusDI[i] + minusDI[i]
+		if diSum > 0 {
+			dx[i] = (math.Abs(plusDI[i]-minusDI[i]) / diSum) * 100
+		}
+	}
+
+	// Calculate ADX as smoothed DX
+	adxValues := wilder(dx, period)
+	if len(adxValues) > 0 {
+		adx = adxValues[len(adxValues)-1]
+	}
+
+	// Classify trend strength
+	switch {
+	case adx >= 25:
+		trend = "STRONG"
+	case adx >= 20:
+		trend = "MODERATE"
+	default:
+		trend = "WEAK"
+	}
+
+	return adx, trend
+}
+
+// wilder calculates Wilder's smoothing (used in ADX calculation)
+func wilder(data []float64, period int) []float64 {
+	if len(data) < period {
+		return nil
+	}
+
+	result := make([]float64, len(data)-period+1)
+
+	// First value is simple average
+	sum := 0.0
+	for i := 0; i < period; i++ {
+		sum += data[i]
+	}
+	result[0] = sum / float64(period)
+
+	// Subsequent values use Wilder's smoothing
+	for i := period; i < len(data); i++ {
+		result[i-period+1] = result[i-period] - (result[i-period] / float64(period)) + data[i]
+	}
+
+	return result
+}
+
+// calculateBollingerBands calculates Bollinger Bands and detects squeeze
+// Squeeze = bands narrowing, indicating low volatility and potential breakout
+// Reference: Bollinger squeeze precedes significant moves
+func calculateBollingerBands(closes []float64, period int, stdDevMult float64) (width float64, isSqueeze bool) {
+	if len(closes) < period*2 {
+		return 0, false
+	}
+
+	// Current Bollinger width
+	currentWidth := bollingerWidth(closes[len(closes)-period:], stdDevMult)
+
+	// Historical average width (for comparison)
+	var avgWidth float64
+	count := 0
+	for i := period; i < len(closes)-period; i++ {
+		w := bollingerWidth(closes[i:i+period], stdDevMult)
+		avgWidth += w
+		count++
+	}
+	if count > 0 {
+		avgWidth /= float64(count)
+	}
+
+	// Squeeze if current width is less than 50% of average
+	isSqueeze = avgWidth > 0 && currentWidth < avgWidth*0.5
+
+	return currentWidth, isSqueeze
+}
+
+// bollingerWidth calculates the Bollinger Band width as percentage of middle band
+func bollingerWidth(data []float64, stdDevMult float64) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+
+	// Calculate SMA
+	sum := 0.0
+	for _, v := range data {
+		sum += v
+	}
+	sma := sum / float64(len(data))
+
+	// Calculate standard deviation
+	variance := 0.0
+	for _, v := range data {
+		diff := v - sma
+		variance += diff * diff
+	}
+	stdDev := math.Sqrt(variance / float64(len(data)))
+
+	// Width as percentage
+	if sma > 0 {
+		return (stdDev * stdDevMult * 2 / sma) * 100
+	}
+	return 0
+}
+
+// calculateATRRatio calculates current ATR vs historical average
+// Ratio > 2.0 indicates high volatility
+func calculateATRRatio(highs, lows, closes []float64, period int) float64 {
+	if len(highs) < period*3 {
+		return 1.0
+	}
+
+	// Current ATR
+	currentATR := calculateATR(highs[len(highs)-period-1:], lows[len(lows)-period-1:], closes[len(closes)-period-1:], period)
+
+	// Historical average ATR
+	var avgATR float64
+	count := 0
+	for i := period + 1; i < len(highs)-period; i++ {
+		atr := calculateATR(highs[i-period-1:i], lows[i-period-1:i], closes[i-period-1:i], period)
+		avgATR += atr
+		count++
+	}
+	if count > 0 {
+		avgATR /= float64(count)
+	}
+
+	if avgATR > 0 {
+		return currentATR / avgATR
+	}
+	return 1.0
+}
+
+// detectMarketRegime determines the current market regime
+// Returns: regime type, description
+// Reference: https://arxiv.org/html/2510.15949v2 (ATLAS Framework)
+func detectMarketRegime(adx float64, adxTrend string, bollingerSqueeze bool, atrRatio float64, momentumDecay bool) (regime, description string) {
+	switch {
+	case momentumDecay && adx >= 20:
+		regime = "EXHAUSTED"
+		description = "Trend showing signs of exhaustion - momentum divergence detected"
+	case atrRatio >= 2.0:
+		regime = "VOLATILE"
+		description = fmt.Sprintf("High volatility environment (ATR %.1fx average) - reduce position size", atrRatio)
+	case adx >= 25:
+		regime = "TRENDING"
+		description = fmt.Sprintf("Strong trend in place (ADX %.1f) - momentum strategies favored", adx)
+	case adx < 20 || bollingerSqueeze:
+		regime = "RANGING"
+		if bollingerSqueeze {
+			description = "Low volatility squeeze - potential breakout brewing"
+		} else {
+			description = fmt.Sprintf("Ranging/choppy market (ADX %.1f) - mean reversion or wait", adx)
+		}
+	default:
+		regime = "TRANSITIONING"
+		description = "Market in transition - wait for clearer signal"
+	}
+
+	return regime, description
+}
+
+// ========== Fibonacci Retracement Detection (Task 3.2) ==========
+
+// FibonacciLevels holds the calculated Fibonacci retracement levels and analysis
+type FibonacciLevels struct {
+	SwingHigh    float64
+	SwingLow     float64
+	Level382     float64 // 38.2% retracement
+	Level500     float64 // 50% retracement
+	Level618     float64 // 61.8% retracement
+	NearestLevel string  // "38.2", "50", "61.8", "NONE"
+	DistancePct  float64 // Distance from nearest level
+	AtSupport    bool    // True if near a Fib level in uptrend (support)
+	AtResistance bool    // True if near a Fib level in downtrend (resistance)
+}
+
+// calculateFibonacciLevels calculates Fibonacci retracement levels from recent swing high/low
+// Reference: https://www.investopedia.com/terms/f/fibonacciretracement.asp
+// "The most commonly used Fibonacci retracement levels are 38.2%, 50%, and 61.8%"
+func calculateFibonacciLevels(highs, lows []float64, currentPrice float64, lookback int, isUptrend bool) FibonacciLevels {
+	result := FibonacciLevels{
+		NearestLevel: "NONE",
+	}
+
+	if len(highs) < lookback || len(lows) < lookback {
+		return result
+	}
+
+	startIdx := len(highs) - lookback
+
+	// Find swing high and low in the lookback period
+	swingHigh := highs[startIdx]
+	swingLow := lows[startIdx]
+	for i := startIdx; i < len(highs); i++ {
+		if highs[i] > swingHigh {
+			swingHigh = highs[i]
+		}
+		if lows[i] < swingLow {
+			swingLow = lows[i]
+		}
+	}
+
+	result.SwingHigh = swingHigh
+	result.SwingLow = swingLow
+
+	// Calculate range
+	priceRange := swingHigh - swingLow
+	if priceRange <= 0 {
+		return result
+	}
+
+	// Calculate Fibonacci levels
+	// In an uptrend, retracements are measured from swing high down
+	// In a downtrend, retracements are measured from swing low up
+	if isUptrend {
+		// Uptrend: measure pullback from high
+		result.Level382 = swingHigh - (priceRange * 0.382)
+		result.Level500 = swingHigh - (priceRange * 0.500)
+		result.Level618 = swingHigh - (priceRange * 0.618)
+	} else {
+		// Downtrend: measure bounce from low
+		result.Level382 = swingLow + (priceRange * 0.382)
+		result.Level500 = swingLow + (priceRange * 0.500)
+		result.Level618 = swingLow + (priceRange * 0.618)
+	}
+
+	// Find nearest Fib level
+	tolerance := priceRange * 0.02 // 2% tolerance
+
+	dist382 := math.Abs(currentPrice - result.Level382)
+	dist500 := math.Abs(currentPrice - result.Level500)
+	dist618 := math.Abs(currentPrice - result.Level618)
+
+	minDist := dist382
+	result.NearestLevel = "38.2"
+	if dist500 < minDist {
+		minDist = dist500
+		result.NearestLevel = "50"
+	}
+	if dist618 < minDist {
+		minDist = dist618
+		result.NearestLevel = "61.8"
+	}
+
+	result.DistancePct = (minDist / currentPrice) * 100
+
+	// Check if at Fib support/resistance (within tolerance)
+	if minDist <= tolerance {
+		if isUptrend {
+			result.AtSupport = true
+		} else {
+			result.AtResistance = true
+		}
+	} else {
+		result.NearestLevel = "NONE"
+	}
+
+	return result
+}
+
+// ========== Volume Profile on Pullback (Task 3.3) ==========
+
+// VolumeProfile holds volume analysis during pullbacks
+type VolumeProfile struct {
+	PullbackVolumeRatio float64 // Pullback volume / Trend volume
+	Signal              string  // HEALTHY, UNHEALTHY, NEUTRAL
+	Confirmation        bool    // True if volume confirms entry
+}
+
+// analyzeVolumeProfile analyzes volume patterns during pullback
+// Reference: https://capital.com/en-int/learn/trading-strategies/pullback-trading
+// "Volume often drops and momentum slows down" during healthy pullbacks
+func analyzeVolumeProfile(volumes []float64, closes []float64, lookback int, isUptrend bool) VolumeProfile {
+	result := VolumeProfile{
+		PullbackVolumeRatio: 1.0,
+		Signal:              "NEUTRAL",
+		Confirmation:        false,
+	}
+
+	if len(volumes) < lookback || len(closes) < lookback {
+		return result
+	}
+
+	startIdx := len(volumes) - lookback
+
+	// Identify trend and pullback phases
+	// Find the peak/trough and calculate volumes before and after
+	var trendVolume, pullbackVolume float64
+	var trendBars, pullbackBars int
+
+	if isUptrend {
+		// Find the high point
+		peakIdx := startIdx
+		for i := startIdx; i < len(closes); i++ {
+			if closes[i] > closes[peakIdx] {
+				peakIdx = i
+			}
+		}
+
+		// Volume before peak (trend phase)
+		for i := startIdx; i < peakIdx && i < len(volumes); i++ {
+			trendVolume += volumes[i]
+			trendBars++
+		}
+
+		// Volume after peak (pullback phase)
+		for i := peakIdx; i < len(volumes); i++ {
+			pullbackVolume += volumes[i]
+			pullbackBars++
+		}
+	} else {
+		// Find the low point
+		troughIdx := startIdx
+		for i := startIdx; i < len(closes); i++ {
+			if closes[i] < closes[troughIdx] {
+				troughIdx = i
+			}
+		}
+
+		// Volume before trough (trend phase)
+		for i := startIdx; i < troughIdx && i < len(volumes); i++ {
+			trendVolume += volumes[i]
+			trendBars++
+		}
+
+		// Volume after trough (bounce phase)
+		for i := troughIdx; i < len(volumes); i++ {
+			pullbackVolume += volumes[i]
+			pullbackBars++
+		}
+	}
+
+	// Calculate average volumes
+	avgTrendVol := 0.0
+	avgPullbackVol := 0.0
+	if trendBars > 0 {
+		avgTrendVol = trendVolume / float64(trendBars)
+	}
+	if pullbackBars > 0 {
+		avgPullbackVol = pullbackVolume / float64(pullbackBars)
+	}
+
+	// Calculate ratio
+	if avgTrendVol > 0 {
+		result.PullbackVolumeRatio = avgPullbackVol / avgTrendVol
+	}
+
+	// Determine signal
+	// < 0.7: Volume dropping significantly during pullback - HEALTHY
+	// 0.7-1.3: Normal volume - NEUTRAL
+	// > 1.3: Volume increasing during pullback - UNHEALTHY (may continue)
+	switch {
+	case result.PullbackVolumeRatio < 0.7:
+		result.Signal = "HEALTHY"
+		result.Confirmation = true
+	case result.PullbackVolumeRatio > 1.3:
+		result.Signal = "UNHEALTHY"
+		result.Confirmation = false
+	default:
+		result.Signal = "NEUTRAL"
+		result.Confirmation = false
+	}
+
+	return result
 }

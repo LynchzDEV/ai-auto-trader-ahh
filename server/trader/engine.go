@@ -1981,7 +1981,57 @@ func (e *Engine) checkEntrySafety(symbol string, decision *ai.TradingDecision, m
 		}
 	}
 
-	// 9. Liquidation Pressure Check - CRITICAL ERROR (hard block)
+	// 9. Market Regime-Based Rules (Task 4.2)
+	// Reference: https://arxiv.org/html/2510.15949v2 (ATLAS Framework)
+	if marketData.MarketRegime != "" {
+		switch marketData.MarketRegime {
+		case "EXHAUSTED":
+			// In EXHAUSTED regime: Only allow pullback entries, heavy penalty for chasing
+			// Price must be near EMA for entry
+			if marketData.DistanceFromEMA9Pct > 0.5 && isLong {
+				addWarning("regime-exhausted", fmt.Sprintf("EXHAUSTED regime + price %.2f%% above EMA9 - wait for pullback to EMA", marketData.DistanceFromEMA9Pct), 20, "critical")
+			}
+			if marketData.DistanceFromEMA9Pct < -0.5 && !isLong {
+				addWarning("regime-exhausted", fmt.Sprintf("EXHAUSTED regime + price %.2f%% below EMA9 - wait for bounce to EMA", -marketData.DistanceFromEMA9Pct), 20, "critical")
+			}
+
+		case "VOLATILE":
+			// In VOLATILE regime: Warn about high volatility, suggest reduced size
+			addWarning("regime-volatile", fmt.Sprintf("VOLATILE regime (ATR %.1fx avg) - higher risk, consider smaller position size", marketData.ATRRatio), 10, "medium")
+
+		case "RANGING":
+			// In RANGING regime: Momentum trades are risky, warn about choppy conditions
+			if marketData.BollingerSqueeze {
+				// Squeeze = potential breakout, be cautious
+				addWarning("regime-squeeze", "Bollinger squeeze detected - breakout imminent but direction uncertain", 5, "low")
+			} else {
+				// Normal ranging - momentum trades tend to fail
+				addWarning("regime-ranging", fmt.Sprintf("RANGING regime (ADX %.1f) - momentum trades have lower win rate in choppy markets", marketData.ADX), 10, "medium")
+			}
+		}
+	}
+
+	// 10. Fibonacci Level Bonus/Penalty (Task 3.2)
+	// Entries at Fib levels have better risk/reward
+	if marketData.AtFibSupport && isLong {
+		// Being at Fib support for a LONG is good - reduce penalty slightly
+		addWarning("fib-support", fmt.Sprintf("Price at Fib %s%% support ($%.2f) - favorable entry level", marketData.NearestFibLevel, marketData.FibLevel382), -5, "bonus")
+	}
+	if marketData.AtFibResistance && !isLong {
+		// Being at Fib resistance for a SHORT is good - reduce penalty slightly
+		addWarning("fib-resistance", fmt.Sprintf("Price at Fib %s%% resistance ($%.2f) - favorable entry level", marketData.NearestFibLevel, marketData.FibLevel382), -5, "bonus")
+	}
+
+	// 11. Volume Profile Confirmation (Task 3.3)
+	if marketData.PullbackVolumeSignal == "UNHEALTHY" {
+		addWarning("volume-unhealthy", fmt.Sprintf("Pullback volume %.1fx trend volume - may continue, not healthy pullback", marketData.PullbackVolumeRatio), 10, "medium")
+	}
+	if marketData.VolumeConfirmation {
+		// Healthy volume pattern - slight bonus
+		addWarning("volume-confirmed", "Healthy pullback volume pattern - confirms entry", -3, "bonus")
+	}
+
+	// 12. Liquidation Pressure Check - CRITICAL ERROR (hard block)
 	// This is truly dangerous and should NOT be bypassed by high confidence
 	if marketData.LiquidationPressure != "" && marketData.LiquidationPressure != "NONE" {
 		if isLong && marketData.LiquidationPressure == "LONG_LIQUIDATION" {

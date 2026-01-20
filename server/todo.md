@@ -117,11 +117,12 @@ if !isLong && data.EMA9 > 0 {
 
 ### Phase 1: Quick Wins (Low Effort, High Impact)
 
-#### Task 1.1: Add Late Entry Detection
-- [ ] Add `isLateEntry()` function to detect price extended >1.5% from EMA9
-- [ ] Add heavy penalty (25%) in weighted scoring system for late entries
-- **File**: `trader/engine.go` (in `checkEntrySafety`)
+#### Task 1.1: Add Late Entry Detection ✅ COMPLETED (via Task 0.1)
+- [x] Add `isLateEntry()` function to detect price extended >1.5% from EMA9
+- [x] Add heavy penalty (25%) in weighted scoring system for late entries
+- **File**: `trader/engine.go` (in `checkEntrySafety`, lines 1803-1822)
 - **Effort**: 1 hour
+- **Note**: Already implemented as part of Task 0.1 fix
 
 ```go
 // Add after existing checks in checkEntrySafety
@@ -133,13 +134,20 @@ if data.EMA9 > 0 {
 }
 ```
 
-#### Task 1.2: Add Move Maturity Indicator ✅ COMPLETED
+#### Task 1.2: Add Move Maturity Indicator ✅ COMPLETED (+ Timeframe Fix)
 - [x] Calculate how many candles since EMA crossover (move start)
-- [x] Classify as EARLY (1-5), MID (6-12), LATE (13-20), EXHAUSTED (>20)
+- [x] Classify as EARLY, MID, LATE, EXHAUSTED
 - [x] Add to market data fed to AI
-- **File**: `market/data.go`
+- [x] **FIX**: Made thresholds timeframe-aware (research was for daily charts)
+  - 1m: 6.0x multiplier (EXHAUSTED at 126 candles ≈ 2 hours)
+  - 5m: 4.0x multiplier (EXHAUSTED at 84 candles ≈ 7 hours)
+  - 15m: 3.0x multiplier (EXHAUSTED at 63 candles ≈ 16 hours)
+  - 1h: 2.0x multiplier (EXHAUSTED at 42 candles ≈ 42 hours)
+  - 1d: 1.0x multiplier (EXHAUSTED at 21 candles = 21 days per research)
+- **File**: `market/data.go` (`calculateMoveMaturity`, `getTimeframeMultiplier`)
 - **Effort**: 2 hours
 - **Commit**: `656881b` - feat: Add move maturity indicator to identify trend age
+- **Fix Commit**: (pending) - fix: Scale move maturity thresholds by timeframe
 
 #### Task 1.3: Simplify AI Prompt for Entry Decisions ✅ COMPLETED
 - [x] Create new minimal prompt focused ONLY on "Is this a good entry?"
