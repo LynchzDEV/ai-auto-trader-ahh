@@ -16,10 +16,11 @@ An advanced AI-powered cryptocurrency futures trading platform that leverages mu
 *   **Comprehensive Backtesting**: Test strategies against historical Binance data with detailed metrics (Sharpe ratio, max drawdown, win rate, profit factor)
 *   **Real-time Trading**: Automated, low-latency execution on Binance Futures with Testnet and Mainnet support
 *   **Bracket Orders**: Atomic execution of Entry + Stop Loss + Take Profit orders
+*   **WebSocket Real-time Updates**: Sub-second position monitoring via Binance User Data Stream (1.13ms average latency vs 30-60s REST polling)
 
-### Risk Management (12+ Layers)
+### Risk Management (15+ Layers)
 
-#### Entry Safety (7 Layers) - NEW in v3.51.0
+#### Entry Safety (7 Layers)
 *   **EMA Spread Gate**: Requires ≥0.6% EMA spread for entries - blocks weak/choppy trends
 *   **Momentum Exhaustion Detection**: Blocks extended price + opposite MACD histogram entries
 *   **Wick Rejection Pattern**: Blocks when 3+ of 5 candles show rejection wicks
@@ -34,6 +35,12 @@ An advanced AI-powered cryptocurrency futures trading platform that leverages mu
 *   **MACD Momentum**: Higher TF histogram sign must support trade
 *   **Trend Strength**: Higher TF EMA spread must be ≥0.4%
 
+#### Open Interest Analysis (v3.52.0+)
+*   **OI + Price Interpretation**: Real money flow analysis revealing if trends are backed by new capital
+*   **Top Trader Long/Short Ratio**: Crowding detection warns when >70% of traders are on one side
+*   **Falling Knife Protection**: Blocks LONG entries during detected Long Liquidation cascades
+*   **Rocket Short Protection**: Blocks SHORT entries during detected Short Squeezes
+
 #### Position Management
 *   **Hard Validation**: Enforced 3:1 minimum risk/reward ratio
 *   **Noise Zone Protection**: Block closing positions between -1.5% and +1.5% PnL to prevent panic selling
@@ -42,13 +49,15 @@ An advanced AI-powered cryptocurrency futures trading platform that leverages mu
 *   **Max Hold Duration**: Automatically close positions held longer than 4 hours
 *   **Drawdown Protection**: Close positions if drawdown from peak exceeds 40%
 *   **Emergency Shutdown**: Halt trading if balance drops below configured threshold ($60 default)
+*   **Guaranteed Profit Lock**: Automatically protect gains once threshold is reached (v3.48.0+)
 *   **Daily Loss Limits**: Stop trading after reaching daily loss threshold (15% default)
 
 ### Dynamic Features
-*   **Smart Find**: AI-recommended volatile trading pairs with auto-refresh
+*   **Smart Find**: AI-recommended volatile trading pairs with auto-refresh and OI-based discovery
 *   **Turbo Mode**: High-frequency scalping with dynamic coin discovery
 *   **Copy Trading Mode**: Monitor positions without executing trades
 *   **Live Strategy Reload**: Apply configuration changes without restarting
+*   **Signal Confirmation**: Wait for price stability and AI re-confirmation before executing medium-confidence trades
 *   **Bilingual Support**: English and Chinese AI prompts
 
 ### Modern Dashboard
