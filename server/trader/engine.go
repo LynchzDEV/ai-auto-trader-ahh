@@ -4024,6 +4024,14 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			continue
 		}
 
+		// Skip positions with invalid mark price - this can happen when WebSocket
+		// sends ACCOUNT_UPDATE without mark price, causing false 100% PnL calculation
+		if pos.MarkPrice <= 0 || pos.EntryPrice <= 0 {
+			log.Printf("[%s][%s] Skipping risk check: invalid prices (entry=$%.4f, mark=$%.4f)",
+				e.name, pos.Symbol, pos.EntryPrice, pos.MarkPrice)
+			continue
+		}
+
 		// Calculate P&L percentages
 		// OPTION B: Split Logic
 		// 1. rawPnlPct (Price Move): Used for Smart Loss (don't cut on noise)
@@ -4309,22 +4317,41 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 				// Position closed, remove from map
 				delete(e.positions, update.Symbol)
 			} else {
+				// Get existing position to preserve MarkPrice if WebSocket sends 0
+				existingPos := e.positions[update.Symbol]
+
+				// Determine MarkPrice to use - WebSocket sometimes sends 0 for mark price
+				// which causes false 100% PnL calculation and immediate trailing stop trigger
+				markPrice := update.MarkPrice
+				if markPrice == 0 && existingPos != nil && existingPos.MarkPrice > 0 {
+					markPrice = existingPos.MarkPrice // Preserve existing mark price
+					log.Printf("[%s][%s] WebSocket sent MarkPrice=0, preserving cached value: $%.4f",
+						e.name, update.Symbol, markPrice)
+				}
+
+				// Determine Leverage to use - preserve existing if not provided
+				leverage := update.Leverage
+				if leverage == 0 && existingPos != nil && existingPos.Leverage > 0 {
+					leverage = existingPos.Leverage
+				}
+
 				// Update or create position
 				e.positions[update.Symbol] = &exchange.Position{
 					Symbol:           update.Symbol,
 					PositionSide:     update.PositionSide,
 					PositionAmt:      update.PositionAmt,
 					EntryPrice:       update.EntryPrice,
-					MarkPrice:        update.MarkPrice,
+					MarkPrice:        markPrice,
 					UnrealizedProfit: update.UnrealizedPnL,
-					Leverage:         update.Leverage,
+					Leverage:         leverage,
 				}
 			}
 			e.mu.Unlock()
 
 			// Trigger risk check immediately (critical for profit lock)
 			// This is the key improvement: <1s response time instead of 30-60s
-			if update.PositionAmt != 0 {
+			// IMPORTANT: Only trigger if we have valid mark price to avoid false triggers
+			if update.PositionAmt != 0 && update.MarkPrice > 0 {
 				go e.checkPositionDrawdown(ctx)
 			}
 
