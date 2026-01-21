@@ -43,13 +43,13 @@ type BinanceClient struct {
 	wg     sync.WaitGroup
 
 	// WebSocket fields for User Data Stream
-	wsConn         *websocket.Conn
-	wsMu           sync.Mutex
-	listenKey      string
-	WsUpdateCh     chan *PositionUpdate // Exported for Engine to read
-	wsErrorCh      chan error
-	wsStopCh       chan struct{}
-	wsConnected    atomic.Bool
+	wsConn      *websocket.Conn
+	wsMu        sync.Mutex
+	listenKey   string
+	WsUpdateCh  chan *PositionUpdate // Exported for Engine to read
+	wsErrorCh   chan error
+	wsStopCh    chan struct{}
+	wsConnected atomic.Bool
 }
 
 // SymbolInfo holds precision info for a trading symbol
@@ -81,13 +81,13 @@ type Position struct {
 
 // PositionUpdate represents a real-time position update from WebSocket
 type PositionUpdate struct {
-	Symbol           string
-	PositionSide     string
-	PositionAmt      float64
-	EntryPrice       float64
-	MarkPrice        float64
-	UnrealizedPnL    float64
-	Leverage         int
+	Symbol        string
+	PositionSide  string
+	PositionAmt   float64
+	EntryPrice    float64
+	MarkPrice     float64
+	UnrealizedPnL float64
+	Leverage      int
 }
 
 type Order struct {
@@ -1510,10 +1510,11 @@ func (c *BinanceClient) StartUserDataStream(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 
-	// Start goroutines for message reading and listenKey renewal
-	c.wg.Add(2)
+	// Start goroutines for message reading, listenKey renewal, and ping keepalive
+	c.wg.Add(3)
 	go c.readWebSocketMessages()
 	go c.renewListenKeyPeriodically()
+	go c.sendWebSocketPings()
 
 	log.Printf("[Binance] WebSocket User Data Stream started")
 	return nil
@@ -1532,10 +1533,43 @@ func (c *BinanceClient) connectWebSocket(wsURL string) error {
 		return fmt.Errorf("websocket dial failed: %w", err)
 	}
 
+	// Set up pong handler to reset read deadline when pong is received
+	conn.SetPongHandler(func(appData string) error {
+		// Reset read deadline when we receive a pong
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return nil
+	})
+
 	c.wsConn = conn
 	c.wsConnected.Store(true)
 	log.Printf("[Binance] WebSocket connected to %s", wsURL)
 	return nil
+}
+
+// sendWebSocketPings sends periodic pings to keep the WebSocket connection alive
+func (c *BinanceClient) sendWebSocketPings() {
+	defer c.wg.Done()
+
+	// Send pings every 30 seconds to keep connection alive
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.wsMu.Lock()
+			if c.wsConn != nil && c.wsConnected.Load() {
+				err := c.wsConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				if err != nil {
+					log.Printf("[Binance] WebSocket ping failed: %v", err)
+				}
+			}
+			c.wsMu.Unlock()
+		case <-c.wsStopCh:
+			log.Printf("[Binance] WebSocket ping sender stopped")
+			return
+		}
+	}
 }
 
 // readWebSocketMessages reads and processes WebSocket messages
@@ -1554,8 +1588,8 @@ func (c *BinanceClient) readWebSocketMessages() {
 			log.Printf("[Binance] WebSocket reader stopped")
 			return
 		default:
-			// Set read deadline to detect stale connections
-			c.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			// Set read deadline to detect stale connections (90s to allow for ping/pong cycle)
+			c.wsConn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
 			_, message, err := c.wsConn.ReadMessage()
 			if err != nil {
@@ -1612,11 +1646,11 @@ func (c *BinanceClient) handleAccountUpdate(message []byte) error {
 		EventTime int64  `json:"E"`
 		Data      struct {
 			Positions []struct {
-				Symbol       string `json:"s"`
-				PositionSide string `json:"ps"`
-				PositionAmt  string `json:"pa"`
-				EntryPrice   string `json:"ep"`
-				MarkPrice    string `json:"mp"`
+				Symbol        string `json:"s"`
+				PositionSide  string `json:"ps"`
+				PositionAmt   string `json:"pa"`
+				EntryPrice    string `json:"ep"`
+				MarkPrice     string `json:"mp"`
 				UnrealizedPnL string `json:"up"`
 			} `json:"P"`
 		} `json:"a"`
