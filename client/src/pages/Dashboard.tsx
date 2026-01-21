@@ -62,7 +62,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedTrader) {
       loadTraderData();
-      const interval = setInterval(loadTraderData, 10000);
+      const interval = setInterval(loadTraderData, 2000); // Reduced from 10s to 2s for real-time WebSocket updates
       return () => clearInterval(interval);
     }
   }, [selectedTrader]);

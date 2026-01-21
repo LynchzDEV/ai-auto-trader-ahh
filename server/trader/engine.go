@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"auto-trader-ahh/ai"
@@ -96,6 +97,14 @@ type Engine struct {
 	// OI Analysis Cache (to avoid rate limits: 1000 req/5min)
 	oiCache      map[string]*oiCacheEntry // key: symbol -> cached OI data
 	oiCacheMutex sync.RWMutex
+
+	// WebSocket position updates (real-time, <1s latency)
+	wsUpdateCh <-chan *exchange.PositionUpdate
+
+	// Risk check optimization (prevent concurrent checks and rate limit close attempts)
+	isCheckingDrawdown atomic.Bool           // Atomic flag to prevent concurrent drawdown checks
+	lastCloseAttempt   map[string]time.Time // Track last close attempt per symbol
+	closeAttemptMu     sync.Mutex           // Mutex for lastCloseAttempt map
 }
 
 // oiCacheEntry stores cached OI data with expiry
@@ -238,6 +247,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 
 		// OI Cache (1 minute TTL to stay well under rate limits)
 		oiCache: make(map[string]*oiCacheEntry),
+
+		// Risk check optimization
+		lastCloseAttempt: make(map[string]time.Time),
 	}
 }
 
@@ -307,6 +319,15 @@ func (e *Engine) Start(ctx context.Context) error {
 	go e.tradingLoop(ctx)
 	go e.startDrawdownMonitor(ctx)
 	go e.startOrderSync(ctx)
+
+	// Start WebSocket User Data Stream for real-time position updates
+	if err := e.binance.StartUserDataStream(ctx); err != nil {
+		log.Printf("[%s] Warning: Failed to start WebSocket, using REST fallback: %v", e.name, err)
+	} else {
+		e.wsUpdateCh = e.binance.WsUpdateCh
+		go e.handleWebSocketUpdates(ctx)
+		log.Printf("[%s] WebSocket position updates enabled (<1s latency)", e.name)
+	}
 
 	return nil
 }
@@ -3922,8 +3943,29 @@ func (e *Engine) logActiveRiskSettings(rc store.RiskControlConfig) {
 	}
 }
 
+// shouldAttemptClose checks if we should attempt to close a position
+// Returns false if we recently attempted to close this symbol (within 2 seconds)
+// This prevents rate limiting errors from multiple WebSocket updates
+func (e *Engine) shouldAttemptClose(symbol string) bool {
+	e.closeAttemptMu.Lock()
+	defer e.closeAttemptMu.Unlock()
+
+	last, exists := e.lastCloseAttempt[symbol]
+	if exists && time.Since(last) < 2*time.Second {
+		return false // Recently attempted, skip to avoid rate limit
+	}
+	e.lastCloseAttempt[symbol] = time.Now()
+	return true
+}
+
 // checkPositionDrawdown checks if any positions should be closed due to drawdown
 func (e *Engine) checkPositionDrawdown(ctx context.Context) {
+	// Skip if already checking (prevents duplicate work from concurrent calls)
+	if !e.isCheckingDrawdown.CompareAndSwap(false, true) {
+		return
+	}
+	defer e.isCheckingDrawdown.Store(false)
+
 	if e.strategy == nil {
 		return
 	}
@@ -4014,6 +4056,12 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					log.Printf("[%s][%s] 📉 TRAILING STOP TRIGGERED: Peak=%.2f%%, Current=%.2f%%, TrailStop=%.2f%% (Raw)",
 						e.name, pos.Symbol, peakPnL, rawPnlPct, trailingStopLevel)
 
+					// Rate limit: only attempt close if we haven't tried in last 2 seconds
+					if !e.shouldAttemptClose(pos.Symbol) {
+						log.Printf("[%s][%s] Skipping close attempt (rate limited)", e.name, pos.Symbol)
+						continue
+					}
+
 					if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
 						log.Printf("[%s][%s] Failed to close position (trailing stop): %v", e.name, pos.Symbol, err)
 					} else {
@@ -4057,6 +4105,12 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					log.Printf("[%s][%s] 🔒 GUARANTEED PROFIT TRIGGERED: Peak=%.2f%%, Current=%.2f%%, MinGuarantee=%.2f%% (Raw)",
 						e.name, pos.Symbol, peakPnL, rawPnlPct, minProfitPct)
 
+					// Rate limit: only attempt close if we haven't tried in last 2 seconds
+					if !e.shouldAttemptClose(pos.Symbol) {
+						log.Printf("[%s][%s] Skipping close attempt (rate limited)", e.name, pos.Symbol)
+						continue
+					}
+
 					if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
 						log.Printf("[%s][%s] Failed to close position (guaranteed profit): %v", e.name, pos.Symbol, err)
 					} else {
@@ -4083,6 +4137,12 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			if holdDuration >= maxHoldDuration {
 				log.Printf("[%s][%s] ⏰ MAX HOLD DURATION EXCEEDED: Held for %v (limit: %v). Force closing.",
 					e.name, pos.Symbol, holdDuration.Round(time.Minute), maxHoldDuration)
+
+				// Rate limit: only attempt close if we haven't tried in last 2 seconds
+				if !e.shouldAttemptClose(pos.Symbol) {
+					log.Printf("[%s][%s] Skipping close attempt (rate limited)", e.name, pos.Symbol)
+					continue
+				}
 
 				if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
 					log.Printf("[%s][%s] Failed to close position (max hold): %v", e.name, pos.Symbol, err)
@@ -4116,6 +4176,12 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			if rawPnlPct <= smartLossPct && holdDuration >= smartLossDuration {
 				log.Printf("[%s][%s] 🔪 SMART LOSS CUT: Position at %.2f%% Raw (ROE: %.2f%%) < %.2f%% for %v. Cutting losses.",
 					e.name, pos.Symbol, rawPnlPct, roePnlPct, smartLossPct, holdDuration.Round(time.Minute))
+
+				// Rate limit: only attempt close if we haven't tried in last 2 seconds
+				if !e.shouldAttemptClose(pos.Symbol) {
+					log.Printf("[%s][%s] Skipping close attempt (rate limited)", e.name, pos.Symbol)
+					continue
+				}
 
 				if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
 					log.Printf("[%s][%s] Failed to close position (smart loss cut): %v", e.name, pos.Symbol, err)
@@ -4192,6 +4258,57 @@ func (e *Engine) startOrderSync(ctx context.Context) {
 			return
 		case <-ticker.C:
 			e.syncOrdersFromBinance(ctx)
+		}
+	}
+}
+
+// handleWebSocketUpdates processes real-time position updates from WebSocket
+// This enables <1s latency for risk checks vs 30-60s with REST polling
+func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
+	log.Printf("[%s] WebSocket update handler started", e.name)
+
+	for {
+		select {
+		case <-e.stopCh:
+			log.Printf("[%s] WebSocket update handler stopped", e.name)
+			return
+		case <-ctx.Done():
+			return
+		case update := <-e.wsUpdateCh:
+			if update == nil {
+				continue
+			}
+
+			// Update position map with mutex lock
+			e.mu.Lock()
+			if update.PositionAmt == 0 {
+				// Position closed, remove from map
+				delete(e.positions, update.Symbol)
+			} else {
+				// Update or create position
+				e.positions[update.Symbol] = &exchange.Position{
+					Symbol:           update.Symbol,
+					PositionSide:     update.PositionSide,
+					PositionAmt:      update.PositionAmt,
+					EntryPrice:       update.EntryPrice,
+					MarkPrice:        update.MarkPrice,
+					UnrealizedProfit: update.UnrealizedPnL,
+					Leverage:         update.Leverage,
+				}
+			}
+			e.mu.Unlock()
+
+			// Trigger risk check immediately (critical for profit lock)
+			// This is the key improvement: <1s response time instead of 30-60s
+			if update.PositionAmt != 0 {
+				go e.checkPositionDrawdown(ctx)
+			}
+
+			// Broadcast to UI via event hub for real-time updates
+			e.notifier.Broadcast(events.Event{
+				Type:    events.TypeInfo,
+				Message: fmt.Sprintf("Position updated: %s", update.Symbol),
+			})
 		}
 	}
 }

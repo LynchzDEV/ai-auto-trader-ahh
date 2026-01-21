@@ -14,13 +14,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
-	BinanceMainnetURL = "https://fapi.binance.com"
-	BinanceTestnetURL = "https://testnet.binancefuture.com"
-	BinanceAPIBaseURL = "https://api.binance.com"
+	BinanceMainnetURL   = "https://fapi.binance.com"
+	BinanceTestnetURL   = "https://testnet.binancefuture.com"
+	BinanceAPIBaseURL   = "https://api.binance.com"
+	BinanceWSMainnetURL = "wss://fstream.binance.com/ws"
+	BinanceWSTestnetURL = "wss://stream.binancefuture.com/ws"
 )
 
 type BinanceClient struct {
@@ -36,6 +41,15 @@ type BinanceClient struct {
 	// SECURITY: Goroutine lifecycle management
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// WebSocket fields for User Data Stream
+	wsConn         *websocket.Conn
+	wsMu           sync.Mutex
+	listenKey      string
+	WsUpdateCh     chan *PositionUpdate // Exported for Engine to read
+	wsErrorCh      chan error
+	wsStopCh       chan struct{}
+	wsConnected    atomic.Bool
 }
 
 // SymbolInfo holds precision info for a trading symbol
@@ -63,6 +77,17 @@ type Position struct {
 	Leverage         int     `json:"leverage,string"`
 	PositionSide     string  `json:"positionSide"`
 	MarkPrice        float64 `json:"markPrice,string"`
+}
+
+// PositionUpdate represents a real-time position update from WebSocket
+type PositionUpdate struct {
+	Symbol           string
+	PositionSide     string
+	PositionAmt      float64
+	EntryPrice       float64
+	MarkPrice        float64
+	UnrealizedPnL    float64
+	Leverage         int
 }
 
 type Order struct {
@@ -112,6 +137,9 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 		serverTimeOffset: 0,
 		symbolInfo:       make(map[string]*SymbolInfo),
 		stopCh:           make(chan struct{}),
+		WsUpdateCh:       make(chan *PositionUpdate, 100), // Buffered channel
+		wsErrorCh:        make(chan error, 10),
+		wsStopCh:         make(chan struct{}),
 	}
 
 	// Sync time with Binance server
@@ -151,6 +179,15 @@ func (c *BinanceClient) startPeriodicTimeSync() {
 // Close stops all background goroutines and cleans up resources
 // SECURITY: Prevents goroutine leaks
 func (c *BinanceClient) Close() error {
+	// Stop WebSocket connection if running
+	if c.wsConnected.Load() {
+		close(c.wsStopCh)
+		// Delete listenKey
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = c.DeleteListenKey(ctx)
+	}
+
 	// Signal all goroutines to stop
 	close(c.stopCh)
 
@@ -1342,4 +1379,348 @@ func (c *BinanceClient) GetLongShortAnalysis(ctx context.Context, symbol string)
 	}
 
 	return analysis, nil
+}
+
+// ===== User Data Stream (WebSocket) API =====
+
+// CreateListenKey creates a new listenKey for User Data Stream WebSocket
+// listenKey is valid for 60 minutes and must be renewed every 30 minutes
+// Endpoint: POST /fapi/v1/listenKey
+// Note: This endpoint does NOT require signature, only API key header
+func (c *BinanceClient) CreateListenKey(ctx context.Context) (string, error) {
+	reqURL := c.baseURL + "/fapi/v1/listenKey"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create listen key request: %w", err)
+	}
+
+	req.Header.Set("X-MBX-APIKEY", c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("listen key request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read listen key response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("listen key API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		ListenKey string `json:"listenKey"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse listen key: %w", err)
+	}
+
+	log.Printf("[Binance] Created listenKey: %s", result.ListenKey)
+	return result.ListenKey, nil
+}
+
+// RenewListenKey renews an existing listenKey to extend its validity
+// Should be called every 30 minutes to keep the WebSocket connection alive
+// Endpoint: PUT /fapi/v1/listenKey
+// Note: This endpoint does NOT require signature, only API key header
+func (c *BinanceClient) RenewListenKey(ctx context.Context) error {
+	reqURL := c.baseURL + "/fapi/v1/listenKey"
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create renew request: %w", err)
+	}
+
+	req.Header.Set("X-MBX-APIKEY", c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("renew request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read renew response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("renew API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("[Binance] Renewed listenKey")
+	return nil
+}
+
+// DeleteListenKey deletes an existing listenKey (cleanup on shutdown)
+// Endpoint: DELETE /fapi/v1/listenKey
+// Note: This endpoint does NOT require signature, only API key header
+func (c *BinanceClient) DeleteListenKey(ctx context.Context) error {
+	reqURL := c.baseURL + "/fapi/v1/listenKey"
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", reqURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+
+	req.Header.Set("X-MBX-APIKEY", c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read delete response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("[Binance] Deleted listenKey")
+	return nil
+}
+
+// StartUserDataStream starts WebSocket User Data Stream for real-time position updates
+// This enables <1s latency for position updates vs 30-60s with REST polling
+func (c *BinanceClient) StartUserDataStream(ctx context.Context) error {
+	// Create listenKey
+	listenKey, err := c.CreateListenKey(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create listenKey: %w", err)
+	}
+	c.listenKey = listenKey
+
+	// Determine WebSocket URL based on baseURL
+	wsURL := BinanceWSMainnetURL
+	if strings.Contains(c.baseURL, "testnet") {
+		wsURL = BinanceWSTestnetURL
+	}
+	wsURL = fmt.Sprintf("%s/%s", wsURL, listenKey)
+
+	// Connect to WebSocket
+	if err := c.connectWebSocket(wsURL); err != nil {
+		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+	}
+
+	// Start goroutines for message reading and listenKey renewal
+	c.wg.Add(2)
+	go c.readWebSocketMessages()
+	go c.renewListenKeyPeriodically()
+
+	log.Printf("[Binance] WebSocket User Data Stream started")
+	return nil
+}
+
+// connectWebSocket establishes WebSocket connection
+func (c *BinanceClient) connectWebSocket(wsURL string) error {
+	c.wsMu.Lock()
+	defer c.wsMu.Unlock()
+
+	dialer := websocket.DefaultDialer
+	dialer.HandshakeTimeout = 10 * time.Second
+
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("websocket dial failed: %w", err)
+	}
+
+	c.wsConn = conn
+	c.wsConnected.Store(true)
+	log.Printf("[Binance] WebSocket connected to %s", wsURL)
+	return nil
+}
+
+// readWebSocketMessages reads and processes WebSocket messages
+func (c *BinanceClient) readWebSocketMessages() {
+	defer c.wg.Done()
+	defer func() {
+		c.wsConnected.Store(false)
+		if c.wsConn != nil {
+			c.wsConn.Close()
+		}
+	}()
+
+	for {
+		select {
+		case <-c.wsStopCh:
+			log.Printf("[Binance] WebSocket reader stopped")
+			return
+		default:
+			// Set read deadline to detect stale connections
+			c.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+			_, message, err := c.wsConn.ReadMessage()
+			if err != nil {
+				log.Printf("[Binance] WebSocket read error: %v", err)
+				// Attempt reconnection
+				if c.reconnectWebSocket() != nil {
+					log.Printf("[Binance] WebSocket reconnection failed, stopping reader")
+					return
+				}
+				continue
+			}
+
+			// Parse message
+			if err := c.parseWebSocketMessage(message); err != nil {
+				log.Printf("[Binance] Failed to parse WebSocket message: %v", err)
+			}
+		}
+	}
+}
+
+// parseWebSocketMessage parses incoming WebSocket messages
+func (c *BinanceClient) parseWebSocketMessage(message []byte) error {
+	var baseMsg struct {
+		EventType string `json:"e"`
+	}
+	if err := json.Unmarshal(message, &baseMsg); err != nil {
+		return fmt.Errorf("failed to parse base message: %w", err)
+	}
+
+	switch baseMsg.EventType {
+	case "ACCOUNT_UPDATE":
+		return c.handleAccountUpdate(message)
+	case "ORDER_TRADE_UPDATE":
+		// Can be extended later if needed
+		log.Printf("[Binance] Received ORDER_TRADE_UPDATE event")
+	case "listenKeyExpired":
+		log.Printf("[Binance] listenKey expired, triggering reconnection")
+		go c.reconnectWebSocket()
+	default:
+		log.Printf("[Binance] Unknown WebSocket event type: %s", baseMsg.EventType)
+	}
+
+	return nil
+}
+
+// handleAccountUpdate processes ACCOUNT_UPDATE events
+func (c *BinanceClient) handleAccountUpdate(message []byte) error {
+	var update struct {
+		EventType string `json:"e"`
+		EventTime int64  `json:"E"`
+		Data      struct {
+			Positions []struct {
+				Symbol       string `json:"s"`
+				PositionSide string `json:"ps"`
+				PositionAmt  string `json:"pa"`
+				EntryPrice   string `json:"ep"`
+				MarkPrice    string `json:"mp"`
+				UnrealizedPnL string `json:"up"`
+			} `json:"P"`
+		} `json:"a"`
+	}
+
+	if err := json.Unmarshal(message, &update); err != nil {
+		return fmt.Errorf("failed to parse ACCOUNT_UPDATE: %w", err)
+	}
+
+	// Process each position update
+	for _, pos := range update.Data.Positions {
+		posUpdate := &PositionUpdate{
+			Symbol:        pos.Symbol,
+			PositionSide:  pos.PositionSide,
+			PositionAmt:   parseFloat(pos.PositionAmt),
+			EntryPrice:    parseFloat(pos.EntryPrice),
+			MarkPrice:     parseFloat(pos.MarkPrice),
+			UnrealizedPnL: parseFloat(pos.UnrealizedPnL),
+		}
+
+		// Send to update channel (non-blocking)
+		select {
+		case c.WsUpdateCh <- posUpdate:
+			log.Printf("[Binance] WebSocket position update: %s %.4f @ %.2f (PnL: %.2f)",
+				posUpdate.Symbol, posUpdate.PositionAmt, posUpdate.MarkPrice, posUpdate.UnrealizedPnL)
+		default:
+			log.Printf("[Binance] Warning: WsUpdateCh buffer full, dropping update for %s", pos.Symbol)
+		}
+	}
+
+	return nil
+}
+
+// reconnectWebSocket attempts to reconnect the WebSocket with exponential backoff
+func (c *BinanceClient) reconnectWebSocket() error {
+	maxRetries := 5
+	baseDelay := 5 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		log.Printf("[Binance] Attempting WebSocket reconnection (attempt %d/%d)", i+1, maxRetries)
+
+		// Close old connection
+		c.wsMu.Lock()
+		if c.wsConn != nil {
+			c.wsConn.Close()
+			c.wsConn = nil
+		}
+		c.wsMu.Unlock()
+
+		// Wait before retry (exponential backoff)
+		if i > 0 {
+			delay := baseDelay * time.Duration(1<<uint(i-1))
+			if delay > 60*time.Second {
+				delay = 60 * time.Second
+			}
+			time.Sleep(delay)
+		}
+
+		// Create new listenKey
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		listenKey, err := c.CreateListenKey(ctx)
+		cancel()
+		if err != nil {
+			log.Printf("[Binance] Failed to create new listenKey: %v", err)
+			continue
+		}
+		c.listenKey = listenKey
+
+		// Determine WebSocket URL
+		wsURL := BinanceWSMainnetURL
+		if strings.Contains(c.baseURL, "testnet") {
+			wsURL = BinanceWSTestnetURL
+		}
+		wsURL = fmt.Sprintf("%s/%s", wsURL, listenKey)
+
+		// Reconnect
+		if err := c.connectWebSocket(wsURL); err != nil {
+			log.Printf("[Binance] Reconnection failed: %v", err)
+			continue
+		}
+
+		log.Printf("[Binance] WebSocket reconnected successfully")
+		return nil
+	}
+
+	return fmt.Errorf("failed to reconnect after %d attempts", maxRetries)
+}
+
+// renewListenKeyPeriodically renews listenKey every 30 minutes
+func (c *BinanceClient) renewListenKeyPeriodically() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := c.RenewListenKey(ctx); err != nil {
+				log.Printf("[Binance] Failed to renew listenKey: %v", err)
+				// If renewal fails, trigger reconnection
+				go c.reconnectWebSocket()
+			}
+			cancel()
+		case <-c.wsStopCh:
+			log.Printf("[Binance] listenKey renewal stopped")
+			return
+		}
+	}
 }

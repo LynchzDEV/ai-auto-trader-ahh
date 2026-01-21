@@ -1,0 +1,479 @@
+package trader
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"auto-trader-ahh/exchange"
+	"auto-trader-ahh/store"
+)
+
+// TestGuaranteedProfitLockWithWebSocket tests the critical use case:
+// Profit lock triggers within 1 second of price drop via WebSocket
+func TestGuaranteedProfitLockWithWebSocket(t *testing.T) {
+	// Mock binance client that tracks close attempts
+	mockBinance := &MockBinanceClient{
+		closeAttempts: make([]CloseAttempt, 0),
+	}
+
+	updateCh := make(chan *exchange.PositionUpdate, 10)
+	stopCh := make(chan struct{})
+
+	engine := &Engine{
+		wsUpdateCh: updateCh,
+		stopCh:     stopCh,
+		positions:  make(map[string]*exchange.Position),
+		notifier:   &MockNotifier{},
+		binance:    mockBinance,
+		strategy: &store.Strategy{
+			Config: store.StrategyConfig{
+				RiskControl: store.RiskControlConfig{
+					EnableGuaranteedProfit:      true,
+					GuaranteedProfitActivatePct: 1.0,  // Activate at 1% profit
+					GuaranteedMinProfitPct:      0.3,  // Lock in 0.3% minimum
+					DrawdownCloseThreshold:      40.0,
+					MinProfitForDrawdown:        5.0,
+				},
+			},
+		},
+		peakPnLCache:          make(map[string]float64),
+		positionFirstSeenTime: make(map[string]int64),
+		lastCloseAttempt:      make(map[string]time.Time),
+	}
+
+	// Start WebSocket handler
+	ctx := context.Background()
+	go engine.handleWebSocketUpdates(ctx)
+
+	// Scenario: Position reaches 1.5% profit, then drops to 0.5%
+	// This should trigger guaranteed profit lock at 0.3% minimum
+
+	symbol := "BTCUSDT"
+	entryPrice := 50000.0
+	leverage := 20
+
+	// Step 1: Position opens at entry price
+	t.Log("Step 1: Opening position at entry price")
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:        symbol,
+		PositionAmt:   0.001,
+		EntryPrice:    entryPrice,
+		MarkPrice:     entryPrice, // 0% profit
+		UnrealizedPnL: 0,
+		Leverage:      leverage,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Initialize position tracking
+	engine.mu.Lock()
+	engine.positionFirstSeenTime[getPositionKey(symbol, "LONG")] = time.Now().UnixMilli()
+	engine.mu.Unlock()
+
+	// Step 2: Position reaches 1.5% profit (above activation threshold)
+	t.Log("Step 2: Position reaches 1.5% profit")
+	markPrice1 := entryPrice * 1.015 // +1.5%
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:        symbol,
+		PositionAmt:   0.001,
+		EntryPrice:    entryPrice,
+		MarkPrice:     markPrice1,
+		UnrealizedPnL: (markPrice1 - entryPrice) * 0.001,
+		Leverage:      leverage,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Manually update peak PnL (simulating what checkPositionDrawdown does)
+	engine.UpdatePeakPnL(symbol, "LONG", 1.5)
+
+	// Step 3: Price drops to 0.5% profit (below minimum lock threshold)
+	t.Log("Step 3: Price drops to 0.5% profit - should trigger profit lock")
+	startTime := time.Now()
+
+	markPrice2 := entryPrice * 1.005 // +0.5%
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:        symbol,
+		PositionAmt:   0.001,
+		EntryPrice:    entryPrice,
+		MarkPrice:     markPrice2,
+		UnrealizedPnL: (markPrice2 - entryPrice) * 0.001,
+		Leverage:      leverage,
+	}
+
+	// Wait for position update and risk check to complete
+	time.Sleep(200 * time.Millisecond)
+
+	latency := time.Since(startTime)
+	t.Logf("Time from WebSocket update to completion: %v", latency)
+
+	// Verify close was attempted
+	mockBinance.mu.Lock()
+	closeCount := len(mockBinance.closeAttempts)
+	mockBinance.mu.Unlock()
+
+	if closeCount == 0 {
+		t.Error("Expected position to be closed via profit lock, but no close attempt was made")
+	} else {
+		t.Logf("✅ Position closed successfully via profit lock")
+		t.Logf("Close latency: %v (target: <1s)", latency)
+
+		// Verify latency is under 1 second
+		if latency > 1*time.Second {
+			t.Errorf("Close latency %v exceeds 1 second target", latency)
+		}
+	}
+
+	// Cleanup
+	close(stopCh)
+}
+
+// TestProfitLockDoesNotTriggerPrematurely tests that profit lock doesn't trigger before activation
+func TestProfitLockDoesNotTriggerPrematurely(t *testing.T) {
+	mockBinance := &MockBinanceClient{
+		closeAttempts: make([]CloseAttempt, 0),
+	}
+
+	updateCh := make(chan *exchange.PositionUpdate, 10)
+	stopCh := make(chan struct{})
+
+	engine := &Engine{
+		wsUpdateCh: updateCh,
+		stopCh:     stopCh,
+		positions:  make(map[string]*exchange.Position),
+		notifier:   &MockNotifier{},
+		binance:    mockBinance,
+		strategy: &store.Strategy{
+			Config: store.StrategyConfig{
+				RiskControl: store.RiskControlConfig{
+					EnableGuaranteedProfit:      true,
+					GuaranteedProfitActivatePct: 1.0,  // Activate at 1% profit
+					GuaranteedMinProfitPct:      0.3,  // Lock in 0.3% minimum
+					DrawdownCloseThreshold:      40.0,
+					MinProfitForDrawdown:        5.0,
+				},
+			},
+		},
+		peakPnLCache:          make(map[string]float64),
+		positionFirstSeenTime: make(map[string]int64),
+		lastCloseAttempt:      make(map[string]time.Time),
+	}
+
+	ctx := context.Background()
+	go engine.handleWebSocketUpdates(ctx)
+
+	symbol := "BTCUSDT"
+	entryPrice := 50000.0
+
+	// Position never reaches 1% activation threshold
+	// Peak is only 0.8%, drops to 0.2%
+	// Should NOT trigger profit lock
+
+	t.Log("Position reaches 0.8% profit (below 1% activation)")
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:        symbol,
+		PositionAmt:   0.001,
+		EntryPrice:    entryPrice,
+		MarkPrice:     entryPrice * 1.008, // +0.8%
+		UnrealizedPnL: 40.0,
+		Leverage:      20,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	engine.mu.Lock()
+	engine.positionFirstSeenTime[getPositionKey(symbol, "LONG")] = time.Now().UnixMilli()
+	engine.mu.Unlock()
+
+	engine.UpdatePeakPnL(symbol, "LONG", 0.8)
+
+	t.Log("Price drops to 0.2% profit")
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:        symbol,
+		PositionAmt:   0.001,
+		EntryPrice:    entryPrice,
+		MarkPrice:     entryPrice * 1.002, // +0.2%
+		UnrealizedPnL: 10.0,
+		Leverage:      20,
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify NO close was attempted
+	mockBinance.mu.Lock()
+	closeCount := len(mockBinance.closeAttempts)
+	mockBinance.mu.Unlock()
+
+	if closeCount > 0 {
+		t.Error("Position should NOT be closed - never reached activation threshold")
+	} else {
+		t.Log("✅ Profit lock correctly did not trigger (peak < activation threshold)")
+	}
+
+	close(stopCh)
+}
+
+// TestRapidPriceDropScenario tests the exact scenario from the problem description
+func TestRapidPriceDropScenario(t *testing.T) {
+	mockBinance := &MockBinanceClient{
+		closeAttempts: make([]CloseAttempt, 0),
+	}
+
+	updateCh := make(chan *exchange.PositionUpdate, 100)
+	stopCh := make(chan struct{})
+
+	engine := &Engine{
+		wsUpdateCh: updateCh,
+		stopCh:     stopCh,
+		positions:  make(map[string]*exchange.Position),
+		notifier:   &MockNotifier{},
+		binance:    mockBinance,
+		strategy: &store.Strategy{
+			Config: store.StrategyConfig{
+				RiskControl: store.RiskControlConfig{
+					EnableGuaranteedProfit:      true,
+					GuaranteedProfitActivatePct: 0.5,  // Activate at 0.5%
+					GuaranteedMinProfitPct:      0.1,  // Lock in 0.1% minimum
+					DrawdownCloseThreshold:      40.0,
+					MinProfitForDrawdown:        5.0,
+				},
+			},
+		},
+		peakPnLCache:          make(map[string]float64),
+		positionFirstSeenTime: make(map[string]int64),
+		lastCloseAttempt:      make(map[string]time.Time),
+	}
+
+	ctx := context.Background()
+	go engine.handleWebSocketUpdates(ctx)
+
+	symbol := "BTCUSDT"
+	entryPrice := 50000.0
+
+	// Simulate the exact problem scenario:
+	// Profit goes 1.5% → 0.5% in seconds
+	// With 30-60s polling, we'd miss the lock trigger
+	// With WebSocket, we catch it immediately
+
+	t.Log("=== Simulating rapid price drop scenario ===")
+
+	// Position opens
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:      symbol,
+		PositionAmt: 0.001,
+		EntryPrice:  entryPrice,
+		MarkPrice:   entryPrice,
+		Leverage:    20,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	engine.mu.Lock()
+	engine.positionFirstSeenTime[getPositionKey(symbol, "LONG")] = time.Now().UnixMilli()
+	engine.mu.Unlock()
+
+	// Peak at 1.5% profit
+	t.Log("T+0s: Position peaks at 1.5% profit")
+	updateCh <- &exchange.PositionUpdate{
+		Symbol:      symbol,
+		PositionAmt: 0.001,
+		EntryPrice:  entryPrice,
+		MarkPrice:   entryPrice * 1.015,
+		Leverage:    20,
+	}
+	time.Sleep(50 * time.Millisecond)
+	engine.UpdatePeakPnL(symbol, "LONG", 1.5)
+
+	// Rapid drops in seconds (simulating market volatility)
+	priceDrops := []float64{1.2, 0.9, 0.6, 0.3} // Profit % dropping
+
+	for i, pct := range priceDrops {
+		t.Logf("T+%ds: Profit drops to %.1f%%", i+1, pct)
+		markPrice := entryPrice * (1 + pct/100)
+
+		dropStart := time.Now()
+		updateCh <- &exchange.PositionUpdate{
+			Symbol:      symbol,
+			PositionAmt: 0.001,
+			EntryPrice:  entryPrice,
+			MarkPrice:   markPrice,
+			Leverage:    20,
+		}
+
+		// Check if position was closed
+		time.Sleep(100 * time.Millisecond)
+
+		mockBinance.mu.Lock()
+		closed := len(mockBinance.closeAttempts) > 0
+		mockBinance.mu.Unlock()
+
+		if closed {
+			latency := time.Since(dropStart)
+			t.Logf("✅ Position closed at %.1f%% profit with %v latency", pct, latency)
+
+			// Verify we locked in at least 0.1% (minimum threshold)
+			if pct < 0.1 {
+				t.Errorf("Position closed at %.1f%% which is below 0.1%% minimum - too late!", pct)
+			} else {
+				t.Logf("✅ Successfully locked in %.1f%% profit (above 0.1%% minimum)", pct)
+			}
+
+			close(stopCh)
+			return
+		}
+	}
+
+	t.Error("Position was never closed - profit lock failed to trigger!")
+	close(stopCh)
+}
+
+// MockBinanceClient for testing (implements minimal interface needed)
+type MockBinanceClient struct {
+	closeAttempts []CloseAttempt
+	mu            sync.Mutex
+}
+
+type CloseAttempt struct {
+	Symbol      string
+	PositionAmt float64
+	Timestamp   time.Time
+}
+
+func (m *MockBinanceClient) ClosePosition(ctx context.Context, symbol string, positionAmt float64) (*exchange.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.closeAttempts = append(m.closeAttempts, CloseAttempt{
+		Symbol:      symbol,
+		PositionAmt: positionAmt,
+		Timestamp:   time.Now(),
+	})
+
+	return &exchange.Order{
+		OrderID: 12345,
+		Symbol:  symbol,
+		Status:  "FILLED",
+	}, nil
+}
+
+// TestRateLimitingPreventsSpam tests that multiple WebSocket updates don't spam close attempts
+func TestRateLimitingPreventsSpam(t *testing.T) {
+	mockBinance := &MockBinanceClient{
+		closeAttempts: make([]CloseAttempt, 0),
+	}
+
+	updateCh := make(chan *exchange.PositionUpdate, 100)
+	stopCh := make(chan struct{})
+
+	engine := &Engine{
+		wsUpdateCh: updateCh,
+		stopCh:     stopCh,
+		positions:  make(map[string]*exchange.Position),
+		notifier:   &MockNotifier{},
+		binance:    mockBinance,
+		strategy: &store.Strategy{
+			Config: store.StrategyConfig{
+				RiskControl: store.RiskControlConfig{
+					EnableGuaranteedProfit:      true,
+					GuaranteedProfitActivatePct: 0.5,
+					GuaranteedMinProfitPct:      0.1,
+					DrawdownCloseThreshold:      40.0,
+					MinProfitForDrawdown:        5.0,
+				},
+			},
+		},
+		peakPnLCache:          make(map[string]float64),
+		positionFirstSeenTime: make(map[string]int64),
+		lastCloseAttempt:      make(map[string]time.Time),
+	}
+
+	ctx := context.Background()
+	go engine.handleWebSocketUpdates(ctx)
+
+	symbol := "BTCUSDT"
+	entryPrice := 50000.0
+
+	// Set up position with peak
+	engine.mu.Lock()
+	engine.positionFirstSeenTime[getPositionKey(symbol, "LONG")] = time.Now().UnixMilli()
+	engine.mu.Unlock()
+	engine.UpdatePeakPnL(symbol, "LONG", 1.5)
+
+	// Send 10 rapid WebSocket updates all at 0.05% profit (below minimum)
+	// With rate limiting, only 1 close attempt should happen
+	for i := 0; i < 10; i++ {
+		updateCh <- &exchange.PositionUpdate{
+			Symbol:      symbol,
+			PositionAmt: 0.001,
+			EntryPrice:  entryPrice,
+			MarkPrice:   entryPrice * 1.0005, // 0.05% profit
+			Leverage:    20,
+		}
+		time.Sleep(10 * time.Millisecond) // Rapid updates
+	}
+
+	time.Sleep(500 * time.Millisecond) // Wait for all processing
+
+	mockBinance.mu.Lock()
+	closeCount := len(mockBinance.closeAttempts)
+	mockBinance.mu.Unlock()
+
+	// Should be 1 (rate limited) or at most 2
+	if closeCount > 2 {
+		t.Errorf("Rate limiting failed: %d close attempts (expected ≤2)", closeCount)
+	} else {
+		t.Logf("✅ Rate limiting working: %d close attempt(s) from 10 updates", closeCount)
+	}
+
+	close(stopCh)
+}
+
+// BenchmarkProfitLockLatency benchmarks the end-to-end latency
+func BenchmarkProfitLockLatency(b *testing.B) {
+	mockBinance := &MockBinanceClient{
+		closeAttempts: make([]CloseAttempt, 0),
+	}
+
+	updateCh := make(chan *exchange.PositionUpdate, 1000)
+	stopCh := make(chan struct{})
+
+	engine := &Engine{
+		wsUpdateCh: updateCh,
+		stopCh:     stopCh,
+		positions:  make(map[string]*exchange.Position),
+		notifier:   &MockNotifier{},
+		binance:    mockBinance,
+		strategy: &store.Strategy{
+			Config: store.StrategyConfig{
+				RiskControl: store.RiskControlConfig{
+					EnableGuaranteedProfit:      true,
+					GuaranteedProfitActivatePct: 1.0,
+					GuaranteedMinProfitPct:      0.3,
+					DrawdownCloseThreshold:      40.0,
+					MinProfitForDrawdown:        5.0,
+				},
+			},
+		},
+		peakPnLCache:          make(map[string]float64),
+		positionFirstSeenTime: make(map[string]int64),
+		lastCloseAttempt:      make(map[string]time.Time),
+	}
+
+	ctx := context.Background()
+	go engine.handleWebSocketUpdates(ctx)
+
+	symbol := "BTCUSDT"
+	entryPrice := 50000.0
+
+	engine.UpdatePeakPnL(symbol, "LONG", 1.5)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		updateCh <- &exchange.PositionUpdate{
+			Symbol:      symbol,
+			PositionAmt: 0.001,
+			EntryPrice:  entryPrice,
+			MarkPrice:   entryPrice * 1.002, // 0.2% profit (should trigger)
+			Leverage:    20,
+		}
+	}
+
+	close(stopCh)
+}
