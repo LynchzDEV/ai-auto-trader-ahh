@@ -452,7 +452,7 @@ func applyConfigDefaults(cfg *StrategyConfig) {
 		cfg.RiskControl.AltcoinMaxPositionValueRatio = defaults.RiskControl.AltcoinMaxPositionValueRatio
 	}
 
-	// Minimum position sizes - 0 is technically valid but likely unintended
+	// Minimum position sizes - 0 is treated as "unset" and will use fallback defaults
 	if cfg.RiskControl.MinPositionSize == 0 {
 		cfg.RiskControl.MinPositionSize = defaults.RiskControl.MinPositionSize
 	}
