@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	BinanceMainnetURL   = "https://fapi.binance.com"
-	BinanceTestnetURL   = "https://testnet.binancefuture.com"
-	BinanceAPIBaseURL   = "https://api.binance.com"
-	BinanceWSMainnetURL = "wss://fstream.binance.com/ws"
-	BinanceWSTestnetURL = "wss://stream.binancefuture.com/ws"
+	BinanceMainnetURL       = "https://fapi.binance.com"
+	BinanceTestnetURL       = "https://testnet.binancefuture.com"
+	BinanceAPIBaseURL       = "https://api.binance.com"
+	BinanceWSMainnetURL     = "wss://fstream.binance.com/ws"
+	BinanceWSTestnetURL     = "wss://stream.binancefuture.com/ws"
+	BinanceStreamMainnetURL = "wss://fstream.binance.com/stream"
+	BinanceStreamTestnetURL = "wss://stream.binancefuture.com/stream"
 )
 
 type BinanceClient struct {
@@ -50,6 +52,13 @@ type BinanceClient struct {
 	wsErrorCh   chan error
 	wsStopCh    chan struct{}
 	wsConnected atomic.Bool
+
+	// WebSocket fields for Market Data Stream (Mark Price)
+	marketWsConn        *websocket.Conn
+	marketStreamMu      sync.Mutex
+	marketStopCh        chan struct{}
+	marketConnected     atomic.Bool
+	activeSubscriptions map[string]bool // Track subscribed symbols to resubscribe on reconnect
 }
 
 // SymbolInfo holds precision info for a trading symbol
@@ -88,6 +97,7 @@ type PositionUpdate struct {
 	MarkPrice     float64
 	UnrealizedPnL float64
 	Leverage      int
+	Type          string // "POSITION" or "MARK_PRICE"
 }
 
 type Order struct {
@@ -1669,6 +1679,7 @@ func (c *BinanceClient) handleAccountUpdate(message []byte) error {
 			EntryPrice:    parseFloat(pos.EntryPrice),
 			MarkPrice:     parseFloat(pos.MarkPrice),
 			UnrealizedPnL: parseFloat(pos.UnrealizedPnL),
+			Type:          "POSITION",
 		}
 
 		// Send to update channel (non-blocking)
@@ -1758,6 +1769,262 @@ func (c *BinanceClient) renewListenKeyPeriodically() {
 			cancel()
 		case <-c.wsStopCh:
 			log.Printf("[Binance] listenKey renewal stopped")
+			return
+		}
+	}
+}
+
+// ===== Market Data Stream (Public) API =====
+
+// StartMarketDataStream starts a separate WebSocket connection for public market data
+// This uses the multiplex stream endpoint (/stream) to support multiple subscriptions
+func (c *BinanceClient) StartMarketDataStream(ctx context.Context) error {
+	// Determine WebSocket URL based on baseURL
+	wsURL := BinanceStreamMainnetURL
+	if strings.Contains(c.baseURL, "testnet") {
+		wsURL = BinanceStreamTestnetURL
+	}
+
+	// Connect to WebSocket
+	if err := c.connectMarketWebSocket(wsURL); err != nil {
+		return fmt.Errorf("failed to connect to Market Data WebSocket: %w", err)
+	}
+
+	// Start goroutine for message reading and ping keepalive
+	c.wg.Add(2)
+	go c.readMarketWebSocketMessages()
+	go c.sendMarketWebSocketPings()
+
+	log.Printf("[Binance] Market Data Stream started")
+	return nil
+}
+
+// connectMarketWebSocket establishes Market Data WebSocket connection
+func (c *BinanceClient) connectMarketWebSocket(wsURL string) error {
+	c.marketStreamMu.Lock()
+	defer c.marketStreamMu.Unlock()
+
+	dialer := websocket.DefaultDialer
+	dialer.HandshakeTimeout = 10 * time.Second
+
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("market websocket dial failed: %w", err)
+	}
+
+	// Set up pong handler
+	conn.SetPongHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return nil
+	})
+
+	c.marketWsConn = conn
+	c.marketConnected.Store(true)
+	log.Printf("[Binance] Market Data WebSocket connected to %s", wsURL)
+
+	// Resubscribe to existing subscriptions if any
+	if len(c.activeSubscriptions) > 0 {
+		var streams []string
+		for symbol := range c.activeSubscriptions {
+			streams = append(streams, fmt.Sprintf("%s@markPrice@1s", strings.ToLower(symbol)))
+		}
+
+		// Send subscription request
+		go func(streams []string) {
+			time.Sleep(1 * time.Second) // Wait for connection to stabilize
+			c.sendSubscriptionRequest(streams, true)
+		}(streams)
+	}
+
+	return nil
+}
+
+// SubscribeToMarkPrice subscribes to the 1s mark price stream for a symbol
+func (c *BinanceClient) SubscribeToMarkPrice(symbol string) {
+	c.SubscribeToMarkPrices([]string{symbol})
+}
+
+// SubscribeToMarkPrices subscribes to mark price streams for multiple symbols in one request
+// This prevents hitting the 5 incoming messages/sec rate limit
+func (c *BinanceClient) SubscribeToMarkPrices(symbols []string) {
+	c.marketStreamMu.Lock()
+	if c.activeSubscriptions == nil {
+		c.activeSubscriptions = make(map[string]bool)
+	}
+
+	var streamsToSubscribe []string
+	for _, symbol := range symbols {
+		if !c.activeSubscriptions[symbol] {
+			c.activeSubscriptions[symbol] = true
+			streamsToSubscribe = append(streamsToSubscribe, fmt.Sprintf("%s@markPrice@1s", strings.ToLower(symbol)))
+		}
+	}
+	c.marketStreamMu.Unlock()
+
+	if len(streamsToSubscribe) > 0 {
+		c.sendSubscriptionRequest(streamsToSubscribe, true)
+		log.Printf("[Binance] Subscribing to Mark Price stream for %d symbols: %v", len(streamsToSubscribe), symbols)
+	}
+}
+
+// UnsubscribeFromMarkPrice unsubscribes from the mark price stream
+func (c *BinanceClient) UnsubscribeFromMarkPrice(symbol string) {
+	c.marketStreamMu.Lock()
+	if c.activeSubscriptions == nil {
+		c.activeSubscriptions = make(map[string]bool)
+	}
+	if !c.activeSubscriptions[symbol] {
+		c.marketStreamMu.Unlock()
+		return // Not subscribed
+	}
+	delete(c.activeSubscriptions, symbol)
+	c.marketStreamMu.Unlock()
+
+	streamName := fmt.Sprintf("%s@markPrice@1s", strings.ToLower(symbol))
+	c.sendSubscriptionRequest([]string{streamName}, false)
+	log.Printf("[Binance] Unsubscribing from Mark Price stream for %s", symbol)
+}
+
+// sendSubscriptionRequest sends SUBSCRIBE or UNSUBSCRIBE payload
+func (c *BinanceClient) sendSubscriptionRequest(streams []string, subscribe bool) {
+	c.marketStreamMu.Lock()
+	defer c.marketStreamMu.Unlock()
+
+	if c.marketWsConn == nil || !c.marketConnected.Load() {
+		return
+	}
+
+	method := "SUBSCRIBE"
+	if !subscribe {
+		method = "UNSUBSCRIBE"
+	}
+
+	payload := map[string]interface{}{
+		"method": method,
+		"params": streams,
+		"id":     time.Now().UnixNano(),
+	}
+
+	if err := c.marketWsConn.WriteJSON(payload); err != nil {
+		log.Printf("[Binance] Failed to send %s request: %v", method, err)
+	}
+}
+
+// readMarketWebSocketMessages reads and processes Market Data WebSocket messages
+func (c *BinanceClient) readMarketWebSocketMessages() {
+	defer c.wg.Done()
+	defer func() {
+		c.marketConnected.Store(false)
+		if c.marketWsConn != nil {
+			c.marketWsConn.Close()
+		}
+	}()
+
+	for {
+		select {
+		case <-c.marketStopCh:
+			return
+		default:
+			c.marketWsConn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			_, message, err := c.marketWsConn.ReadMessage()
+			if err != nil {
+				log.Printf("[Binance] Market WebSocket read error: %v", err)
+				if c.reconnectMarketWebSocket() != nil {
+					return
+				}
+				continue
+			}
+
+			// Parse message
+			// Combined stream format: {"stream":"<streamName>","data":<payload>}
+			var streamMsg struct {
+				Stream string          `json:"stream"`
+				Data   json.RawMessage `json:"data"`
+			}
+
+			if err := json.Unmarshal(message, &streamMsg); err != nil {
+				// Might be a response to subscribe, ignore
+				continue
+			}
+
+			if strings.Contains(streamMsg.Stream, "@markPrice") {
+				c.handleMarkPriceUpdate(streamMsg.Data)
+			}
+		}
+	}
+}
+
+// handleMarkPriceUpdate processes mark price updates
+func (c *BinanceClient) handleMarkPriceUpdate(data []byte) {
+	var mp struct {
+		EventType string `json:"e"`
+		EventTime int64  `json:"E"`
+		Symbol    string `json:"s"`
+		MarkPrice string `json:"p"`
+	}
+
+	if err := json.Unmarshal(data, &mp); err != nil {
+		return
+	}
+
+	price := parseFloat(mp.MarkPrice)
+	if price > 0 {
+		// Create a PositionUpdate for the Engine
+		// Note: We only set Symbol and MarkPrice. Other fields are 0/empty.
+		// The Engine must handle merging this with existing position data.
+		update := &PositionUpdate{
+			Symbol:    mp.Symbol,
+			MarkPrice: price,
+			Type:      "MARK_PRICE",
+			// PositionAmt = 0 indicates this is NOT a position change, just a price tick
+		}
+
+		select {
+		case c.WsUpdateCh <- update:
+			// log.Printf("[Binance] Mark Price tick: %s $%.4f", mp.Symbol, price)
+		default:
+			// Drop if full
+		}
+	}
+}
+
+// reconnectMarketWebSocket attempts to reconnect the Market Data WebSocket
+func (c *BinanceClient) reconnectMarketWebSocket() error {
+	c.marketStreamMu.Lock()
+	if c.marketWsConn != nil {
+		c.marketWsConn.Close()
+	}
+	c.marketStreamMu.Unlock()
+
+	time.Sleep(2 * time.Second)
+
+	wsURL := BinanceStreamMainnetURL
+	if strings.Contains(c.baseURL, "testnet") {
+		wsURL = BinanceStreamTestnetURL
+	}
+
+	if err := c.connectMarketWebSocket(wsURL); err != nil {
+		log.Printf("[Binance] Market WebSocket reconnection failed: %v", err)
+		return err
+	}
+	return nil
+}
+
+// sendMarketWebSocketPings sends periodic pings
+func (c *BinanceClient) sendMarketWebSocketPings() {
+	defer c.wg.Done()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.marketStreamMu.Lock()
+			if c.marketWsConn != nil && c.marketConnected.Load() {
+				c.marketWsConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			}
+			c.marketStreamMu.Unlock()
+		case <-c.marketStopCh:
 			return
 		}
 	}

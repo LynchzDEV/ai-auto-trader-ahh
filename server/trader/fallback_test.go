@@ -92,7 +92,7 @@ func TestRESTPollingContinuesWithWebSocket(t *testing.T) {
 	}
 
 	// Verify both systems can be stopped independently
-	close(stopCh)       // Stop WebSocket
+	close(stopCh)        // Stop WebSocket
 	close(orderSyncStop) // Stop REST polling
 
 	t.Log("✅ Both WebSocket and REST systems can be controlled independently")
@@ -109,6 +109,7 @@ func TestWebSocketReconnectionPreservesRESTFallback(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),
@@ -205,6 +206,7 @@ func TestWebSocketLatencyComparison(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),
@@ -269,6 +271,7 @@ func TestGracefulShutdownWithBothSystems(t *testing.T) {
 		stopCh:        stopCh,
 		orderSyncStop: orderSyncStop,
 		positions:     make(map[string]*exchange.Position),
+		binance:       &exchange.BinanceClient{},
 		notifier:      &MockNotifier{},
 		strategy: &store.Strategy{
 			Config: store.StrategyConfig{
@@ -313,6 +316,7 @@ func TestErrorRecoveryAfterWebSocketFailure(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),

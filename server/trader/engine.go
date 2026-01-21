@@ -104,7 +104,8 @@ type Engine struct {
 	// Risk check optimization (prevent concurrent checks and rate limit close attempts)
 	isCheckingDrawdown atomic.Bool          // Atomic flag to prevent concurrent drawdown checks
 	lastCloseAttempt   map[string]time.Time // Track last close attempt per symbol
-	closeAttemptMu     sync.Mutex           // Mutex for lastCloseAttempt map
+	lastLogTime        map[string]time.Time // Track last log time per symbol (for throttling status logs)
+	closeAttemptMu     sync.Mutex           // Mutex for lastCloseAttempt and lastLogTime maps
 }
 
 // oiCacheEntry stores cached OI data with expiry
@@ -249,7 +250,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		oiCache: make(map[string]*oiCacheEntry),
 
 		// Risk check optimization
+		// Risk check optimization
 		lastCloseAttempt: make(map[string]time.Time),
+		lastLogTime:      make(map[string]time.Time),
 	}
 }
 
@@ -327,6 +330,14 @@ func (e *Engine) Start(ctx context.Context) error {
 		e.wsUpdateCh = e.binance.WsUpdateCh
 		go e.handleWebSocketUpdates(ctx)
 		log.Printf("[%s] WebSocket position updates enabled (<1s latency)", e.name)
+
+		// Start Market Data Stream for real-time price ticks
+		// This feeds handleWebSocketUpdates with MARK_PRICE ticks for active positions
+		if err := e.binance.StartMarketDataStream(ctx); err != nil {
+			log.Printf("[%s] Warning: Failed to start Market Data Stream: %v", e.name, err)
+		} else {
+			log.Printf("[%s] Market Data Stream enabled (real-time PnL tracking)", e.name)
+		}
 	}
 
 	return nil
@@ -4119,15 +4130,29 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 				minProfitPct = 0.1 // Default: guarantee at least 0.1% profit
 			}
 
-			// ALWAYS update peak P&L when Guaranteed Profit is enabled
-			// This fixes a bug where peak wasn't tracked when Trailing Stop was enabled but not yet activated
+			// Always update peak P&L when Guaranteed Profit is enabled
 			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
 			// Debug logging for profit tracking (log every 30 seconds to avoid spam)
+			// Throttled to prevent log flooding when WebSocket updates trigger frequent checks
 			if rawPnlPct > 0.1 || peakPnL > activatePct*0.5 {
-				log.Printf("[%s][%s] 📊 Guaranteed Profit Status: Current=%.2f%%, Peak=%.2f%%, ActivateAt=%.2f%%, MinLock=%.2f%%",
-					e.name, pos.Symbol, rawPnlPct, peakPnL, activatePct, minProfitPct)
+				e.closeAttemptMu.Lock()
+				// Lazy init for tests that might construct Engine manually
+				if e.lastLogTime == nil {
+					e.lastLogTime = make(map[string]time.Time)
+				}
+				lastLog, exists := e.lastLogTime[pos.Symbol]
+				shouldLog := !exists || time.Since(lastLog) > 30*time.Second
+				if shouldLog {
+					e.lastLogTime[pos.Symbol] = time.Now()
+				}
+				e.closeAttemptMu.Unlock()
+
+				if shouldLog {
+					log.Printf("[%s][%s] 📊 Guaranteed Profit Status: Current=%.2f%%, Peak=%.2f%%, ActivateAt=%.2f%%, MinLock=%.2f%%",
+						e.name, pos.Symbol, rawPnlPct, peakPnL, activatePct, minProfitPct)
+				}
 			}
 
 			// Check if position ever reached activation threshold
@@ -4313,45 +4338,82 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 
 			// Update position map with mutex lock
 			e.mu.Lock()
-			if update.PositionAmt == 0 {
-				// Position closed, remove from map
-				delete(e.positions, update.Symbol)
+			triggerRiskCheck := false
+
+			// CASE 1: MARKET PRICE TICK (Real-time PnL Update)
+			if update.Type == "MARK_PRICE" {
+				if pos, exists := e.positions[update.Symbol]; exists {
+					// Update MarkPrice
+					pos.MarkPrice = update.MarkPrice
+
+					// Recalculate Unrealized PnL based on new price
+					// UnrPnL = (MarkPrice - EntryPrice) * PositionAmt
+					if pos.EntryPrice > 0 {
+						// PositionAmt is signed (+ for Long, - for Short)
+						// Long: (Mark - Entry) * Pos (>0) => Profit if Mark > Entry
+						// Short: (Mark - Entry) * Pos (<0) => Profit if Mark < Entry
+						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
+					}
+
+					// Trigger risk check
+					triggerRiskCheck = true
+				}
 			} else {
-				// Get existing position to preserve MarkPrice if WebSocket sends 0
-				existingPos := e.positions[update.Symbol]
+				// CASE 2: POSITION UPDATE (Trade/Order Fill)
+				if update.PositionAmt == 0 {
+					// Position closed
+					delete(e.positions, update.Symbol)
 
-				// Determine MarkPrice to use - WebSocket sometimes sends 0 for mark price
-				// which causes false 100% PnL calculation and immediate trailing stop trigger
-				markPrice := update.MarkPrice
-				if markPrice == 0 && existingPos != nil && existingPos.MarkPrice > 0 {
-					markPrice = existingPos.MarkPrice // Preserve existing mark price
-					log.Printf("[%s][%s] WebSocket sent MarkPrice=0, preserving cached value: $%.4f",
-						e.name, update.Symbol, markPrice)
-				}
+					// Unsubscribe from market data to save bandwidth
+					go e.binance.UnsubscribeFromMarkPrice(update.Symbol)
+				} else {
+					// New or Updated Position
+					existingPos := e.positions[update.Symbol]
+					isNew := existingPos == nil
 
-				// Determine Leverage to use - preserve existing if not provided
-				leverage := update.Leverage
-				if leverage == 0 && existingPos != nil && existingPos.Leverage > 0 {
-					leverage = existingPos.Leverage
-				}
+					// Determine MarkPrice to use
+					markPrice := update.MarkPrice
 
-				// Update or create position
-				e.positions[update.Symbol] = &exchange.Position{
-					Symbol:           update.Symbol,
-					PositionSide:     update.PositionSide,
-					PositionAmt:      update.PositionAmt,
-					EntryPrice:       update.EntryPrice,
-					MarkPrice:        markPrice,
-					UnrealizedProfit: update.UnrealizedPnL,
-					Leverage:         leverage,
+					// 1. Try to back-calculate from Unrealized PnL if MarkPrice is missing
+					if markPrice == 0 && update.PositionAmt != 0 && update.EntryPrice > 0 {
+						markPrice = (update.UnrealizedPnL / update.PositionAmt) + update.EntryPrice
+						update.MarkPrice = markPrice
+					}
+
+					// 2. Fallback to existing
+					if markPrice == 0 && existingPos != nil && existingPos.MarkPrice > 0 {
+						markPrice = existingPos.MarkPrice
+					}
+
+					// Determine Leverage to use
+					leverage := update.Leverage
+					if leverage == 0 && existingPos != nil && existingPos.Leverage > 0 {
+						leverage = existingPos.Leverage
+					}
+
+					// Update position
+					e.positions[update.Symbol] = &exchange.Position{
+						Symbol:           update.Symbol,
+						PositionSide:     update.PositionSide,
+						PositionAmt:      update.PositionAmt,
+						EntryPrice:       update.EntryPrice,
+						MarkPrice:        markPrice,
+						UnrealizedProfit: update.UnrealizedPnL,
+						Leverage:         leverage,
+					}
+
+					// If new position, subscribe to real-time market data
+					if isNew {
+						go e.binance.SubscribeToMarkPrice(update.Symbol)
+					}
+
+					triggerRiskCheck = true
 				}
 			}
 			e.mu.Unlock()
 
-			// Trigger risk check immediately (critical for profit lock)
-			// This is the key improvement: <1s response time instead of 30-60s
-			// IMPORTANT: Only trigger if we have valid mark price to avoid false triggers
-			if update.PositionAmt != 0 && update.MarkPrice > 0 {
+			// Trigger risk check if needed
+			if triggerRiskCheck {
 				go e.checkPositionDrawdown(ctx)
 			}
 
@@ -4381,6 +4443,7 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 
 	// Update positions
 	newPositions := make(map[string]*exchange.Position)
+	var symbolsToSubscribe []string
 	for i := range positions {
 		pos := &positions[i]
 		newPositions[pos.Symbol] = pos
@@ -4397,7 +4460,15 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 				e.positionFirstSeenTime[key] = time.Now().UnixMilli()
 				log.Printf("[%s] New position detected: %s %s", e.name, pos.Symbol, side)
 			}
+
+			// Ensure we are subscribed to real-time mark price
+			symbolsToSubscribe = append(symbolsToSubscribe, pos.Symbol)
 		}
+	}
+
+	// Batch subscribe to avoid rate limits
+	if len(symbolsToSubscribe) > 0 {
+		go e.binance.SubscribeToMarkPrices(symbolsToSubscribe)
 	}
 
 	// Detect closed positions
@@ -4421,6 +4492,9 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 
 				// Mark position as closed in local state so UI reflects the change
 				oldPos.PositionAmt = 0
+
+				// Unsubscribe from market data
+				go e.binance.UnsubscribeFromMarkPrice(symbol)
 			}
 		}
 	}

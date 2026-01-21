@@ -2,6 +2,7 @@ package trader
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ func TestWebSocketMarkPriceZeroPreservation(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),
@@ -66,8 +68,8 @@ func TestWebSocketMarkPriceZeroPreservation(t *testing.T) {
 		Symbol:        "AIAUSDT",
 		PositionAmt:   -381.0,
 		EntryPrice:    0.2723,
-		MarkPrice:     0.0, // Invalid - should be preserved from previous
-		UnrealizedPnL: 0.60,
+		MarkPrice:     0.0,     // Invalid - should be preserved (or calc'd)
+		UnrealizedPnL: -1.0287, // Matches 0.2750 MarkPrice ((0.2723-0.2750)*381)
 		PositionSide:  "BOTH",
 		Leverage:      20,
 	}
@@ -88,8 +90,10 @@ func TestWebSocketMarkPriceZeroPreservation(t *testing.T) {
 	if pos.MarkPrice == 0 {
 		t.Error("CRITICAL: MarkPrice was overwritten with 0 - this causes false 100% PnL!")
 	}
-	if pos.MarkPrice != 0.2750 {
-		t.Errorf("Expected preserved MarkPrice 0.2750, got %f", pos.MarkPrice)
+	// Use epsilon for float comparison as back-calculation may introduce tiny errors
+	diff := math.Abs(pos.MarkPrice - 0.2750)
+	if diff > 0.0001 {
+		t.Errorf("Expected preserved MarkPrice 0.2750, got %f (diff: %f)", pos.MarkPrice, diff)
 	}
 
 	close(stopCh)
@@ -110,6 +114,7 @@ func TestWebSocketMarkPriceZeroNoTrigger(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),
@@ -280,6 +285,7 @@ func TestLeveragePreservation(t *testing.T) {
 		wsUpdateCh:            updateCh,
 		stopCh:                stopCh,
 		positions:             make(map[string]*exchange.Position),
+		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
 		peakPnLCache:          make(map[string]float64),
 		positionFirstSeenTime: make(map[string]int64),
