@@ -102,7 +102,7 @@ type Engine struct {
 	wsUpdateCh <-chan *exchange.PositionUpdate
 
 	// Risk check optimization (prevent concurrent checks and rate limit close attempts)
-	isCheckingDrawdown atomic.Bool           // Atomic flag to prevent concurrent drawdown checks
+	isCheckingDrawdown atomic.Bool          // Atomic flag to prevent concurrent drawdown checks
 	lastCloseAttempt   map[string]time.Time // Track last close attempt per symbol
 	closeAttemptMu     sync.Mutex           // Mutex for lastCloseAttempt map
 }
@@ -3521,10 +3521,34 @@ func (e *Engine) placeStopLossOnly(ctx context.Context, symbol string, isLong bo
 	var slOrder *exchange.Order
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
+		// Check if position still exists before attempting SL placement
+		// This prevents -4509 errors when position was closed between attempts
+		positions, posErr := e.binance.GetPositions(ctx)
+		if posErr == nil {
+			positionExists := false
+			for _, pos := range positions {
+				if pos.Symbol == symbol && pos.PositionAmt != 0 {
+					positionExists = true
+					break
+				}
+			}
+			if !positionExists {
+				log.Printf("[%s][%s] Position no longer exists, skipping SL placement", e.name, symbol)
+				return
+			}
+		}
+
 		slOrder, err = e.binance.PlaceStopLoss(ctx, symbol, closeSide, 0, slPrice)
 		if err == nil {
 			break
 		}
+
+		// Check if error is specifically about position not existing
+		if strings.Contains(err.Error(), "-4509") || strings.Contains(err.Error(), "open positions") {
+			log.Printf("[%s][%s] Position was closed, stopping SL retry (error: %v)", e.name, symbol, err)
+			return
+		}
+
 		log.Printf("[%s][%s] SL order attempt %d failed: %v", e.name, symbol, attempt, err)
 		if attempt < 3 {
 			time.Sleep(time.Duration(attempt) * time.Second)
