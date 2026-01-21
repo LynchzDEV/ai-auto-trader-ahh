@@ -243,8 +243,18 @@ func TestWebSocketListenKeyRenewal(t *testing.T) {
 
 // TestWebSocketMessageTypes tests handling of different message types
 func TestWebSocketMessageTypes(t *testing.T) {
+	// Create mock HTTP server for listenKey endpoints
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"listenKey": "test_key_123"})
+	}))
+	defer httpServer.Close()
+
 	client := &BinanceClient{
 		WsUpdateCh: make(chan *PositionUpdate, 10),
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+		baseURL:    httpServer.URL,
+		apiKey:     "test_api_key",
 	}
 
 	tests := []struct {
@@ -263,24 +273,12 @@ func TestWebSocketMessageTypes(t *testing.T) {
 			var message []byte
 
 			if tt.eventType == "ACCOUNT_UPDATE" {
-				message = []byte(fmt.Sprintf(`{
-					"e": "%s",
-					"E": 1234567890,
-					"a": {
-						"P": [{
-							"s": "BTCUSDT",
-							"ps": "BOTH",
-							"pa": "0.001",
-							"ep": "50000.0",
-							"mp": "51000.0",
-							"up": "100.0"
-						}]
-					}
-				}`, tt.eventType))
+				message = []byte(fmt.Sprintf(`{"e":"%s","E":1234567890,"a":{"P":[{"s":"BTCUSDT","ps":"BOTH","pa":"0.001","ep":"50000.0","mp":"51000.0","up":"100.0"}]}}`, tt.eventType))
 			} else {
-				message = []byte(fmt.Sprintf(`{"e": "%s", "E": 1234567890}`, tt.eventType))
+				message = []byte(fmt.Sprintf(`{"e":"%s","E":1234567890}`, tt.eventType))
 			}
 
+			t.Logf("Testing with message: %s", string(message))
 			err := client.parseWebSocketMessage(message)
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)

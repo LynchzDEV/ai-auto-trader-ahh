@@ -1578,14 +1578,18 @@ func (c *BinanceClient) readWebSocketMessages() {
 
 // parseWebSocketMessage parses incoming WebSocket messages
 func (c *BinanceClient) parseWebSocketMessage(message []byte) error {
-	var baseMsg struct {
-		EventType string `json:"e"`
-	}
-	if err := json.Unmarshal(message, &baseMsg); err != nil {
-		return fmt.Errorf("failed to parse base message: %w", err)
+	// First, let's try to parse as a generic map to see the structure
+	var rawMsg map[string]interface{}
+	if err := json.Unmarshal(message, &rawMsg); err != nil {
+		return fmt.Errorf("failed to parse as map: %w", err)
 	}
 
-	switch baseMsg.EventType {
+	eventType, ok := rawMsg["e"].(string)
+	if !ok {
+		return fmt.Errorf("event type 'e' is not a string, got: %T %v", rawMsg["e"], rawMsg["e"])
+	}
+
+	switch eventType {
 	case "ACCOUNT_UPDATE":
 		return c.handleAccountUpdate(message)
 	case "ORDER_TRADE_UPDATE":
@@ -1595,7 +1599,7 @@ func (c *BinanceClient) parseWebSocketMessage(message []byte) error {
 		log.Printf("[Binance] listenKey expired, triggering reconnection")
 		go c.reconnectWebSocket()
 	default:
-		log.Printf("[Binance] Unknown WebSocket event type: %s", baseMsg.EventType)
+		log.Printf("[Binance] Unknown WebSocket event type: %s", eventType)
 	}
 
 	return nil

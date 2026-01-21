@@ -119,20 +119,7 @@ func TestWebSocketMessageParsing(t *testing.T) {
 	}{
 		{
 			name: "ACCOUNT_UPDATE with position",
-			message: `{
-				"e": "ACCOUNT_UPDATE",
-				"E": 1234567890,
-				"a": {
-					"P": [{
-						"s": "BTCUSDT",
-						"ps": "BOTH",
-						"pa": "0.001",
-						"ep": "50000.0",
-						"mp": "51000.0",
-						"up": "100.0"
-					}]
-				}
-			}`,
+			message: `{"e":"ACCOUNT_UPDATE","E":1234567890,"a":{"P":[{"s":"BTCUSDT","ps":"BOTH","pa":"0.001","ep":"50000.0","mp":"51000.0","up":"100.0"}]}}`,
 			expectError: false,
 			validate: func(t *testing.T, c *BinanceClient) {
 				select {
@@ -156,10 +143,7 @@ func TestWebSocketMessageParsing(t *testing.T) {
 		},
 		{
 			name: "ORDER_TRADE_UPDATE",
-			message: `{
-				"e": "ORDER_TRADE_UPDATE",
-				"E": 1234567890
-			}`,
+			message: `{"e":"ORDER_TRADE_UPDATE","E":1234567890}`,
 			expectError: false,
 			validate: func(t *testing.T, c *BinanceClient) {
 				// Should not produce position update
@@ -256,20 +240,7 @@ func TestChannelBufferOverflow(t *testing.T) {
 	}
 
 	// Try to parse a message when buffer is full
-	message := `{
-		"e": "ACCOUNT_UPDATE",
-		"E": 1234567890,
-		"a": {
-			"P": [{
-				"s": "ETHUSDT",
-				"ps": "BOTH",
-				"pa": "1.0",
-				"ep": "3000.0",
-				"mp": "3100.0",
-				"up": "100.0"
-			}]
-		}
-	}`
+	message := `{"e":"ACCOUNT_UPDATE","E":1234567890,"a":{"P":[{"s":"ETHUSDT","ps":"BOTH","pa":"1.0","ep":"3000.0","mp":"3100.0","up":"100.0"}]}}`
 
 	// Should not block or panic - message should be dropped with warning log
 	err := client.parseWebSocketMessage([]byte(message))
