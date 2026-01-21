@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.0.1] - 2026-01-21
+
+### Fixed
+- **CRITICAL: False Trailing Stop Trigger from WebSocket MarkPrice=0**: Fixed a critical bug where Binance WebSocket `ACCOUNT_UPDATE` events sometimes sent `MarkPrice=0`, causing false 100% PnL calculation (`(entry-0)/entry = 100%`) and immediate trailing stop closure of newly opened positions:
+  - **Root Cause**: WebSocket position updates don't always include mark price, defaulting to 0
+  - **Impact**: Positions were being closed within 1 second of opening due to false trailing stop trigger
+  - **Fix**: Preserve existing cached MarkPrice when WebSocket sends 0, skip risk checks for invalid prices
+  - **Defense-in-depth**: Added validation in both WebSocket handler AND drawdown check function
+
+- **SL Order Retry Race Condition**: Fixed race condition where stop-loss retry loop continued after position was already closed, causing repeated `-4509` errors ("GTE can only be used with open positions"):
+  - **Root Cause**: Position closed via WebSocket while SL placement was in retry loop
+  - **Impact**: 3 failed SL attempts + unnecessary "closing position for safety" action
+  - **Fix**: Check if position still exists before each SL retry, early exit on `-4509` error
+
+- **WebSocket Connection Timeout Churn**: Fixed excessive WebSocket reconnections every 60 seconds during quiet market periods:
+  - **Root Cause**: 60-second read deadline timing out when no position updates occurred
+  - **Impact**: Unnecessary reconnection cycle every minute (create listenKey, dial WebSocket, etc.)
+  - **Fix**: Added ping/pong keepalive (sends ping every 30 seconds) to keep connection alive
+
+### Added
+- **WebSocket Ping/Pong Keepalive**: Sends WebSocket ping every 30 seconds with pong handler to reset read deadline
+- **Leverage Preservation**: Preserve existing leverage when WebSocket update doesn't include it
+- **Comprehensive Test Suite**: Added tests for all fixes:
+  - `websocket_price_test.go` - 5 tests for MarkPrice=0 bug
+  - `sl_retry_test.go` - 3 tests for SL retry race condition
+
+### Technical
+- Added `sendWebSocketPings()` goroutine to exchange/binance.go
+- Added pong handler in `connectWebSocket()` to reset read deadline
+- Extended read deadline from 60s to 90s to allow for ping/pong cycle
+- Added position existence check in `placeStopLossOnly()` retry loop
+- Added `-4509` error detection to stop retry immediately
+- Added MarkPrice/Leverage preservation logic in `handleWebSocketUpdates()`
+- Added invalid price validation in `checkPositionDrawdown()`
+
 ## [v3.57.0] - 2026-01-21
 
 ### Added
