@@ -962,17 +962,10 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 			go e.binance.SubscribeToMarkPrices(symbolsToSubscribe)
 		}
 
-		// Merge: Use REST data as base, but ALWAYS preserve WebSocket mark prices (they're real-time)
+		// Use Binance REST data directly - it's authoritative and matches Binance UI.
+		// WebSocket mark price updates will provide real-time PnL updates BETWEEN REST fetches.
+		// This ensures displayed PnL matches what user sees on Binance.
 		for symbol, newPos := range newPositions {
-			if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
-				// ALWAYS preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
-				// The WebSocket updates every 1s, REST API can be several seconds behind
-				newPos.MarkPrice = existingPos.MarkPrice
-				// Recalculate UnrealizedProfit with the real-time mark price
-				if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
-					newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
-				}
-			}
 			e.positions[symbol] = newPos
 		}
 
@@ -4570,17 +4563,9 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 	// existing positions, but we preserve local state for positions not yet
 	// visible on exchange (due to API latency).
 	//
-	// IMPORTANT: ALWAYS preserve WebSocket-updated MarkPrice for real-time PnL accuracy.
-	// REST API data can be delayed, while WebSocket mark price is real-time (1s updates).
+	// Use Binance data directly - it's authoritative and matches Binance UI.
+	// WebSocket mark price updates will provide real-time updates BETWEEN REST fetches.
 	for symbol, newPos := range newPositions {
-		if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
-			// ALWAYS preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
-			newPos.MarkPrice = existingPos.MarkPrice
-			// Recalculate UnrealizedProfit with the real-time mark price
-			if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
-				newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
-			}
-		}
 		e.positions[symbol] = newPos
 	}
 	// NOTE: We don't remove positions that aren't in newPositions here.
