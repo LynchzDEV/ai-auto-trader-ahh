@@ -1971,9 +1971,6 @@ func (c *BinanceClient) readMarketWebSocketMessages() {
 
 // handleMarkPriceUpdate processes mark price updates
 func (c *BinanceClient) handleMarkPriceUpdate(data []byte) {
-	// DEBUG: Log raw message
-	log.Printf("[Binance] RAW markPrice data: %s", string(data))
-
 	var mp struct {
 		EventType string `json:"e"`
 		EventTime int64  `json:"E"`
@@ -1982,13 +1979,10 @@ func (c *BinanceClient) handleMarkPriceUpdate(data []byte) {
 	}
 
 	if err := json.Unmarshal(data, &mp); err != nil {
-		log.Printf("[Binance] Failed to parse mark price: %v", err)
 		return
 	}
 
 	price := parseFloat(mp.MarkPrice)
-	log.Printf("[Binance] PARSED %s: field 'p' = %s -> %.8f", mp.Symbol, mp.MarkPrice, price)
-
 	if price > 0 {
 		// Create a PositionUpdate for the Engine
 		// Note: We only set Symbol and MarkPrice. Other fields are 0/empty.
