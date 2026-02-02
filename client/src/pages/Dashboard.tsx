@@ -40,6 +40,23 @@ interface AccountInfo {
   unrealized_pnl: number;
 }
 
+// Format price with appropriate decimal places based on magnitude
+const formatPrice = (price: number): string => {
+  if (price === 0) return "$0.00";
+  const absPrice = Math.abs(price);
+  
+  if (absPrice >= 1000) {
+    return `$${price.toFixed(2)}`;
+  } else if (absPrice >= 1) {
+    return `$${price.toFixed(4)}`;
+  } else if (absPrice >= 0.01) {
+    return `$${price.toFixed(6)}`;
+  } else {
+    // For very small prices, show up to 8 decimals
+    return `$${price.toFixed(8)}`;
+  }
+};
+
 export default function Dashboard() {
   const [traders, setTraders] = useState<Trader[]>([]);
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
@@ -483,7 +500,7 @@ export default function Dashboard() {
                     label: "Entry",
                     align: "right",
                     render: (v) => (
-                      <span className="font-mono">${v.toFixed(2)}</span>
+                      <span className="font-mono">{formatPrice(v)}</span>
                     ),
                   },
                   {
@@ -491,7 +508,7 @@ export default function Dashboard() {
                     label: "Mark",
                     align: "right",
                     render: (v) => (
-                      <span className="font-mono">${v.toFixed(2)}</span>
+                      <span className="font-mono">{formatPrice(v)}</span>
                     ),
                   },
                 ]}
