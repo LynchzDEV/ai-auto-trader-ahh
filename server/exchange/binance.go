@@ -59,6 +59,7 @@ type BinanceClient struct {
 	marketStopCh        chan struct{}
 	marketConnected     atomic.Bool
 	activeSubscriptions map[string]bool // Track subscribed symbols to resubscribe on reconnect
+	lastDropWarning     time.Time       // Throttle "channel full" warnings
 }
 
 // SymbolInfo holds precision info for a trading symbol
@@ -1997,8 +1998,11 @@ func (c *BinanceClient) handleMarkPriceUpdate(data []byte) {
 		case c.WsUpdateCh <- update:
 			// Successfully sent
 		default:
-			// Channel full - this is a problem!
-			log.Printf("[Binance] ⚠️ WsUpdateCh full, dropping mark price update for %s @ $%.6f", mp.Symbol, price)
+			// Channel full - log warning throttled to once per 30 seconds
+			if time.Since(c.lastDropWarning) > 30*time.Second {
+				c.lastDropWarning = time.Now()
+				log.Printf("[Binance] ⚠️ WsUpdateCh full, dropping mark price updates (consumer not running?)")
+			}
 		}
 	}
 }

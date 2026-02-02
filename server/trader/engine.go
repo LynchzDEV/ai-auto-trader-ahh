@@ -321,12 +321,8 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start background goroutines
-	go e.tradingLoop(ctx)
-	go e.startDrawdownMonitor(ctx)
-	go e.startOrderSync(ctx)
-
 	// Start WebSocket User Data Stream for real-time position updates
+	// IMPORTANT: Must start BEFORE tradingLoop to ensure mark price subscriptions work
 	if err := e.binance.StartUserDataStream(ctx); err != nil {
 		log.Printf("[%s] Warning: Failed to start WebSocket, using REST fallback: %v", e.name, err)
 	} else {
@@ -342,6 +338,12 @@ func (e *Engine) Start(ctx context.Context) error {
 			log.Printf("[%s] Market Data Stream enabled (real-time PnL tracking)", e.name)
 		}
 	}
+
+	// Start background goroutines AFTER WebSocket is connected
+	// This ensures mark price subscriptions work on first trading cycle
+	go e.tradingLoop(ctx)
+	go e.startDrawdownMonitor(ctx)
+	go e.startOrderSync(ctx)
 
 	return nil
 }
@@ -360,6 +362,11 @@ func (e *Engine) Stop() {
 		close(e.orderSyncStop)
 	}
 	e.running = false
+
+	// Close Binance client to stop WebSocket streams
+	if e.binance != nil {
+		e.binance.Close()
+	}
 }
 
 func (e *Engine) IsRunning() bool {
