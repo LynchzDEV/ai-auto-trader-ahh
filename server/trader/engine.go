@@ -106,6 +106,9 @@ type Engine struct {
 	lastCloseAttempt   map[string]time.Time // Track last close attempt per symbol
 	lastLogTime        map[string]time.Time // Track last log time per symbol (for throttling status logs)
 	closeAttemptMu     sync.Mutex           // Mutex for lastCloseAttempt and lastLogTime maps
+
+	// WebSocket mark price logging (for debugging)
+	lastMarkPriceLog time.Time // Throttle mark price logs to avoid spam
 }
 
 // oiCacheEntry stores cached OI data with expiry
@@ -930,15 +933,44 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		})
 	}
 
-	// Update positions
+	// Update positions (merge with existing to preserve WebSocket-updated mark prices)
 	positions, err := e.binance.GetPositions(ctx)
 	if err != nil {
 		log.Printf("[%s] Error getting positions: %v", e.name, err)
 	} else {
 		e.mu.Lock()
-		e.positions = make(map[string]*exchange.Position)
+		// Build map of new positions from REST API
+		newPositions := make(map[string]*exchange.Position)
 		for i := range positions {
-			e.positions[positions[i].Symbol] = &positions[i]
+			newPositions[positions[i].Symbol] = &positions[i]
+		}
+
+		// Merge: Use REST data as base, but preserve WebSocket mark prices if fresher
+		for symbol, newPos := range newPositions {
+			if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
+				// Preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
+				newPos.MarkPrice = existingPos.MarkPrice
+				// Recalculate UnrealizedProfit with fresh mark price
+				if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
+					newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
+				}
+			}
+			e.positions[symbol] = newPos
+		}
+
+		// Remove closed positions (positions in e.positions but not in newPositions)
+		for symbol, oldPos := range e.positions {
+			if _, exists := newPositions[symbol]; !exists {
+				if oldPos.PositionAmt != 0 {
+					// Position was closed
+					side := "LONG"
+					if oldPos.PositionAmt < 0 {
+						side = "SHORT"
+					}
+					log.Printf("[%s] Position closed (detected in trading cycle): %s %s", e.name, symbol, side)
+				}
+				delete(e.positions, symbol)
+			}
 		}
 		e.mu.Unlock()
 	}
@@ -4355,6 +4387,13 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
 					}
 
+					// Log mark price updates periodically (every 30s) for debugging
+					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
+						e.lastMarkPriceLog = time.Now()
+						log.Printf("[%s] 📡 WebSocket mark price update: %s @ $%.4f (PnL: $%.2f)",
+							e.name, update.Symbol, update.MarkPrice, pos.UnrealizedProfit)
+					}
+
 					// Trigger risk check
 					triggerRiskCheck = true
 				}
@@ -4504,7 +4543,18 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 	// we don't want to lose that update. Binance data is authoritative for
 	// existing positions, but we preserve local state for positions not yet
 	// visible on exchange (due to API latency).
+	//
+	// IMPORTANT: Preserve WebSocket-updated MarkPrice for real-time PnL accuracy.
+	// REST API data can be delayed, while WebSocket mark price is real-time (1s updates).
 	for symbol, newPos := range newPositions {
+		if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
+			// Preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
+			newPos.MarkPrice = existingPos.MarkPrice
+			// Recalculate UnrealizedProfit with fresh mark price
+			if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
+				newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
+			}
+		}
 		e.positions[symbol] = newPos
 	}
 	// NOTE: We don't remove positions that aren't in newPositions here.
