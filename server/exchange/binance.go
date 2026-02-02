@@ -150,6 +150,7 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 		WsUpdateCh:       make(chan *PositionUpdate, 100), // Buffered channel
 		wsErrorCh:        make(chan error, 10),
 		wsStopCh:         make(chan struct{}),
+		marketStopCh:     make(chan struct{}), // For stopping Market Data Stream
 	}
 
 	// Sync time with Binance server
@@ -189,13 +190,26 @@ func (c *BinanceClient) startPeriodicTimeSync() {
 // Close stops all background goroutines and cleans up resources
 // SECURITY: Prevents goroutine leaks
 func (c *BinanceClient) Close() error {
-	// Stop WebSocket connection if running
+	// Stop User Data Stream WebSocket if running
 	if c.wsConnected.Load() {
 		close(c.wsStopCh)
 		// Delete listenKey
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = c.DeleteListenKey(ctx)
+	}
+
+	// Stop Market Data Stream WebSocket if running
+	if c.marketConnected.Load() {
+		close(c.marketStopCh)
+		c.marketStreamMu.Lock()
+		if c.marketWsConn != nil {
+			c.marketWsConn.Close()
+			c.marketWsConn = nil
+		}
+		c.marketStreamMu.Unlock()
+		c.marketConnected.Store(false)
+		log.Printf("[Binance] Market Data Stream stopped")
 	}
 
 	// Signal all goroutines to stop
