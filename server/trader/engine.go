@@ -4394,17 +4394,10 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 			// CASE 1: MARKET PRICE TICK (Real-time PnL Update)
 			if update.Type == "MARK_PRICE" {
 				if pos, exists := e.positions[update.Symbol]; exists {
-					// Update MarkPrice
+					// Update MarkPrice only - DO NOT recalculate UnrealizedProfit
+					// Binance's UnrealizedProfit (from REST/POSITION updates) is authoritative
+					// and matches what user sees on Binance UI
 					pos.MarkPrice = update.MarkPrice
-
-					// Recalculate Unrealized PnL based on new price
-					// UnrPnL = (MarkPrice - EntryPrice) * PositionAmt
-					if pos.EntryPrice > 0 {
-						// PositionAmt is signed (+ for Long, - for Short)
-						// Long: (Mark - Entry) * Pos (>0) => Profit if Mark > Entry
-						// Short: (Mark - Entry) * Pos (<0) => Profit if Mark < Entry
-						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
-					}
 
 					// Log mark price updates periodically (every 30s) for debugging
 					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
@@ -4413,7 +4406,7 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 							e.name, update.Symbol, update.MarkPrice, pos.EntryPrice, pos.UnrealizedProfit)
 					}
 
-					// Trigger risk check
+					// Trigger risk check (uses mark price for stop-loss/take-profit checks)
 					triggerRiskCheck = true
 				}
 			} else {
