@@ -1981,9 +1981,10 @@ func (c *BinanceClient) handleMarkPriceUpdate(data []byte) {
 
 		select {
 		case c.WsUpdateCh <- update:
-			// log.Printf("[Binance] Mark Price tick: %s $%.4f", mp.Symbol, price)
+			// Successfully sent
 		default:
-			// Drop if full
+			// Channel full - this is a problem!
+			log.Printf("[Binance] ⚠️ WsUpdateCh full, dropping mark price update for %s @ $%.6f", mp.Symbol, price)
 		}
 	}
 }

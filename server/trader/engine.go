@@ -941,8 +941,18 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 		e.mu.Lock()
 		// Build map of new positions from REST API
 		newPositions := make(map[string]*exchange.Position)
+		var symbolsToSubscribe []string
 		for i := range positions {
 			newPositions[positions[i].Symbol] = &positions[i]
+			// Track symbols to subscribe for real-time mark price updates
+			if positions[i].PositionAmt != 0 {
+				symbolsToSubscribe = append(symbolsToSubscribe, positions[i].Symbol)
+			}
+		}
+
+		// Subscribe to mark price streams for all positions
+		if len(symbolsToSubscribe) > 0 {
+			go e.binance.SubscribeToMarkPrices(symbolsToSubscribe)
 		}
 
 		// Merge: Use REST data as base, but preserve WebSocket mark prices if fresher
@@ -4403,8 +4413,8 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 					// Log mark price updates periodically (every 30s) for debugging
 					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
 						e.lastMarkPriceLog = time.Now()
-						log.Printf("[%s] 📡 WebSocket mark price update: %s @ $%.4f (PnL: $%.2f)",
-							e.name, update.Symbol, update.MarkPrice, pos.UnrealizedProfit)
+						log.Printf("[%s] 📡 WebSocket mark price: %s @ $%.8f | Entry: $%.8f | PnL: $%.2f",
+							e.name, update.Symbol, update.MarkPrice, pos.EntryPrice, pos.UnrealizedProfit)
 					}
 
 					// Trigger risk check
