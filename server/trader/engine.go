@@ -4349,10 +4349,10 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 
 // startOrderSync starts background goroutine to sync orders from Binance
 func (e *Engine) startOrderSync(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	log.Printf("[%s] Order sync started (30s interval)", e.name)
+	log.Printf("[%s] Position sync started (5s interval)", e.name)
 
 	for {
 		select {
@@ -4391,17 +4391,12 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 			e.mu.Lock()
 			triggerRiskCheck := false
 
-			// CASE 1: MARKET PRICE TICK (Real-time PnL Update)
+			// CASE 1: MARKET PRICE TICK (Real-time mark price for risk checks)
 			if update.Type == "MARK_PRICE" {
 				if pos, exists := e.positions[update.Symbol]; exists {
-					// Update MarkPrice
+					// Update MarkPrice only - PnL comes from Binance REST API (5s polling)
+					// This ensures displayed PnL matches Binance UI exactly
 					pos.MarkPrice = update.MarkPrice
-
-					// Recalculate Unrealized PnL for real-time display
-					// Note: May differ slightly from Binance UI due to timing, but provides real-time updates
-					if pos.EntryPrice > 0 {
-						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
-					}
 
 					// Log mark price updates periodically (every 30s) for debugging
 					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
@@ -4410,7 +4405,7 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 							e.name, update.Symbol, update.MarkPrice, pos.EntryPrice, pos.UnrealizedProfit)
 					}
 
-					// Trigger risk check
+					// Trigger risk check (uses real-time mark price for SL/TP)
 					triggerRiskCheck = true
 				}
 			} else {
