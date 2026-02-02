@@ -955,20 +955,16 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 			go e.binance.SubscribeToMarkPrices(symbolsToSubscribe)
 		}
 
-		// Merge: Use REST data as base, but preserve WebSocket mark prices if fresher
+		// Merge: Use REST data as base, but ALWAYS preserve WebSocket mark prices (they're real-time)
 		for symbol, newPos := range newPositions {
 			if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
-				// Check if WebSocket MarkPrice is different (fresher) than REST MarkPrice
-				// Only preserve and recalculate if WebSocket has updated the price
-				if existingPos.MarkPrice != newPos.MarkPrice {
-					// Preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
-					newPos.MarkPrice = existingPos.MarkPrice
-					// Recalculate UnrealizedProfit with fresh mark price
-					if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
-						newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
-					}
+				// ALWAYS preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
+				// The WebSocket updates every 1s, REST API can be several seconds behind
+				newPos.MarkPrice = existingPos.MarkPrice
+				// Recalculate UnrealizedProfit with the real-time mark price
+				if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
+					newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
 				}
-				// If MarkPrice is the same, keep Binance's UnrealizedProfit (more accurate)
 			}
 			e.positions[symbol] = newPos
 		}
@@ -4567,21 +4563,16 @@ func (e *Engine) syncOrdersFromBinance(ctx context.Context) {
 	// existing positions, but we preserve local state for positions not yet
 	// visible on exchange (due to API latency).
 	//
-	// IMPORTANT: Preserve WebSocket-updated MarkPrice for real-time PnL accuracy.
+	// IMPORTANT: ALWAYS preserve WebSocket-updated MarkPrice for real-time PnL accuracy.
 	// REST API data can be delayed, while WebSocket mark price is real-time (1s updates).
 	for symbol, newPos := range newPositions {
 		if existingPos, exists := e.positions[symbol]; exists && existingPos.MarkPrice > 0 {
-			// Check if WebSocket MarkPrice is different (fresher) than REST MarkPrice
-			// Only preserve and recalculate if WebSocket has updated the price
-			if existingPos.MarkPrice != newPos.MarkPrice {
-				// Preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
-				newPos.MarkPrice = existingPos.MarkPrice
-				// Recalculate UnrealizedProfit with fresh mark price
-				if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
-					newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
-				}
+			// ALWAYS preserve WebSocket-updated MarkPrice (it's real-time, REST is delayed)
+			newPos.MarkPrice = existingPos.MarkPrice
+			// Recalculate UnrealizedProfit with the real-time mark price
+			if newPos.EntryPrice > 0 && newPos.PositionAmt != 0 {
+				newPos.UnrealizedProfit = (newPos.MarkPrice - newPos.EntryPrice) * newPos.PositionAmt
 			}
-			// If MarkPrice is the same, keep Binance's UnrealizedProfit (more accurate)
 		}
 		e.positions[symbol] = newPos
 	}
