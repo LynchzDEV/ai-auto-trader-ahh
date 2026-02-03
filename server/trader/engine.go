@@ -2716,25 +2716,19 @@ func (e *Engine) GetPositions() []map[string]interface{} {
 			continue
 		}
 
-		// Calculate PnL from mark/entry prices - this is the single source of truth
-		// Using pos.UnrealizedProfit separately caused $0.00 (+143%) bugs when
-		// WebSocket updates set UnrealizedProfit=0 but MarkPrice was already updated
-		pnl := (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
+		// Use Binance's UnrealizedProfit directly - it's authoritative.
+		// Derive ROE% from it so pnl and pnl_percent are ALWAYS consistent
+		// and ALWAYS match what Binance shows.
+		pnl := pos.UnrealizedProfit
 
-		// Calculate PnL % (raw price change)
-		pnlPct := 0.0
-		if pos.EntryPrice > 0 {
-			if pos.PositionAmt > 0 {
-				pnlPct = ((pos.MarkPrice - pos.EntryPrice) / pos.EntryPrice) * 100
-			} else {
-				pnlPct = ((pos.EntryPrice - pos.MarkPrice) / pos.EntryPrice) * 100
+		// Calculate ROE% from Binance's PnL (not from mark price!)
+		// ROE% = PnL / margin * 100, where margin = |qty| * entryPrice / leverage
+		roePct := 0.0
+		if pos.EntryPrice > 0 && pos.Leverage > 0 {
+			margin := amt * pos.EntryPrice / float64(pos.Leverage)
+			if margin > 0 {
+				roePct = (pnl / margin) * 100
 			}
-		}
-
-		// Calculate ROE % (Return on Equity = raw % × leverage)
-		roePct := pnlPct
-		if pos.Leverage > 0 {
-			roePct = pnlPct * float64(pos.Leverage)
 		}
 
 		positions = append(positions, map[string]interface{}{
@@ -2743,7 +2737,7 @@ func (e *Engine) GetPositions() []map[string]interface{} {
 			"amount":      pos.PositionAmt,
 			"entry_price": pos.EntryPrice,
 			"mark_price":  pos.MarkPrice,
-			"pnl":         pnl,     // Calculated from same mark/entry as percentage
+			"pnl":         pnl,
 			"pnl_percent": roePct,
 			"leverage":    pos.Leverage,
 		})
@@ -4395,12 +4389,16 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 			e.mu.Lock()
 			triggerRiskCheck := false
 
-			// CASE 1: MARKET PRICE TICK (Real-time mark price for risk checks)
+			// CASE 1: MARKET PRICE TICK (Real-time PnL Update)
 			if update.Type == "MARK_PRICE" {
 				if pos, exists := e.positions[update.Symbol]; exists {
-					// Update MarkPrice only - PnL comes from Binance REST API (5s polling)
-					// This ensures displayed PnL matches Binance UI exactly
 					pos.MarkPrice = update.MarkPrice
+
+					// Recalculate UnrealizedProfit from mark price for real-time updates
+					// This keeps PnL fresh between 5s REST syncs
+					if pos.EntryPrice > 0 {
+						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
+					}
 
 					// Log mark price updates periodically (every 30s) for debugging
 					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
@@ -4409,7 +4407,7 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 							e.name, update.Symbol, update.MarkPrice, pos.EntryPrice, pos.UnrealizedProfit)
 					}
 
-					// Trigger risk check (uses real-time mark price for SL/TP)
+					// Trigger risk check
 					triggerRiskCheck = true
 				}
 			} else {
@@ -4450,6 +4448,14 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 						leverage = e.getLeverageLimit(update.Symbol)
 					}
 
+					// Determine UnrealizedProfit to use
+					// WebSocket ACCOUNT_UPDATE can send 0 for positions that didn't change
+					// (e.g., when another position triggers the update). Preserve existing value.
+					unrealizedProfit := update.UnrealizedPnL
+					if unrealizedProfit == 0 && !isNew && existingPos != nil && existingPos.UnrealizedProfit != 0 {
+						unrealizedProfit = existingPos.UnrealizedProfit
+					}
+
 					// Update position
 					e.positions[update.Symbol] = &exchange.Position{
 						Symbol:           update.Symbol,
@@ -4457,7 +4463,7 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 						PositionAmt:      update.PositionAmt,
 						EntryPrice:       update.EntryPrice,
 						MarkPrice:        markPrice,
-						UnrealizedProfit: update.UnrealizedPnL,
+						UnrealizedProfit: unrealizedProfit,
 						Leverage:         leverage,
 					}
 
