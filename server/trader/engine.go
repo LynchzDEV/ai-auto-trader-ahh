@@ -4389,25 +4389,23 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 			e.mu.Lock()
 			triggerRiskCheck := false
 
-			// CASE 1: MARKET PRICE TICK (Real-time PnL Update)
+			// CASE 1: MARKET PRICE TICK
+			// Only update MarkPrice. Do NOT recalculate UnrealizedProfit here.
+			// Reason: naive (mark-entry)*qty ignores funding fees, causing PnL to
+			// mismatch Binance (sawtooth: correct after REST sync, wrong after WS tick).
+			// UnrealizedProfit is updated authoritatively by REST sync every 5s.
 			if update.Type == "MARK_PRICE" {
 				if pos, exists := e.positions[update.Symbol]; exists {
 					pos.MarkPrice = update.MarkPrice
 
-					// Recalculate UnrealizedProfit from mark price for real-time updates
-					// This keeps PnL fresh between 5s REST syncs
-					if pos.EntryPrice > 0 {
-						pos.UnrealizedProfit = (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
-					}
-
-					// Log mark price updates periodically (every 30s) for debugging
+					// Log mark price updates periodically (every 30s)
 					if time.Since(e.lastMarkPriceLog) > 30*time.Second {
 						e.lastMarkPriceLog = time.Now()
 						log.Printf("[%s] 📡 WebSocket mark price: %s @ $%.8f | Entry: $%.8f | PnL: $%.2f",
 							e.name, update.Symbol, update.MarkPrice, pos.EntryPrice, pos.UnrealizedProfit)
 					}
 
-					// Trigger risk check
+					// Trigger risk check (uses real-time mark price for SL/TP)
 					triggerRiskCheck = true
 				}
 			} else {
@@ -4448,13 +4446,9 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 						leverage = e.getLeverageLimit(update.Symbol)
 					}
 
-					// Determine UnrealizedProfit to use
-					// WebSocket ACCOUNT_UPDATE can send 0 for positions that didn't change
-					// (e.g., when another position triggers the update). Preserve existing value.
-					unrealizedProfit := update.UnrealizedPnL
-					if unrealizedProfit == 0 && !isNew && existingPos != nil && existingPos.UnrealizedProfit != 0 {
-						unrealizedProfit = existingPos.UnrealizedProfit
-					}
+					// Use Binance's UnrealizedPnL directly - don't use 0 as sentinel.
+					// 0 is a valid PnL (price at entry). REST sync every 5s will
+					// overwrite with authoritative data regardless.
 
 					// Update position
 					e.positions[update.Symbol] = &exchange.Position{
@@ -4463,7 +4457,7 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 						PositionAmt:      update.PositionAmt,
 						EntryPrice:       update.EntryPrice,
 						MarkPrice:        markPrice,
-						UnrealizedProfit: unrealizedProfit,
+						UnrealizedProfit: update.UnrealizedPnL,
 						Leverage:         leverage,
 					}
 
