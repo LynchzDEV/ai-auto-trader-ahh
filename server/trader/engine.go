@@ -2716,6 +2716,11 @@ func (e *Engine) GetPositions() []map[string]interface{} {
 			continue
 		}
 
+		// Calculate PnL from mark/entry prices - this is the single source of truth
+		// Using pos.UnrealizedProfit separately caused $0.00 (+143%) bugs when
+		// WebSocket updates set UnrealizedProfit=0 but MarkPrice was already updated
+		pnl := (pos.MarkPrice - pos.EntryPrice) * pos.PositionAmt
+
 		// Calculate PnL % (raw price change)
 		pnlPct := 0.0
 		if pos.EntryPrice > 0 {
@@ -2727,7 +2732,6 @@ func (e *Engine) GetPositions() []map[string]interface{} {
 		}
 
 		// Calculate ROE % (Return on Equity = raw % × leverage)
-		// This matches what Binance shows in their UI
 		roePct := pnlPct
 		if pos.Leverage > 0 {
 			roePct = pnlPct * float64(pos.Leverage)
@@ -2739,8 +2743,8 @@ func (e *Engine) GetPositions() []map[string]interface{} {
 			"amount":      pos.PositionAmt,
 			"entry_price": pos.EntryPrice,
 			"mark_price":  pos.MarkPrice,
-			"pnl":         pos.UnrealizedProfit,
-			"pnl_percent": roePct, // ROE % (with leverage) to match Binance
+			"pnl":         pnl,     // Calculated from same mark/entry as percentage
+			"pnl_percent": roePct,
 			"leverage":    pos.Leverage,
 		})
 	}
