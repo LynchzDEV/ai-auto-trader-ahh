@@ -4436,9 +4436,14 @@ func (e *Engine) handleWebSocketUpdates(ctx context.Context) {
 					}
 
 					// Determine Leverage to use
+					// WebSocket ACCOUNT_UPDATE doesn't include leverage, so we need fallbacks
 					leverage := update.Leverage
 					if leverage == 0 && existingPos != nil && existingPos.Leverage > 0 {
 						leverage = existingPos.Leverage
+					}
+					if leverage == 0 {
+						// Ultimate fallback: use engine's configured leverage for this symbol
+						leverage = e.getLeverageLimit(update.Symbol)
 					}
 
 					// Update position
