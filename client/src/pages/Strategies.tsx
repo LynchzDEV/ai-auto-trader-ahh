@@ -2169,7 +2169,7 @@ export default function Strategies() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                               <div className="space-y-2">
                                 <Label className="text-xs">
-                                  Activate at Profit %
+                                  Activate at ROE %
                                 </Label>
                                 <Input
                                   type="number"
@@ -2196,12 +2196,12 @@ export default function Strategies() {
                                   placeholder="0.3"
                                 />
                                 <p className="text-[10px] text-muted-foreground">
-                                  Profit % to activate guarantee
+                                  ROE % to activate (matches dashboard)
                                 </p>
                               </div>
                               <div className="space-y-2">
                                 <Label className="text-xs">
-                                  Minimum Profit %
+                                  Minimum ROE %
                                 </Label>
                                 <Input
                                   type="number"
@@ -2229,7 +2229,7 @@ export default function Strategies() {
                                   placeholder="0.1"
                                 />
                                 <p className="text-[10px] text-muted-foreground">
-                                  Guaranteed minimum profit to lock in
+                                  Minimum ROE % to lock in (matches dashboard)
                                 </p>
                               </div>
                             </div>

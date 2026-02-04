@@ -4216,24 +4216,33 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 
 		// =====================================================================
 		// 1.5. GUARANTEED MINIMUM PROFIT - Lock in minimum profit once threshold reached
+		// Uses ROE % (leveraged return) - matches what the dashboard shows
 		// =====================================================================
 		if rc.EnableGuaranteedProfit {
 			activatePct := rc.GuaranteedProfitActivatePct
 			if activatePct <= 0 {
-				activatePct = 0.3 // Default: activate when position reaches 0.3% profit
+				activatePct = 0.3 // Default: activate when position reaches 0.3% ROE
 			}
 			minProfitPct := rc.GuaranteedMinProfitPct
 			if minProfitPct < 0 {
-				minProfitPct = 0.1 // Default: guarantee at least 0.1% profit
+				minProfitPct = 0.1 // Default: guarantee at least 0.1% ROE
 			}
 
 			// Always update peak P&L when Guaranteed Profit is enabled
+			// Track raw peak (shared cache with trailing stop), derive ROE from it
 			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
+			// Derive ROE values for guaranteed profit comparison
+			leverage := float64(pos.Leverage)
+			if leverage < 1 {
+				leverage = 1
+			}
+			peakROE := peakPnL * leverage
+
 			// Debug logging for profit tracking (log every 30 seconds to avoid spam)
 			// Throttled to prevent log flooding when WebSocket updates trigger frequent checks
-			if rawPnlPct > 0.1 || peakPnL > activatePct*0.5 {
+			if roePnlPct > 0.1 || peakROE > activatePct*0.5 {
 				e.closeAttemptMu.Lock()
 				// Lazy init for tests that might construct Engine manually
 				if e.lastLogTime == nil {
@@ -4247,17 +4256,17 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 				e.closeAttemptMu.Unlock()
 
 				if shouldLog {
-					log.Printf("[%s][%s] 📊 Guaranteed Profit Status: Current=%.2f%%, Peak=%.2f%%, ActivateAt=%.2f%%, MinLock=%.2f%%",
-						e.name, pos.Symbol, rawPnlPct, peakPnL, activatePct, minProfitPct)
+					log.Printf("[%s][%s] 📊 Guaranteed Profit Status: CurrentROE=%.2f%%, PeakROE=%.2f%%, ActivateAt=%.2f%%, MinLock=%.2f%%",
+						e.name, pos.Symbol, roePnlPct, peakROE, activatePct, minProfitPct)
 				}
 			}
 
-			// Check if position ever reached activation threshold
-			if peakPnL >= activatePct {
+			// Check if position ever reached activation threshold (ROE %)
+			if peakROE >= activatePct {
 				// Position qualified for guaranteed profit - close if dropping to minimum
-				if rawPnlPct <= minProfitPct {
-					log.Printf("[%s][%s] 🔒 GUARANTEED PROFIT TRIGGERED: Peak=%.2f%%, Current=%.2f%%, MinGuarantee=%.2f%% (Raw)",
-						e.name, pos.Symbol, peakPnL, rawPnlPct, minProfitPct)
+				if roePnlPct <= minProfitPct {
+					log.Printf("[%s][%s] 🔒 GUARANTEED PROFIT TRIGGERED: PeakROE=%.2f%%, CurrentROE=%.2f%%, MinGuarantee=%.2f%%",
+						e.name, pos.Symbol, peakROE, roePnlPct, minProfitPct)
 
 					// Rate limit: only attempt close if we haven't tried in last 2 seconds
 					if !e.shouldAttemptClose(pos.Symbol) {
@@ -4269,7 +4278,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					if err != nil {
 						log.Printf("[%s][%s] Failed to close position (guaranteed profit): %v", e.name, pos.Symbol, err)
 					} else {
-						log.Printf("[%s][%s] ✅ Closed position via guaranteed profit. Locked in %.2f%% profit.", e.name, pos.Symbol, rawPnlPct)
+						log.Printf("[%s][%s] ✅ Closed position via guaranteed profit. Locked in %.2f%% ROE profit.", e.name, pos.Symbol, roePnlPct)
 						exitPrice := pos.MarkPrice
 						pnl := pos.UnrealizedProfit
 						if closeOrder != nil && closeOrder.AvgPrice > 0 {
