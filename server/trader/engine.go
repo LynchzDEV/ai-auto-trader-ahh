@@ -2620,6 +2620,13 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 				e.name, symbol, realizedPnL, closeOrder.AvgPrice, currentPos.EntryPrice, closeOrder.ExecutedQty)
 		}
 
+		// Persist position close to DB
+		exitPrice := currentPos.MarkPrice
+		if closeOrder != nil && closeOrder.AvgPrice > 0 {
+			exitPrice = closeOrder.AvgPrice
+		}
+		e.persistPositionClose(symbol, side, "ai_decision", exitPrice, 0, realizedPnL)
+
 		// Return the realized PnL
 		return realizedPnL, nil
 
@@ -3351,6 +3358,23 @@ func (e *Engine) clearPositionTracking(symbol, side string) {
 	e.ClearPeakPnL(symbol, side)
 }
 
+// persistPositionClose updates the DB position record when a position is closed.
+// It looks up the open DB row by symbol+side and marks it CLOSED with exit data.
+func (e *Engine) persistPositionClose(symbol, side, reason string, exitPrice, fee, pnl float64) {
+	dbPos, err := e.positionStore.GetOpenPositionBySymbol(e.id, symbol, strings.ToLower(side))
+	if err != nil {
+		log.Printf("[%s][%s] Warning: failed to find DB position for close: %v", e.name, symbol, err)
+		return
+	}
+	if dbPos == nil {
+		log.Printf("[%s][%s] Warning: no open DB position found for %s close", e.name, symbol, side)
+		return
+	}
+	if err := e.positionStore.ClosePosition(dbPos.ID, exitPrice, fee, pnl, reason); err != nil {
+		log.Printf("[%s][%s] Warning: failed to persist position close: %v", e.name, symbol, err)
+	}
+}
+
 // =============================================================================
 // Bracket Orders (SL/TP) Management
 // =============================================================================
@@ -3915,10 +3939,22 @@ func (e *Engine) closeAllPositions(ctx context.Context, reason string) {
 		log.Printf("[%s][%s] Closing %s position: %.4f (reason: %s)",
 			e.name, pos.Symbol, side, pos.PositionAmt, reason)
 
-		if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+		closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+		if err != nil {
 			log.Printf("[%s][%s] Failed to close position: %v", e.name, pos.Symbol, err)
 		} else {
 			log.Printf("[%s][%s] ✅ Position closed successfully", e.name, pos.Symbol)
+			exitPrice := pos.MarkPrice
+			pnl := pos.UnrealizedProfit
+			if closeOrder != nil && closeOrder.AvgPrice > 0 {
+				exitPrice = closeOrder.AvgPrice
+				if pos.PositionAmt > 0 {
+					pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+				} else {
+					pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+				}
+			}
+			e.persistPositionClose(pos.Symbol, side, reason, exitPrice, 0, pnl)
 			e.clearPositionTracking(pos.Symbol, side)
 			e.cancelBracketOrders(ctx, pos.Symbol)
 		}
@@ -4154,10 +4190,22 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 						continue
 					}
 
-					if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+					closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+					if err != nil {
 						log.Printf("[%s][%s] Failed to close position (trailing stop): %v", e.name, pos.Symbol, err)
 					} else {
 						log.Printf("[%s][%s] ✅ Closed position via trailing stop. Realized profit locked in.", e.name, pos.Symbol)
+						exitPrice := pos.MarkPrice
+						pnl := pos.UnrealizedProfit
+						if closeOrder != nil && closeOrder.AvgPrice > 0 {
+							exitPrice = closeOrder.AvgPrice
+							if pos.PositionAmt > 0 {
+								pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+							} else {
+								pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+							}
+						}
+						e.persistPositionClose(pos.Symbol, side, "trailing_stop", exitPrice, 0, pnl)
 						e.clearPositionTracking(pos.Symbol, side)
 						e.cancelBracketOrders(ctx, pos.Symbol)
 					}
@@ -4217,10 +4265,22 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 						continue
 					}
 
-					if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+					closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+					if err != nil {
 						log.Printf("[%s][%s] Failed to close position (guaranteed profit): %v", e.name, pos.Symbol, err)
 					} else {
 						log.Printf("[%s][%s] ✅ Closed position via guaranteed profit. Locked in %.2f%% profit.", e.name, pos.Symbol, rawPnlPct)
+						exitPrice := pos.MarkPrice
+						pnl := pos.UnrealizedProfit
+						if closeOrder != nil && closeOrder.AvgPrice > 0 {
+							exitPrice = closeOrder.AvgPrice
+							if pos.PositionAmt > 0 {
+								pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+							} else {
+								pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+							}
+						}
+						e.persistPositionClose(pos.Symbol, side, "guaranteed_profit", exitPrice, 0, pnl)
 						e.clearPositionTracking(pos.Symbol, side)
 						e.cancelBracketOrders(ctx, pos.Symbol)
 					}
@@ -4250,10 +4310,22 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					continue
 				}
 
-				if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+				closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+				if err != nil {
 					log.Printf("[%s][%s] Failed to close position (max hold): %v", e.name, pos.Symbol, err)
 				} else {
 					log.Printf("[%s][%s] ✅ Closed position due to max hold duration. PnL: %.2f%% (Raw)", e.name, pos.Symbol, rawPnlPct)
+					exitPrice := pos.MarkPrice
+					pnl := pos.UnrealizedProfit
+					if closeOrder != nil && closeOrder.AvgPrice > 0 {
+						exitPrice = closeOrder.AvgPrice
+						if pos.PositionAmt > 0 {
+							pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+						} else {
+							pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+						}
+					}
+					e.persistPositionClose(pos.Symbol, side, "max_hold_duration", exitPrice, 0, pnl)
 					e.clearPositionTracking(pos.Symbol, side)
 					e.cancelBracketOrders(ctx, pos.Symbol)
 				}
@@ -4289,10 +4361,22 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					continue
 				}
 
-				if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+				closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+				if err != nil {
 					log.Printf("[%s][%s] Failed to close position (smart loss cut): %v", e.name, pos.Symbol, err)
 				} else {
 					log.Printf("[%s][%s] ✅ Cut losing position. Loss: %.2f%% (Raw)", e.name, pos.Symbol, rawPnlPct)
+					exitPrice := pos.MarkPrice
+					pnl := pos.UnrealizedProfit
+					if closeOrder != nil && closeOrder.AvgPrice > 0 {
+						exitPrice = closeOrder.AvgPrice
+						if pos.PositionAmt > 0 {
+							pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+						} else {
+							pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+						}
+					}
+					e.persistPositionClose(pos.Symbol, side, "smart_loss_cut", exitPrice, 0, pnl)
 					e.clearPositionTracking(pos.Symbol, side)
 					e.cancelBracketOrders(ctx, pos.Symbol)
 				}
@@ -4331,9 +4415,21 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 
 			// Close the position
 			log.Printf("[%s][%s] Closing position due to drawdown protection", e.name, pos.Symbol)
-			if _, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt); err != nil {
+			closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+			if err != nil {
 				log.Printf("[%s][%s] Failed to close position: %v", e.name, pos.Symbol, err)
 			} else {
+				exitPrice := pos.MarkPrice
+				pnl := pos.UnrealizedProfit
+				if closeOrder != nil && closeOrder.AvgPrice > 0 {
+					exitPrice = closeOrder.AvgPrice
+					if pos.PositionAmt > 0 {
+						pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+					} else {
+						pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+					}
+				}
+				e.persistPositionClose(pos.Symbol, side, "drawdown_protection", exitPrice, 0, pnl)
 				e.clearPositionTracking(pos.Symbol, side)
 				e.cancelBracketOrders(ctx, pos.Symbol)
 			}
