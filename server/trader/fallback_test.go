@@ -111,7 +111,7 @@ func TestWebSocketReconnectionPreservesRESTFallback(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -164,7 +164,7 @@ func TestWebSocketDisabledScenario(t *testing.T) {
 				},
 			},
 		},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 	}
@@ -184,7 +184,7 @@ func TestWebSocketDisabledScenario(t *testing.T) {
 	engine.mu.Unlock()
 
 	// Risk checks should still work
-	engine.UpdatePeakPnL("BTCUSDT", "LONG", 1.5)
+	engine.UpdatePeakPnL("BTCUSDT", "LONG", 1.5, 50000.0)
 
 	ctx := context.Background()
 	engine.checkPositionDrawdown(ctx)
@@ -208,7 +208,7 @@ func TestWebSocketLatencyComparison(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -318,7 +318,7 @@ func TestErrorRecoveryAfterWebSocketFailure(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{

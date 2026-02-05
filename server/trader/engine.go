@@ -65,7 +65,9 @@ type Engine struct {
 	positionStore *store.PositionStore // For historical position data
 
 	// Position Management - Peak P&L tracking
-	peakPnLCache      map[string]float64 // key: "symbol_side" -> peak P&L %
+	// Each entry stores peak value AND the entry price it belongs to,
+	// so stale peaks from a previous position are automatically detected and reset.
+	peakPnLCache      map[string]peakPnLEntry // key: "symbol_side" -> peak entry
 	peakPnLCacheMutex sync.RWMutex
 
 	// Position Management - Hold duration tracking
@@ -116,6 +118,15 @@ type oiCacheEntry struct {
 	Analysis      *exchange.OIAnalysis
 	SentimentData *exchange.LongShortAnalysis
 	ExpiresAt     time.Time
+}
+
+// peakPnLEntry ties a peak P&L value to the specific position that produced it
+// (identified by entry price). This prevents stale peaks from a previous position
+// from leaking into a new position for the same symbol — the root cause of the
+// "instant guaranteed profit / trailing stop" bug.
+type peakPnLEntry struct {
+	value      float64 // peak raw P&L %
+	entryPrice float64 // entry price when this peak was recorded
 }
 
 // BracketOrderIDs tracks stop-loss and take-profit order IDs for a position
@@ -235,7 +246,7 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		positionStore:  store.NewPositionStore(),
 
 		// Initialize position management maps
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 
 		// Initialize bracket orders tracking
@@ -3234,26 +3245,40 @@ func (e *Engine) applyMarginBuffer(positionSizeUSD float64) float64 {
 // Position Management - Peak P&L Tracking
 // =============================================================================
 
-// UpdatePeakPnL updates the peak P&L for a position
-func (e *Engine) UpdatePeakPnL(symbol, side string, currentPnLPct float64) {
+// UpdatePeakPnL updates the peak P&L for a position, tied to a specific entry price.
+// If the entry price doesn't match the stored peak, the peak is from a DIFFERENT
+// position instance (stale) and is reset to the current value. This is the primary
+// defense against the stale-peak race condition where WebSocket partial fills from
+// a closing position re-contaminate the cache after ClearPeakPnL has run.
+func (e *Engine) UpdatePeakPnL(symbol, side string, currentPnLPct float64, entryPrice float64) {
 	key := getPositionKey(symbol, side)
 
 	e.peakPnLCacheMutex.Lock()
 	defer e.peakPnLCacheMutex.Unlock()
 
-	if current, exists := e.peakPnLCache[key]; !exists || currentPnLPct > current {
-		e.peakPnLCache[key] = currentPnLPct
+	current, exists := e.peakPnLCache[key]
+	if !exists || current.entryPrice != entryPrice {
+		// New position or entry price changed (e.g., position was closed and reopened,
+		// or user averaged in/out changing the entry). Reset peak for this position.
+		if exists && current.entryPrice != entryPrice {
+			log.Printf("[PeakPnL] Stale peak detected for %s %s: stored entry=$%.8f, current entry=$%.8f. Resetting peak from %.4f%% to %.4f%%",
+				symbol, side, current.entryPrice, entryPrice, current.value, currentPnLPct)
+		}
+		e.peakPnLCache[key] = peakPnLEntry{value: currentPnLPct, entryPrice: entryPrice}
+	} else if currentPnLPct > current.value {
+		// Same position, new high — update peak
+		e.peakPnLCache[key] = peakPnLEntry{value: currentPnLPct, entryPrice: entryPrice}
 	}
 }
 
-// GetPeakPnL returns the peak P&L for a position
+// GetPeakPnL returns the peak P&L value for a position
 func (e *Engine) GetPeakPnL(symbol, side string) float64 {
 	key := getPositionKey(symbol, side)
 
 	e.peakPnLCacheMutex.RLock()
 	defer e.peakPnLCacheMutex.RUnlock()
 
-	return e.peakPnLCache[key]
+	return e.peakPnLCache[key].value
 }
 
 // ClearPeakPnL clears the peak P&L cache when position closes
@@ -4186,7 +4211,10 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		// =====================================================================
 		// 1. TRAILING STOP LOSS - Lock in profits (Uses Raw % - same scale as Noise Zone)
 		// =====================================================================
-		if rc.EnableTrailingStop {
+		// Skip positions held < 10s — WebSocket partial fills from a previous close
+		// can re-contaminate the peakPnLCache after ClearPeakPnL, causing the
+		// trailing stop to fire immediately on a brand-new position.
+		if rc.EnableTrailingStop && holdDuration >= 10*time.Second {
 			// activatePct: Set to 0 to activate immediately from entry (aggressive)
 			// Set to positive value (e.g., 1.0) to only activate after reaching that profit %
 			activatePct := rc.TrailingStopActivatePct
@@ -4197,7 +4225,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			}
 
 			// Update and get peak P&L (Using Raw % - consistent with Noise Zone)
-			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
+			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct, pos.EntryPrice)
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
 			// Check if trailing stop should activate
@@ -4220,7 +4248,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					if err != nil {
 						log.Printf("[%s][%s] Failed to close position (trailing stop): %v", e.name, pos.Symbol, err)
 					} else {
-						log.Printf("[%s][%s] ✅ Closed position via trailing stop. Realized profit locked in.", e.name, pos.Symbol)
+						log.Printf("[%s][%s] ✅ Closed position via trailing stop at %.2f%% Raw (ROE: %.2f%%)", e.name, pos.Symbol, rawPnlPct, roePnlPct)
 						exitPrice := pos.MarkPrice
 						pnl := pos.UnrealizedProfit
 						if closeOrder != nil && closeOrder.AvgPrice > 0 {
@@ -4260,7 +4288,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 
 			// Always update peak P&L when Guaranteed Profit is enabled
 			// Track raw peak (shared cache with trailing stop), derive ROE from it
-			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
+			e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct, pos.EntryPrice)
 			peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
 			// Derive ROE values for guaranteed profit comparison
@@ -4432,8 +4460,13 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 			continue
 		}
 
+		// Skip positions held < 10s — same stale peakPnLCache race as trailing stop
+		if holdDuration < 10*time.Second {
+			continue
+		}
+
 		// Update peak P&L (Using Raw % - consistent with other features)
-		e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct)
+		e.UpdatePeakPnL(pos.Symbol, side, rawPnlPct, pos.EntryPrice)
 		peakPnL := e.GetPeakPnL(pos.Symbol, side)
 
 		// Only apply drawdown protection if we were profitable (in Raw % terms)

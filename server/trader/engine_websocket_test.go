@@ -141,7 +141,7 @@ func TestHandleWebSocketUpdates(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -225,7 +225,7 @@ func TestWebSocketUpdateLatency(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -285,7 +285,7 @@ func TestMultiplePositionUpdates(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -343,7 +343,7 @@ func BenchmarkWebSocketUpdateProcessing(b *testing.B) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{

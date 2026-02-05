@@ -24,7 +24,7 @@ func TestWebSocketMarkPriceZeroPreservation(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -116,7 +116,7 @@ func TestWebSocketMarkPriceZeroNoTrigger(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -226,7 +226,7 @@ func TestCheckPositionDrawdownSkipsInvalidPrices(t *testing.T) {
 		name:                  "TestEngine",
 		positions:             make(map[string]*exchange.Position),
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
@@ -254,7 +254,7 @@ func TestCheckPositionDrawdownSkipsInvalidPrices(t *testing.T) {
 
 	// Add peak PnL (simulating previous position)
 	engine.peakPnLCacheMutex.Lock()
-	engine.peakPnLCache["AIAUSDT|SHORT"] = 100.0 // Old peak from previous position
+	engine.peakPnLCache["AIAUSDT|SHORT"] = peakPnLEntry{value: 100.0, entryPrice: 0.50} // Old peak from previous position
 	engine.peakPnLCacheMutex.Unlock()
 
 	ctx := context.Background()
@@ -287,7 +287,7 @@ func TestLeveragePreservation(t *testing.T) {
 		positions:             make(map[string]*exchange.Position),
 		binance:               &exchange.BinanceClient{},
 		notifier:              &MockNotifier{},
-		peakPnLCache:          make(map[string]float64),
+		peakPnLCache:          make(map[string]peakPnLEntry),
 		positionFirstSeenTime: make(map[string]int64),
 		lastCloseAttempt:      make(map[string]time.Time),
 		strategy: &store.Strategy{
