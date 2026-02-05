@@ -2307,6 +2307,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			return 0, fmt.Errorf("failed to open long: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "LONG")
+		e.ClearPeakPnL(symbol, "LONG") // Prevent stale peak from previous position triggering guaranteed profit
 
 		// Use actual fill data from order response
 		entryPrice := ticker.Price
@@ -2395,6 +2396,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			return 0, fmt.Errorf("failed to open short: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "SHORT")
+		e.ClearPeakPnL(symbol, "SHORT") // Prevent stale peak from previous position triggering guaranteed profit
 
 		// Use actual fill data from order response
 		entryPrice := ticker.Price
@@ -2597,7 +2599,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			return 0, fmt.Errorf("failed to close position: %w", err)
 		}
 		e.clearPositionTracking(symbol, side)
-		e.cancelBracketOrders(ctx, symbol)
+		e.cancelBracketOrders(ctx, symbol, "ai_decision")
 
 		// Immediately update local position state so UI reflects the close
 		e.mu.Lock()
@@ -3711,7 +3713,7 @@ func (e *Engine) cancelOrphanedOrders(ctx context.Context, symbol string) {
 }
 
 // cancelBracketOrders cancels any existing SL/TP orders for a symbol
-func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
+func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string, closedBy ...string) {
 	e.bracketOrdersMutex.Lock()
 	bracket, exists := e.bracketOrders[symbol]
 	if exists {
@@ -3723,11 +3725,19 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 		return
 	}
 
+	// If closedBy is provided, we already know what closed the position.
+	// "Unknown order" errors just mean Binance auto-cancelled the algo orders
+	// after our reduce-only market order filled — NOT that SL/TP was hit.
+	alreadyClosedBy := ""
+	if len(closedBy) > 0 {
+		alreadyClosedBy = closedBy[0]
+	}
+
 	log.Printf("[%s][%s] Cancelling bracket orders: SL_ID=%d, TP_ID=%d",
 		e.name, symbol, bracket.StopLossOrderID, bracket.TakeProfitOrderID)
 
-	slFilled := false
-	tpFilled := false
+	slGone := false
+	tpGone := false
 
 	// Cancel SL order (using CancelAlgoOrder since SL/TP are algo orders)
 	if bracket.StopLossOrderID > 0 {
@@ -3736,9 +3746,14 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 			// Check for "order not found" or already filled/cancelled
 			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") ||
 				strings.Contains(errStr, "Order does not exist") || strings.Contains(errStr, "-20123") {
-				slFilled = true
-				log.Printf("[%s][%s] 🔴 SL order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
-					e.name, symbol, bracket.StopLossOrderID)
+				slGone = true
+				if alreadyClosedBy != "" {
+					log.Printf("[%s][%s] SL algo order already gone (position closed by %s, Algo ID: %d)",
+						e.name, symbol, alreadyClosedBy, bracket.StopLossOrderID)
+				} else {
+					log.Printf("[%s][%s] 🔴 SL order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
+						e.name, symbol, bracket.StopLossOrderID)
+				}
 			} else {
 				log.Printf("[%s][%s] SL cancel error: %v", e.name, symbol, err)
 			}
@@ -3754,9 +3769,14 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 			// Check for "order not found" or already filled/cancelled
 			if strings.Contains(errStr, "Unknown order") || strings.Contains(errStr, "-2011") ||
 				strings.Contains(errStr, "Order does not exist") || strings.Contains(errStr, "-20123") {
-				tpFilled = true
-				log.Printf("[%s][%s] 🟢 TP order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
-					e.name, symbol, bracket.TakeProfitOrderID)
+				tpGone = true
+				if alreadyClosedBy != "" {
+					log.Printf("[%s][%s] TP algo order already gone (position closed by %s, Algo ID: %d)",
+						e.name, symbol, alreadyClosedBy, bracket.TakeProfitOrderID)
+				} else {
+					log.Printf("[%s][%s] 🟢 TP order was ALREADY FILLED/CANCELLED by exchange (Algo ID: %d)",
+						e.name, symbol, bracket.TakeProfitOrderID)
+				}
 			} else {
 				log.Printf("[%s][%s] TP cancel error: %v", e.name, symbol, err)
 			}
@@ -3765,16 +3785,18 @@ func (e *Engine) cancelBracketOrders(ctx context.Context, symbol string) {
 		}
 	}
 
-	// Summary
-	if slFilled && !tpFilled {
-		log.Printf("[%s][%s] ⚠️ STOP LOSS HIT: Position was closed by exchange SL order",
-			e.name, symbol)
-	} else if tpFilled && !slFilled {
-		log.Printf("[%s][%s] 🎯 TAKE PROFIT HIT: Position closed at target profit",
-			e.name, symbol)
-	} else if slFilled && tpFilled {
-		log.Printf("[%s][%s] ⚠️ Both SL and TP orders were filled (unusual - check order history)",
-			e.name, symbol)
+	// Only report SL/TP hit when we don't already know what closed the position
+	if alreadyClosedBy == "" {
+		if slGone && !tpGone {
+			log.Printf("[%s][%s] ⚠️ STOP LOSS HIT: Position was closed by exchange SL order",
+				e.name, symbol)
+		} else if tpGone && !slGone {
+			log.Printf("[%s][%s] 🎯 TAKE PROFIT HIT: Position closed at target profit",
+				e.name, symbol)
+		} else if slGone && tpGone {
+			log.Printf("[%s][%s] ⚠️ Both SL and TP orders were filled (unusual - check order history)",
+				e.name, symbol)
+		}
 	}
 }
 
@@ -3956,7 +3978,7 @@ func (e *Engine) closeAllPositions(ctx context.Context, reason string) {
 			}
 			e.persistPositionClose(pos.Symbol, side, reason, exitPrice, 0, pnl)
 			e.clearPositionTracking(pos.Symbol, side)
-			e.cancelBracketOrders(ctx, pos.Symbol)
+			e.cancelBracketOrders(ctx, pos.Symbol, reason)
 		}
 	}
 }
@@ -4207,7 +4229,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 						}
 						e.persistPositionClose(pos.Symbol, side, "trailing_stop", exitPrice, 0, pnl)
 						e.clearPositionTracking(pos.Symbol, side)
-						e.cancelBracketOrders(ctx, pos.Symbol)
+						e.cancelBracketOrders(ctx, pos.Symbol, "trailing_stop")
 					}
 					continue // Move to next position
 				}
@@ -4291,7 +4313,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 						}
 						e.persistPositionClose(pos.Symbol, side, "guaranteed_profit", exitPrice, 0, pnl)
 						e.clearPositionTracking(pos.Symbol, side)
-						e.cancelBracketOrders(ctx, pos.Symbol)
+						e.cancelBracketOrders(ctx, pos.Symbol, "guaranteed_profit")
 					}
 					continue // Move to next position
 				}
@@ -4336,7 +4358,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					}
 					e.persistPositionClose(pos.Symbol, side, "max_hold_duration", exitPrice, 0, pnl)
 					e.clearPositionTracking(pos.Symbol, side)
-					e.cancelBracketOrders(ctx, pos.Symbol)
+					e.cancelBracketOrders(ctx, pos.Symbol, "max_hold_duration")
 				}
 				continue // Move to next position
 			}
@@ -4387,7 +4409,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 					}
 					e.persistPositionClose(pos.Symbol, side, "smart_loss_cut", exitPrice, 0, pnl)
 					e.clearPositionTracking(pos.Symbol, side)
-					e.cancelBracketOrders(ctx, pos.Symbol)
+					e.cancelBracketOrders(ctx, pos.Symbol, "smart_loss_cut")
 				}
 				continue // Move to next position
 			}
@@ -4440,7 +4462,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 				}
 				e.persistPositionClose(pos.Symbol, side, "drawdown_protection", exitPrice, 0, pnl)
 				e.clearPositionTracking(pos.Symbol, side)
-				e.cancelBracketOrders(ctx, pos.Symbol)
+				e.cancelBracketOrders(ctx, pos.Symbol, "drawdown_protection")
 			}
 		}
 	}
