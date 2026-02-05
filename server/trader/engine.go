@@ -2302,12 +2302,15 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 		log.Printf("[%s][%s] Opening LONG: %.4f @ $%.2f (margin: $%.2f, position: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, actualPositionValue, leverage)
+		// Clear stale peak BEFORE placing order — monitoring loop can see the filled
+		// position via WebSocket before PlaceOrder returns, causing guaranteed profit
+		// to trigger on stale peak data from a previous position.
+		e.ClearPeakPnL(symbol, "LONG")
 		openOrder, err := e.binance.PlaceOrder(ctx, symbol, "BUY", "MARKET", quantity, 0, false)
 		if err != nil {
 			return 0, fmt.Errorf("failed to open long: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "LONG")
-		e.ClearPeakPnL(symbol, "LONG") // Prevent stale peak from previous position triggering guaranteed profit
 
 		// Use actual fill data from order response
 		entryPrice := ticker.Price
@@ -2391,12 +2394,13 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		}
 		log.Printf("[%s][%s] Opening SHORT: %.4f @ $%.2f (margin: $%.2f, position: $%.2f, leverage: %dx)",
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, actualPositionValue, leverage)
+		// Clear stale peak BEFORE placing order — same race condition as LONG
+		e.ClearPeakPnL(symbol, "SHORT")
 		openOrder, err := e.binance.PlaceOrder(ctx, symbol, "SELL", "MARKET", quantity, 0, false)
 		if err != nil {
 			return 0, fmt.Errorf("failed to open short: %w", err)
 		}
 		e.setPositionFirstSeen(symbol, "SHORT")
-		e.ClearPeakPnL(symbol, "SHORT") // Prevent stale peak from previous position triggering guaranteed profit
 
 		// Use actual fill data from order response
 		entryPrice := ticker.Price
@@ -4240,13 +4244,17 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		// 1.5. GUARANTEED MINIMUM PROFIT - Lock in minimum profit once threshold reached
 		// Uses ROE % (leveraged return) - matches what the dashboard shows
 		// =====================================================================
-		if rc.EnableGuaranteedProfit {
+		// Skip guaranteed profit for positions held < 10s — the peak cache may not
+		// yet reflect this position's actual peak. Without this guard, a stale peak
+		// from a previous same-symbol position (race between PlaceOrder and
+		// ClearPeakPnL) can trigger an immediate close on a position that just opened.
+		if rc.EnableGuaranteedProfit && holdDuration >= 10*time.Second {
 			activatePct := rc.GuaranteedProfitActivatePct
 			if activatePct <= 0 {
 				activatePct = 0.3 // Default: activate when position reaches 0.3% ROE
 			}
 			minProfitPct := rc.GuaranteedMinProfitPct
-			if minProfitPct < 0 {
+			if minProfitPct <= 0 {
 				minProfitPct = 0.1 // Default: guarantee at least 0.1% ROE
 			}
 
