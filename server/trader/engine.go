@@ -524,27 +524,55 @@ func (e *Engine) maybeRefreshSmartFind(ctx context.Context) {
 	log.Printf("[%s] ✅ Smart Find Auto-Refresh complete. New coins: %v", e.name, newCoins)
 }
 
-// runSmartFind finds risky symbols using AI analysis
-func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, error) {
-	// Prepare auto-avoid list
+// getAutoAvoidSet helps identify symbols to avoid based on performance
+func (e *Engine) getAutoAvoidSet() map[string]bool {
 	avoidSet := make(map[string]bool)
-	if e.strategy != nil && e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
-		minLoss := e.strategy.Config.RiskControl.AutoAvoidMinLoss24h
-		if minLoss <= 0 {
-			minLoss = 5.0
-		}
-		worst, _ := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
+	if e.strategy == nil || !e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
+		return avoidSet
+	}
+
+	minLoss := e.strategy.Config.RiskControl.AutoAvoidMinLoss24h
+	if minLoss <= 0 {
+		minLoss = 5.0
+	}
+
+	worstSymbols, err := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
+	if err != nil {
+		log.Printf("[%s] ⚠️ Failed to get worst symbols for auto-avoid: %v", e.name, err)
+		return avoidSet
+	}
+
+	if len(worstSymbols) > 0 {
 		minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
 		if minTrades <= 0 {
 			minTrades = 2
 		}
-		for _, w := range worst {
-			if w.TradeCount >= minTrades {
-				avoidSet[w.Symbol] = true
-				log.Printf("[%s] SmartFind avoiding %s (loss > $%.2f)", e.name, w.Symbol, minLoss)
+
+		for _, ws := range worstSymbols {
+			// Avoid if hit minTrades OR if loss is huge (2x minLoss)
+			// e.g. if limit is 5, and loss is 12 (TotalPnL -12), then -12 < -10 is TRUE.
+			isHugeLoss := ws.TotalPnL < -(2 * minLoss)
+
+			if ws.TradeCount >= minTrades || isHugeLoss {
+				avoidSet[ws.Symbol] = true
+
+				reason := "consistent loss"
+				if isHugeLoss {
+					reason = "HUGE SINGLE LOSS"
+				}
+
+				log.Printf("[%s] 🚫 Auto-avoiding %s (%s: %d trades, $%.2f PnL)",
+					e.name, ws.Symbol, reason, ws.TradeCount, ws.TotalPnL)
 			}
 		}
 	}
+	return avoidSet
+}
+
+// runSmartFind finds risky symbols using AI analysis
+func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, error) {
+	// Prepare auto-avoid list using standardized logic
+	avoidSet := e.getAutoAvoidSet()
 
 	type MarketCoin struct {
 		Symbol       string
@@ -1033,31 +1061,12 @@ func (e *Engine) runTradingCycle(ctx context.Context) {
 
 	// AUTO-AVOID WORST SYMBOLS: Filter out symbols that have been losing in the last 24h
 	// This only applies to NEW trades (not existing positions which must still be analyzed)
+	// AUTO-AVOID WORST SYMBOLS: Filter out symbols that have been losing in the last 24h
+	// This only applies to NEW trades (not existing positions which must still be analyzed)
 	if e.strategy != nil && e.strategy.Config.RiskControl.EnableAutoAvoidWorstSymbols {
-		minLoss := e.strategy.Config.RiskControl.AutoAvoidMinLoss24h
-		if minLoss <= 0 {
-			minLoss = 5.0 // Default: 5 USDT loss
-		}
+		avoidSet := e.getAutoAvoidSet()
 
-		worstSymbols, err := e.positionStore.GetWorstSymbols24h(e.id, minLoss)
-		if err != nil {
-			log.Printf("[%s] ⚠️ Failed to get worst symbols for auto-avoid: %v", e.name, err)
-		} else if len(worstSymbols) > 0 {
-			// Build a set of symbols to avoid (only if they have enough trades)
-			minTrades := e.strategy.Config.RiskControl.AutoAvoidMinTrades24h
-			if minTrades <= 0 {
-				minTrades = 2
-			}
-
-			avoidSet := make(map[string]bool)
-			for _, ws := range worstSymbols {
-				if ws.TradeCount >= minTrades {
-					avoidSet[ws.Symbol] = true
-					log.Printf("[%s] 🚫 Auto-avoiding %s (24h: %d trades, $%.2f PnL, %.1f%% win rate)",
-						e.name, ws.Symbol, ws.TradeCount, ws.TotalPnL, ws.WinRate)
-				}
-			}
-
+		if len(avoidSet) > 0 {
 			// Filter pairs but KEEP any symbol that has an open position
 			activeSet := make(map[string]bool)
 			for _, sym := range activeSymbols {
