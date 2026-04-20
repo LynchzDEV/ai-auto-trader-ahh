@@ -70,6 +70,7 @@ type SymbolInfo struct {
 	MinQty            float64
 	StepSize          float64
 	Status            string
+	OnboardDate       int64 // Unix milliseconds when this symbol was listed on Binance Futures
 }
 
 type AccountInfo struct {
@@ -160,8 +161,9 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 	// Start periodic time sync (every 15 minutes) to prevent drift
 	client.startPeriodicTimeSync()
 
-	// Fetch exchange info for precision data
+	// Fetch exchange info for precision data (also starts hourly refresh)
 	client.fetchExchangeInfo()
+	client.startPeriodicExchangeInfoRefresh()
 
 	return client
 }
@@ -186,6 +188,26 @@ func (c *BinanceClient) startPeriodicTimeSync() {
 		}
 	}()
 	log.Printf("[Binance] Periodic time sync started (every 15 minutes)")
+}
+
+// startPeriodicExchangeInfoRefresh refreshes exchange info every hour so new listings appear
+func (c *BinanceClient) startPeriodicExchangeInfoRefresh() {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				c.fetchExchangeInfo()
+			case <-c.stopCh:
+				return
+			}
+		}
+	}()
+	log.Printf("[Binance] Periodic exchange info refresh started (every 1 hour)")
 }
 
 // Close stops all background goroutines and cleans up resources
@@ -244,6 +266,7 @@ func (c *BinanceClient) fetchExchangeInfo() {
 			Status            string `json:"status"`
 			QuantityPrecision int    `json:"quantityPrecision"`
 			PricePrecision    int    `json:"pricePrecision"`
+			OnboardDate       int64  `json:"onboardDate"`
 			Filters           []struct {
 				FilterType string `json:"filterType"`
 				MinQty     string `json:"minQty"`
@@ -263,6 +286,7 @@ func (c *BinanceClient) fetchExchangeInfo() {
 			Status:            s.Status,
 			QuantityPrecision: s.QuantityPrecision,
 			PricePrecision:    s.PricePrecision,
+			OnboardDate:       s.OnboardDate,
 		}
 
 		// Extract LOT_SIZE filter for min qty and step size

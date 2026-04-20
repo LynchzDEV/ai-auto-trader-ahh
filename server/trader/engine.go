@@ -451,6 +451,16 @@ func (e *Engine) getTradingPairs() []string {
 						return e.strategy.Config.CoinSource.StaticCoins
 					}
 				} else {
+					// Apply newborn listing age filter if configured
+					if maxAge := e.strategy.Config.CoinSource.MaxListingAgeDays; maxAge > 0 {
+						filtered := topCoins[:0]
+						for _, sym := range topCoins {
+							if e.binance.IsRecentlyListed(sym, maxAge) {
+								filtered = append(filtered, sym)
+							}
+						}
+						topCoins = filtered
+					}
 					e.dynamicCoins = topCoins
 					e.lastDynamicRefresh = time.Now()
 					log.Printf("[%s] Updated dynamic coin list: %v", e.name, e.dynamicCoins)
@@ -573,6 +583,12 @@ func (e *Engine) getAutoAvoidSet() map[string]bool {
 func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, error) {
 	// Prepare auto-avoid list using standardized logic
 	avoidSet := e.getAutoAvoidSet()
+
+	// Newborn listing age filter (0 = disabled)
+	maxListingAge := 0
+	if e.strategy != nil {
+		maxListingAge = e.strategy.Config.CoinSource.MaxListingAgeDays
+	}
 
 	type MarketCoin struct {
 		Symbol       string
@@ -747,6 +763,9 @@ func (e *Engine) runSmartFind(ctx context.Context, targetCount int) ([]string, e
 					continue
 				}
 				if t.Symbol == "USDCUSDT" || t.Symbol == "FDUSDUSDT" || t.Symbol == "TUSDUSDT" || t.Symbol == "USDPUSDT" {
+					continue
+				}
+				if maxListingAge > 0 && !e.binance.IsRecentlyListed(t.Symbol, maxListingAge) {
 					continue
 				}
 				if t.QuoteVolume > 500000 {
@@ -1326,6 +1345,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 		formattedData += htfContext
 	}
 
+	// Inject 1m micro-momentum context for real-time entry confirmation
+	if microCtx := e.get1mMicroContext(ctx, symbol); microCtx != "" {
+		formattedData += microCtx
+	}
+
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
 	// Only fetch intel if enabled in strategy settings
 	if e.intelProvider != nil && e.strategy != nil && e.strategy.Config.EnableMarketIntel {
@@ -1891,6 +1915,19 @@ func (e *Engine) get1HContext(ctx context.Context, symbol string) string {
 
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// get1mMicroContext fetches 1m candle data and returns a compact micro-momentum summary
+// that the AI uses to confirm whether a move is still live before entering.
+func (e *Engine) get1mMicroContext(ctx context.Context, symbol string) string {
+	microCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	microData, err := e.dataProvider.GetMarketDataWithConfig(microCtx, symbol, "1m", 15)
+	if err != nil {
+		return ""
+	}
+	return market.FormatMicroContext(microData)
 }
 
 // checkEntrySafety enforces rules to prevent bad entries using WEIGHTED SCORING

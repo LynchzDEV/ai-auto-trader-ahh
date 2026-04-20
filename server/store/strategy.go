@@ -70,8 +70,10 @@ type AIConfig struct {
 
 // CoinSourceConfig defines how to select coins
 type CoinSourceConfig struct {
-	SourceType  string   `json:"source_type"` // "static" | "dynamic"
-	StaticCoins []string `json:"static_coins"`
+	SourceType        string   `json:"source_type"` // "static" | "dynamic" | "volume_top"
+	StaticCoins       []string `json:"static_coins"`
+	MaxListingAgeDays int      `json:"max_listing_age_days"` // 0 = disabled; filter to coins listed within N days
+	PreferNewListings bool     `json:"prefer_new_listings"`  // sort newer listings first within the age window
 }
 
 // IndicatorConfig defines which indicators to use

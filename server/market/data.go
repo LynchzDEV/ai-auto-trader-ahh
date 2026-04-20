@@ -841,6 +841,71 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 	return sb.String()
 }
 
+// FormatMicroContext formats 1m kline data as a compact AI prompt section.
+// It summarises the last 15 minutes of price action so the AI can confirm
+// whether momentum is still alive before committing to an entry.
+func FormatMicroContext(data *MarketData) string {
+	if data == nil || len(data.Klines) < 3 {
+		return ""
+	}
+	klines := data.Klines
+	last := klines[len(klines)-1]
+	prev1 := klines[len(klines)-2]
+	prev2 := klines[len(klines)-3]
+
+	// 3-candle direction
+	change3Pct := (last.Close - prev2.Close) / prev2.Close * 100
+	trend3 := "FLAT"
+	if change3Pct > 0.3 {
+		trend3 = "UP"
+	} else if change3Pct < -0.3 {
+		trend3 = "DOWN"
+	}
+
+	// Volume vs 15-candle average
+	var totalVol float64
+	for _, k := range klines {
+		totalVol += k.Volume
+	}
+	avgVol := totalVol / float64(len(klines))
+	recent3Vol := (last.Volume + prev1.Volume + prev2.Volume) / 3.0
+	volStatus := "NORMAL"
+	if recent3Vol > avgVol*1.5 {
+		volStatus = "HIGH"
+	} else if recent3Vol < avgVol*0.6 {
+		volStatus = "LOW"
+	}
+
+	// Micro signal classification
+	microSignal := "CHOPPY"
+	switch {
+	case (data.Trend == "BULLISH" && trend3 == "UP" && volStatus == "HIGH") ||
+		(data.Trend == "BEARISH" && trend3 == "DOWN" && volStatus == "HIGH"):
+		microSignal = "BREAKOUT_CONFIRMED"
+	case data.MoveMaturityScore >= 3 || data.RSI > 78 || data.RSI < 22:
+		microSignal = "FADING"
+	case data.MarketRegime == "RANGING" || data.MarketRegime == "VOLATILE":
+		microSignal = "CHOPPY"
+	case data.DistanceFromEMA9Pct > -4 && data.DistanceFromEMA9Pct < -0.2 && volStatus != "HIGH":
+		microSignal = "PULLBACK_HEALTHY"
+	default:
+		if trend3 != "FLAT" {
+			microSignal = "PULLBACK_HEALTHY"
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n=== 1m Micro-Momentum (last 15 min) ===\n")
+	sb.WriteString(fmt.Sprintf("Last 3 candles: [%.4f → %.4f → %.4f]\n", prev2.Close, prev1.Close, last.Close))
+	sb.WriteString(fmt.Sprintf("3-candle move: %s (%.2f%%)\n", trend3, change3Pct))
+	sb.WriteString(fmt.Sprintf("Volume vs avg: %s (recent %.0f vs avg %.0f)\n", volStatus, recent3Vol, avgVol))
+	sb.WriteString(fmt.Sprintf("1m RSI: %.1f | 1m Regime: %s\n", data.RSI, data.MarketRegime))
+	sb.WriteString(fmt.Sprintf("Micro signal: %s\n", microSignal))
+	sb.WriteString("→ Only open if BREAKOUT_CONFIRMED or PULLBACK_HEALTHY. Use action: wait if FADING or CHOPPY.\n")
+
+	return sb.String()
+}
+
 // calculateEMA calculates Exponential Moving Average
 func calculateEMA(data []float64, period int) float64 {
 	if len(data) < period {

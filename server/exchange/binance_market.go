@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Ticker24h represents 24h ticker statistics
@@ -123,4 +124,18 @@ func (c *BinanceClient) IsActiveSymbol(symbol string) bool {
 		return info.Status == "TRADING"
 	}
 	return false
+}
+
+// IsRecentlyListed returns true if the symbol was listed within the last maxAgeDays days.
+// Always returns true when maxAgeDays is 0 (filter disabled) or the symbol is not found.
+func (c *BinanceClient) IsRecentlyListed(symbol string, maxAgeDays int) bool {
+	if maxAgeDays <= 0 {
+		return true
+	}
+	info, ok := c.symbolInfo[symbol]
+	if !ok || info.OnboardDate == 0 {
+		return true // unknown listing date: allow it
+	}
+	cutoff := time.Now().AddDate(0, 0, -maxAgeDays).UnixMilli()
+	return info.OnboardDate >= cutoff
 }
