@@ -473,6 +473,90 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 	}
 	sb.WriteString("\n")
 
+	// Entry Timing Indicators
+	sb.WriteString("--- Entry Timing ---\n")
+	distSign := "+"
+	if data.DistanceFromEMA9Pct < 0 {
+		distSign = ""
+	}
+	sb.WriteString(fmt.Sprintf("Distance from EMA9: %s%.2f%% (negative = below EMA9 = pullback zone ✅)\n", distSign, data.DistanceFromEMA9Pct))
+	dist21Sign := "+"
+	if data.DistanceFromEMA21Pct < 0 {
+		dist21Sign = ""
+	}
+	sb.WriteString(fmt.Sprintf("Distance from EMA21: %s%.2f%%\n", dist21Sign, data.DistanceFromEMA21Pct))
+	if data.PullbackDepthPct > 0 {
+		sb.WriteString(fmt.Sprintf("Pullback Depth: %.2f%% from recent swing\n", data.PullbackDepthPct))
+	}
+	rocSign := "+"
+	if data.RSIRateOfChange < 0 {
+		rocSign = ""
+	}
+	sb.WriteString(fmt.Sprintf("RSI Rate of Change: %s%.2f (positive=rising momentum, negative=losing steam)\n", rocSign, data.RSIRateOfChange))
+	if data.MomentumDecay {
+		sb.WriteString(fmt.Sprintf("⚠️ MOMENTUM DECAY: YES (%d bars) - MACD declining while price rises = bearish divergence, AVOID LONG\n", data.MomentumDecayBars))
+	} else {
+		sb.WriteString("Momentum Decay: NO ✅\n")
+	}
+	if data.DistanceFromEMA9Pct > 1.5 {
+		sb.WriteString("🚨 EXTENDED: Price is >1.5% above EMA9. Wait for pullback before entering LONG.\n")
+	} else if data.DistanceFromEMA9Pct < -1.5 {
+		sb.WriteString("🚨 EXTENDED: Price is >1.5% below EMA9. Wait for bounce before entering SHORT.\n")
+	} else if data.DistanceFromEMA9Pct >= -2.0 && data.DistanceFromEMA9Pct <= 0.0 {
+		sb.WriteString("✅ PULLBACK ZONE: Price near/below EMA9 - good entry timing for LONG\n")
+	}
+	sb.WriteString("\n")
+
+	// Market Regime
+	sb.WriteString("--- Market Regime ---\n")
+	sb.WriteString(fmt.Sprintf("Regime: %s\n", data.MarketRegime))
+	sb.WriteString(fmt.Sprintf("ADX: %.1f (%s)\n", data.ADX, data.ADXTrend))
+	if data.BollingerSqueeze {
+		sb.WriteString("Bollinger Squeeze: YES ⚡ (low volatility, breakout incoming - wait for direction)\n")
+	} else {
+		sb.WriteString("Bollinger Squeeze: NO\n")
+	}
+	sb.WriteString(fmt.Sprintf("ATR Ratio: %.2fx average volatility\n", data.ATRRatio))
+	if data.RegimeDescription != "" {
+		sb.WriteString(fmt.Sprintf("Context: %s\n", data.RegimeDescription))
+	}
+	switch data.MarketRegime {
+	case "RANGING":
+		sb.WriteString("⚠️ RANGING MARKET: Skip new entries. Wait for breakout with volume.\n")
+	case "TRENDING":
+		sb.WriteString("✅ TRENDING: Momentum entries and pullback entries work well.\n")
+	case "VOLATILE":
+		sb.WriteString("⚠️ VOLATILE: Use wider stops. Reduce position size.\n")
+	case "EXHAUSTED":
+		sb.WriteString("🚫 EXHAUSTED: Avoid new entries. High reversal risk.\n")
+	}
+	sb.WriteString("\n")
+
+	// Fibonacci Levels & Volume Profile
+	if data.FibSwingHigh > 0 && data.FibSwingLow > 0 {
+		sb.WriteString("--- Fibonacci & Volume Quality ---\n")
+		sb.WriteString(fmt.Sprintf("Fib Swing High: $%.4f | Swing Low: $%.4f\n", data.FibSwingHigh, data.FibSwingLow))
+		sb.WriteString(fmt.Sprintf("38.2%%: $%.4f | 50%%: $%.4f | 61.8%%: $%.4f\n", data.FibLevel382, data.FibLevel500, data.FibLevel618))
+		if data.NearestFibLevel != "" && data.NearestFibLevel != "NONE" {
+			sb.WriteString(fmt.Sprintf("Nearest Fib Level: %s (%.2f%% away)\n", data.NearestFibLevel, data.FibDistancePct))
+		}
+		if data.AtFibSupport {
+			sb.WriteString("✅ AT FIB SUPPORT: Ideal LONG entry zone\n")
+		}
+		if data.AtFibResistance {
+			sb.WriteString("⚠️ AT FIB RESISTANCE: Caution for LONG entries, good for SHORT\n")
+		}
+		if data.PullbackVolumeSignal != "" {
+			sb.WriteString(fmt.Sprintf("Pullback Volume: %.2fx trend volume (%s)\n", data.PullbackVolumeRatio, data.PullbackVolumeSignal))
+			if data.PullbackVolumeSignal == "HEALTHY" {
+				sb.WriteString("✅ LOW VOLUME PULLBACK: Real pullback, price likely to resume trend\n")
+			} else if data.PullbackVolumeSignal == "UNHEALTHY" {
+				sb.WriteString("⚠️ HIGH VOLUME PULLBACK: Selling pressure detected, may not resume\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
 	// Open Interest Analysis (if available)
 	if data.OIValue > 0 || data.OISignal != "" {
 		sb.WriteString("--- OPEN INTEREST ANALYSIS ---\n")
@@ -501,13 +585,15 @@ func (d *DataProvider) FormatForAI(data *MarketData, enableHighWickWarning bool,
 				sb.WriteString("✅ OI supports SHORT entries - new money flowing into shorts\n")
 				sb.WriteString("- Downtrend is backed by real capital inflow\n")
 			case "REVERSAL_UP":
-				sb.WriteString("ℹ️ OI Context: Price up but OI down = short covering rally\n")
-				sb.WriteString("- Rally driven by shorts exiting, not new longs\n")
-				sb.WriteString("- Strong technicals can still justify LONG entry\n")
+				sb.WriteString("⚠️ WEAK RALLY: Price up but OI declining = short covering only\n")
+				sb.WriteString("- Rally driven by shorts EXITING, not new longs entering\n")
+				sb.WriteString("- Rally likely to exhaust quickly. AVOID new LONG entries.\n")
+				sb.WriteString("- Only consider LONG if LONG score is 4/4 AND Move Maturity is EARLY\n")
 			case "REVERSAL_DOWN":
-				sb.WriteString("ℹ️ OI Context: Price down but OI down = long capitulation\n")
-				sb.WriteString("- Selling driven by longs exiting, not new shorts\n")
-				sb.WriteString("- Strong technicals can still justify SHORT entry\n")
+				sb.WriteString("⚠️ WEAK DROP: Price down but OI declining = long capitulation only\n")
+				sb.WriteString("- Drop driven by longs EXITING, not new shorts entering\n")
+				sb.WriteString("- Drop likely to stabilize. AVOID new SHORT entries.\n")
+				sb.WriteString("- Only consider SHORT if SHORT score is 4/4 AND Move Maturity is EARLY\n")
 			default:
 				sb.WriteString("ℹ️ OI Context: No clear signal - market in transition\n")
 			}

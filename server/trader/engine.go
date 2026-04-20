@@ -1321,6 +1321,11 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 	formattedData := e.dataProvider.FormatForAI(marketData, enableHighWick, aiPromptCfg)
 
+	// Inject 1H higher timeframe trend context
+	if htfContext := e.get1HContext(ctx, symbol); htfContext != "" {
+		formattedData += htfContext
+	}
+
 	// Fetch and inject market intelligence (uses caching, won't hit APIs every call)
 	// Only fetch intel if enabled in strategy settings
 	if e.intelProvider != nil && e.strategy != nil && e.strategy.Config.EnableMarketIntel {
@@ -1841,6 +1846,51 @@ func (e *Engine) analyzeAndTrade(ctx context.Context, symbol string) *TradeLog {
 	}
 
 	return tradeLog
+}
+
+// get1HContext fetches 1H candle data and returns a formatted higher timeframe trend summary.
+// This gives the AI context about the larger trend before making 5m decisions.
+func (e *Engine) get1HContext(ctx context.Context, symbol string) string {
+	htfCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	htfData, err := e.dataProvider.GetMarketDataWithConfig(htfCtx, symbol, "1h", 50)
+	if err != nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n--- Higher Timeframe Context (1H) ---\n")
+
+	emaSpread := 0.0
+	if htfData.EMA21 > 0 {
+		emaSpread = ((htfData.EMA9 - htfData.EMA21) / htfData.EMA21) * 100
+	}
+
+	if htfData.EMA9 > htfData.EMA21 {
+		sb.WriteString(fmt.Sprintf("1H EMA Trend: BULLISH (EMA9 > EMA21 by %.2f%%)\n", emaSpread))
+	} else {
+		sb.WriteString(fmt.Sprintf("1H EMA Trend: BEARISH (EMA9 < EMA21 by %.2f%%)\n", -emaSpread))
+	}
+
+	sb.WriteString(fmt.Sprintf("1H RSI: %.1f\n", htfData.RSI))
+	histDir := "rising"
+	if htfData.MACDHist < 0 {
+		histDir = "declining"
+	}
+	sb.WriteString(fmt.Sprintf("1H MACD Histogram: %.5f (%s)\n", htfData.MACDHist, histDir))
+	sb.WriteString(fmt.Sprintf("1H Move Maturity: %s\n", htfData.MoveMaturity))
+
+	if htfData.EMA9 > htfData.EMA21 {
+		sb.WriteString("✅ 1H TREND: BULLISH - Long entries align with higher timeframe\n")
+		sb.WriteString("⚠️ Short entries are COUNTER-TREND on 1H - require stronger confirmation\n")
+	} else {
+		sb.WriteString("✅ 1H TREND: BEARISH - Short entries align with higher timeframe\n")
+		sb.WriteString("⚠️ Long entries are COUNTER-TREND on 1H - require stronger confirmation\n")
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // checkEntrySafety enforces rules to prevent bad entries using WEIGHTED SCORING
