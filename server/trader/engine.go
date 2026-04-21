@@ -3,6 +3,7 @@ package trader
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -90,6 +91,10 @@ type Engine struct {
 	dynamicCoins       []string
 	lastDynamicRefresh time.Time
 
+	// Leverage cache: symbol → actual leverage set on exchange (TTL 5 min)
+	leverageCache   map[string]cachedLeverage
+	leverageCacheMu sync.Mutex
+
 	// Smart Find Auto-Refresh
 	lastSmartFindRefresh time.Time
 
@@ -118,6 +123,12 @@ type oiCacheEntry struct {
 	Analysis      *exchange.OIAnalysis
 	SentimentData *exchange.LongShortAnalysis
 	ExpiresAt     time.Time
+}
+
+// cachedLeverage tracks the actual leverage confirmed by Binance for a symbol.
+type cachedLeverage struct {
+	value  int
+	setAt  time.Time
 }
 
 // peakPnLEntry ties a peak P&L value to the specific position that produced it
@@ -263,6 +274,9 @@ func NewEngine(id, name string, aiClient *ai.Client, binance *exchange.BinanceCl
 		// OI Cache (1 minute TTL to stay well under rate limits)
 		oiCache: make(map[string]*oiCacheEntry),
 
+		// Leverage cache (5 min TTL per symbol)
+		leverageCache: make(map[string]cachedLeverage),
+
 		// Risk check optimization
 		// Risk check optimization
 		lastCloseAttempt: make(map[string]time.Time),
@@ -324,11 +338,15 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Set leverage for all pairs (separate limits for BTC/ETH vs altcoins)
 	coins := e.getTradingPairs()
 	for _, pair := range coins {
-		leverage := e.getLeverageLimit(pair)
-		if err := e.binance.SetLeverage(ctx, pair, leverage); err != nil {
+		requested := e.getLeverageLimit(pair)
+		actual, err := e.binance.SetLeverage(ctx, pair, requested)
+		if err != nil {
 			log.Printf("[%s] Warning: failed to set leverage for %s: %v", e.name, pair, err)
 		} else {
-			log.Printf("[%s] Set leverage for %s to %dx", e.name, pair, leverage)
+			log.Printf("[%s] Set leverage for %s to %dx (requested %dx)", e.name, pair, actual, requested)
+			e.leverageCacheMu.Lock()
+			e.leverageCache[pair] = cachedLeverage{value: actual, setAt: time.Now()}
+			e.leverageCacheMu.Unlock()
 		}
 	}
 
@@ -2289,7 +2307,14 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		equity = account.AvailableBalance
 	}
 
-	leverage := e.getLeverageLimit(symbol)
+	// Use ensureLeverage to get the ACTUAL leverage Binance will apply.
+	// This sets leverage on the exchange if not cached, caps to bracket max, and
+	// returns the real value so qty math is accurate.
+	leverage, leverageErr := e.ensureLeverage(ctx, symbol)
+	if leverageErr != nil {
+		log.Printf("[%s][%s] ensureLeverage failed, falling back to config: %v", e.name, symbol, leverageErr)
+		leverage = e.getLeverageLimit(symbol)
+	}
 
 	// Get position percentage from strategy (fallback to legacy field, then config, then default 10%)
 	maxPosPct := e.getPositionPercent()
@@ -2413,7 +2438,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 		// position via WebSocket before PlaceOrder returns, causing guaranteed profit
 		// to trigger on stale peak data from a previous position.
 		e.ClearPeakPnL(symbol, "LONG")
-		openOrder, err := e.binance.PlaceOrder(ctx, symbol, "BUY", "MARKET", quantity, 0, false)
+		openOrder, err := e.placeMarketOrderWithClamp(ctx, symbol, "BUY", quantity)
 		if err != nil {
 			return 0, fmt.Errorf("failed to open long: %w", err)
 		}
@@ -2503,7 +2528,7 @@ func (e *Engine) executeTrade(ctx context.Context, symbol string, decision *ai.T
 			e.name, symbol, quantity, ticker.Price, positionSizeUSD, actualPositionValue, leverage)
 		// Clear stale peak BEFORE placing order — same race condition as LONG
 		e.ClearPeakPnL(symbol, "SHORT")
-		openOrder, err := e.binance.PlaceOrder(ctx, symbol, "SELL", "MARKET", quantity, 0, false)
+		openOrder, err := e.placeMarketOrderWithClamp(ctx, symbol, "SELL", quantity)
 		if err != nil {
 			return 0, fmt.Errorf("failed to open short: %w", err)
 		}
@@ -3170,6 +3195,66 @@ func (e *Engine) getLeverageLimit(symbol string) int {
 	}
 	// For altcoins, default to 10x (20x is too high and often invalid)
 	return 10
+}
+
+// placeMarketOrderWithClamp places a MARKET order, retrying once with a clamped qty on -4005.
+// Belt-and-suspenders: PlaceOrder already clamps inside binance.go, but this handles edge cases
+// where a new filter type appears before the hourly exchangeInfo refresh.
+func (e *Engine) placeMarketOrderWithClamp(ctx context.Context, symbol, side string, quantity float64) (*exchange.Order, error) {
+	order, err := e.binance.PlaceOrder(ctx, symbol, side, "MARKET", quantity, 0, false)
+	if err != nil {
+		var apiErr *exchange.BinanceAPIError
+		if errors.As(err, &apiErr) && apiErr.Code == -4005 {
+			info, ok := e.binance.GetSymbolInfo(symbol)
+			if ok {
+				cap := info.MarketMaxQty
+				if cap == 0 {
+					cap = info.MaxQty
+				}
+				if cap > 0 && cap < quantity {
+					log.Printf("[%s][%s] -4005: retrying with clamped qty %.8f → %.8f", e.name, symbol, quantity, cap)
+					return e.binance.PlaceOrder(ctx, symbol, side, "MARKET", cap, 0, false)
+				}
+			}
+		}
+		return nil, err
+	}
+	return order, nil
+}
+
+// ensureLeverage sets and caches the actual leverage granted by Binance for a symbol.
+// Results are cached for 5 minutes so we don't call /fapi/v1/leverage on every tick.
+// Dynamic pairs that were never set up at startup get their leverage set here.
+func (e *Engine) ensureLeverage(ctx context.Context, symbol string) (int, error) {
+	const ttl = 5 * time.Minute
+
+	e.leverageCacheMu.Lock()
+	cached, ok := e.leverageCache[symbol]
+	e.leverageCacheMu.Unlock()
+
+	if ok && time.Since(cached.setAt) < ttl {
+		return cached.value, nil
+	}
+
+	requested := e.getLeverageLimit(symbol)
+	actual, err := e.binance.SetLeverage(ctx, symbol, requested)
+	if err != nil {
+		// Return cached stale value if available rather than crashing the trade
+		if ok {
+			log.Printf("[%s][%s] ensureLeverage failed (%v), using cached %dx", e.name, symbol, err, cached.value)
+			return cached.value, nil
+		}
+		return 0, fmt.Errorf("ensureLeverage: %w", err)
+	}
+
+	e.leverageCacheMu.Lock()
+	e.leverageCache[symbol] = cachedLeverage{value: actual, setAt: time.Now()}
+	e.leverageCacheMu.Unlock()
+
+	if actual != requested {
+		log.Printf("[%s][%s] Leverage: requested %dx, Binance granted %dx", e.name, symbol, requested, actual)
+	}
+	return actual, nil
 }
 
 // getPositionKey generates a unique key for position tracking

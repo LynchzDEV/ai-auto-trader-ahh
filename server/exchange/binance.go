@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -38,7 +39,8 @@ type BinanceClient struct {
 	serverTimeOffset int64 // Offset between local time and Binance server time (in ms)
 
 	// Symbol precision cache (fetched from exchange)
-	symbolInfo map[string]*SymbolInfo
+	symbolInfo   map[string]*SymbolInfo
+	symbolInfoMu sync.RWMutex
 
 	// SECURITY: Goroutine lifecycle management
 	stopCh chan struct{}
@@ -68,9 +70,26 @@ type SymbolInfo struct {
 	QuantityPrecision int
 	PricePrecision    int
 	MinQty            float64
+	MaxQty            float64 // LOT_SIZE maxQty
+	MarketMaxQty      float64 // MARKET_LOT_SIZE maxQty (Binance enforces this for MARKET orders)
+	MarketStepSize    float64 // MARKET_LOT_SIZE stepSize
 	StepSize          float64
+	MinNotional       float64 // MIN_NOTIONAL notional
+	TickSize          float64 // PRICE_FILTER tickSize
+	MaxLeverage       int     // bracket max leverage for this symbol
 	Status            string
 	OnboardDate       int64 // Unix milliseconds when this symbol was listed on Binance Futures
+}
+
+// BinanceAPIError is a structured error from the Binance REST API.
+type BinanceAPIError struct {
+	HTTPStatus int
+	Code       int    `json:"code"`
+	Message    string `json:"msg"`
+}
+
+func (e *BinanceAPIError) Error() string {
+	return fmt.Sprintf("API error (status %d): code=%d msg=%s", e.HTTPStatus, e.Code, e.Message)
 }
 
 type AccountInfo struct {
@@ -163,6 +182,9 @@ func NewBinanceClient(apiKey, secretKey string, testnet bool) *BinanceClient {
 
 	// Fetch exchange info for precision data (also starts hourly refresh)
 	client.fetchExchangeInfo()
+	initCtx, initCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	client.fetchLeverageBrackets(initCtx)
+	initCancel()
 	client.startPeriodicExchangeInfoRefresh()
 
 	return client
@@ -190,7 +212,7 @@ func (c *BinanceClient) startPeriodicTimeSync() {
 	log.Printf("[Binance] Periodic time sync started (every 15 minutes)")
 }
 
-// startPeriodicExchangeInfoRefresh refreshes exchange info every hour so new listings appear
+// startPeriodicExchangeInfoRefresh refreshes exchange info and leverage brackets every hour
 func (c *BinanceClient) startPeriodicExchangeInfoRefresh() {
 	c.wg.Add(1)
 	go func() {
@@ -202,12 +224,83 @@ func (c *BinanceClient) startPeriodicExchangeInfoRefresh() {
 			select {
 			case <-ticker.C:
 				c.fetchExchangeInfo()
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				c.fetchLeverageBrackets(ctx)
+				cancel()
 			case <-c.stopCh:
 				return
 			}
 		}
 	}()
 	log.Printf("[Binance] Periodic exchange info refresh started (every 1 hour)")
+}
+
+// fetchLeverageBrackets fetches the max leverage per symbol from /fapi/v1/leverageBracket
+// and stores it in symbolInfo[symbol].MaxLeverage.
+func (c *BinanceClient) fetchLeverageBrackets(ctx context.Context) {
+	body, err := c.doRequest(ctx, "GET", "/fapi/v1/leverageBracket", url.Values{}, true)
+	if err != nil {
+		log.Printf("[Binance] Failed to fetch leverage brackets: %v", err)
+		return
+	}
+
+	var brackets []struct {
+		Symbol   string `json:"symbol"`
+		Brackets []struct {
+			Bracket        int     `json:"bracket"`
+			InitialLeverage int    `json:"initialLeverage"`
+			NotionalCap    float64 `json:"notionalCap"`
+		} `json:"brackets"`
+	}
+	if err := json.Unmarshal(body, &brackets); err != nil {
+		log.Printf("[Binance] Failed to parse leverage brackets: %v", err)
+		return
+	}
+
+	c.symbolInfoMu.Lock()
+	defer c.symbolInfoMu.Unlock()
+	for _, b := range brackets {
+		if len(b.Brackets) == 0 {
+			continue
+		}
+		info, ok := c.symbolInfo[b.Symbol]
+		if !ok {
+			info = &SymbolInfo{Symbol: b.Symbol}
+			c.symbolInfo[b.Symbol] = info
+		}
+		info.MaxLeverage = b.Brackets[0].InitialLeverage
+	}
+	log.Printf("[Binance] Updated leverage brackets for %d symbols", len(brackets))
+}
+
+// GetMaxLeverage returns the bracket-max leverage for a symbol, or 20 if unknown.
+func (c *BinanceClient) GetMaxLeverage(symbol string) int {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	if ok && info.MaxLeverage > 0 {
+		return info.MaxLeverage
+	}
+	return 20 // safe fallback — Binance will cap via SetLeverage if lower
+}
+
+// getSymbolInfoSafe returns a pointer to SymbolInfo with RLock (internal use).
+func (c *BinanceClient) getSymbolInfoSafe(symbol string) (*SymbolInfo, bool) {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	return info, ok
+}
+
+// GetSymbolInfo returns a copy of SymbolInfo for external callers.
+func (c *BinanceClient) GetSymbolInfo(symbol string) (SymbolInfo, bool) {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	if !ok {
+		return SymbolInfo{}, false
+	}
+	return *info, true
 }
 
 // Close stops all background goroutines and cleans up resources
@@ -268,9 +361,13 @@ func (c *BinanceClient) fetchExchangeInfo() {
 			PricePrecision    int    `json:"pricePrecision"`
 			OnboardDate       int64  `json:"onboardDate"`
 			Filters           []struct {
-				FilterType string `json:"filterType"`
-				MinQty     string `json:"minQty"`
-				StepSize   string `json:"stepSize"`
+				FilterType  string `json:"filterType"`
+				MinQty      string `json:"minQty"`
+				MaxQty      string `json:"maxQty"`
+				StepSize    string `json:"stepSize"`
+				Notional    string `json:"notional"`
+				MinNotional string `json:"minNotional"`
+				TickSize    string `json:"tickSize"`
 			} `json:"filters"`
 		} `json:"symbols"`
 	}
@@ -280,6 +377,7 @@ func (c *BinanceClient) fetchExchangeInfo() {
 		return
 	}
 
+	newInfo := make(map[string]*SymbolInfo, len(result.Symbols))
 	for _, s := range result.Symbols {
 		info := &SymbolInfo{
 			Symbol:            s.Symbol,
@@ -289,19 +387,40 @@ func (c *BinanceClient) fetchExchangeInfo() {
 			OnboardDate:       s.OnboardDate,
 		}
 
-		// Extract LOT_SIZE filter for min qty and step size
 		for _, f := range s.Filters {
-			if f.FilterType == "LOT_SIZE" {
+			switch f.FilterType {
+			case "LOT_SIZE":
 				info.MinQty = parseFloat(f.MinQty)
+				info.MaxQty = parseFloat(f.MaxQty)
 				info.StepSize = parseFloat(f.StepSize)
-				break
+			case "MARKET_LOT_SIZE":
+				info.MarketMaxQty = parseFloat(f.MaxQty)
+				info.MarketStepSize = parseFloat(f.StepSize)
+			case "MIN_NOTIONAL":
+				if n := parseFloat(f.Notional); n > 0 {
+					info.MinNotional = n
+				} else {
+					info.MinNotional = parseFloat(f.MinNotional)
+				}
+			case "PRICE_FILTER":
+				info.TickSize = parseFloat(f.TickSize)
 			}
 		}
+		// Preserve existing MaxLeverage if already fetched via leverage brackets
+		c.symbolInfoMu.RLock()
+		if existing, ok := c.symbolInfo[s.Symbol]; ok && existing.MaxLeverage > 0 {
+			info.MaxLeverage = existing.MaxLeverage
+		}
+		c.symbolInfoMu.RUnlock()
 
-		c.symbolInfo[s.Symbol] = info
+		newInfo[s.Symbol] = info
 	}
 
-	log.Printf("[Binance] Fetched exchange info for %d symbols", len(c.symbolInfo))
+	c.symbolInfoMu.Lock()
+	c.symbolInfo = newInfo
+	c.symbolInfoMu.Unlock()
+
+	log.Printf("[Binance] Fetched exchange info for %d symbols", len(newInfo))
 }
 
 // syncServerTime fetches server time and calculates offset
@@ -381,7 +500,12 @@ func (c *BinanceClient) doRequest(ctx context.Context, method, endpoint string, 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+		apiErr := &BinanceAPIError{HTTPStatus: resp.StatusCode}
+		if err := json.Unmarshal(respBody, apiErr); err != nil || apiErr.Code == 0 {
+			// Not parseable as structured error — keep raw text in message
+			apiErr.Message = string(respBody)
+		}
+		return nil, apiErr
 	}
 
 	return respBody, nil
@@ -619,20 +743,57 @@ func (c *BinanceClient) GetHistoricalKlines(ctx context.Context, symbol, interva
 	return allKlines, nil
 }
 
-// SetLeverage sets the leverage for a symbol
-func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage int) error {
+// SetLeverage sets the leverage for a symbol and returns the actual leverage granted by Binance.
+// If Binance rejects the requested leverage (-4028), it retries with the bracket max.
+func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage int) (int, error) {
+	// Cap requested leverage to what the symbol's bracket allows
+	if bracketMax := c.GetMaxLeverage(symbol); bracketMax > 0 && leverage > bracketMax {
+		log.Printf("[Binance] Capping leverage for %s: requested %dx > bracket max %dx", symbol, leverage, bracketMax)
+		leverage = bracketMax
+	}
+
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("leverage", strconv.Itoa(leverage))
 
-	_, err := c.doRequest(ctx, "POST", "/fapi/v1/leverage", params, true)
-	return err
+	body, err := c.doRequest(ctx, "POST", "/fapi/v1/leverage", params, true)
+	if err != nil {
+		var apiErr *BinanceAPIError
+		if errors.As(err, &apiErr) && (apiErr.Code == -4028 || apiErr.Code == -4046) {
+			// Leverage too high — try once more with GetMaxLeverage fallback
+			fallback := c.GetMaxLeverage(symbol)
+			if fallback > 0 && fallback < leverage {
+				params.Set("leverage", strconv.Itoa(fallback))
+				body, err = c.doRequest(ctx, "POST", "/fapi/v1/leverage", params, true)
+				if err != nil {
+					return 0, err
+				}
+				leverage = fallback
+			} else {
+				return 0, err
+			}
+		} else {
+			return 0, err
+		}
+	}
+
+	var resp struct {
+		Leverage int    `json:"leverage"`
+		Symbol   string `json:"symbol"`
+	}
+	if err := json.Unmarshal(body, &resp); err == nil && resp.Leverage > 0 {
+		return resp.Leverage, nil
+	}
+	return leverage, nil
 }
 
 // getQuantityPrecision returns the quantity precision for a symbol
 func (c *BinanceClient) getQuantityPrecision(symbol string) int {
 	// Check cached exchange info first
-	if info, ok := c.symbolInfo[symbol]; ok {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	if ok {
 		return info.QuantityPrecision
 	}
 
@@ -673,7 +834,10 @@ func (c *BinanceClient) getQuantityPrecision(symbol string) int {
 // getPricePrecision returns the price precision for a symbol
 func (c *BinanceClient) getPricePrecision(symbol string) int {
 	// Check cached exchange info first
-	if info, ok := c.symbolInfo[symbol]; ok {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	if ok {
 		return info.PricePrecision
 	}
 
@@ -713,7 +877,10 @@ func (c *BinanceClient) getPricePrecision(symbol string) int {
 
 // roundToStepSize rounds a quantity to the symbol's step size
 func (c *BinanceClient) roundToStepSize(symbol string, quantity float64) float64 {
-	if info, ok := c.symbolInfo[symbol]; ok && info.StepSize > 0 {
+	c.symbolInfoMu.RLock()
+	info, ok := c.symbolInfo[symbol]
+	c.symbolInfoMu.RUnlock()
+	if ok && info.StepSize > 0 {
 		// Round down to nearest step size
 		steps := int(quantity / info.StepSize)
 		return float64(steps) * info.StepSize
@@ -737,6 +904,20 @@ func (c *BinanceClient) PlaceOrder(ctx context.Context, symbol, side, orderType 
 
 	// Round quantity to step size for proper precision
 	quantity = c.roundToStepSize(symbol, quantity)
+
+	// Clamp to MARKET_LOT_SIZE.maxQty (Binance enforces this for MARKET orders)
+	if info, ok := c.getSymbolInfoSafe(symbol); ok {
+		maxQty := info.MarketMaxQty
+		if maxQty == 0 {
+			maxQty = info.MaxQty
+		}
+		if maxQty > 0 && quantity > maxQty {
+			log.Printf("[Binance] Clamping %s qty %.8f → %.8f (MARKET_LOT_SIZE.maxQty)", symbol, quantity, maxQty)
+			quantity = maxQty
+			// Re-round after clamp
+			quantity = c.roundToStepSize(symbol, quantity)
+		}
+	}
 
 	// Use proper precision for the symbol
 	qtyPrecision := c.getQuantityPrecision(symbol)

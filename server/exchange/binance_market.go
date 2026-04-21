@@ -120,7 +120,8 @@ func (c *BinanceClient) GetTopVolumeCoins(ctx context.Context, limit int) ([]str
 
 // IsActiveSymbol checks if a symbol is currently trading
 func (c *BinanceClient) IsActiveSymbol(symbol string) bool {
-	if info, ok := c.symbolInfo[symbol]; ok {
+	info, ok := c.getSymbolInfoSafe(symbol)
+	if ok {
 		return info.Status == "TRADING"
 	}
 	return false
@@ -132,7 +133,7 @@ func (c *BinanceClient) IsRecentlyListed(symbol string, maxAgeDays int) bool {
 	if maxAgeDays <= 0 {
 		return true
 	}
-	info, ok := c.symbolInfo[symbol]
+	info, ok := c.getSymbolInfoSafe(symbol)
 	if !ok || info.OnboardDate == 0 {
 		return true // unknown listing date: allow it
 	}

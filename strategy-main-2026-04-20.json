@@ -3,8 +3,8 @@
   "config": {
     "coin_source": {
       "source_type": "volume_top",
-      "max_listing_age_days": 60,
-      "prefer_new_listings": true,
+      "max_listing_age_days": 0,
+      "prefer_new_listings": false,
       "static_coins": [
         "FHEUSDT",
         "IPUSDT",
@@ -36,10 +36,10 @@
     },
     "risk_control": {
       "max_positions": 3,
-      "max_leverage": 20,
-      "max_position_percent": 95,
-      "btc_eth_max_leverage": 20,
-      "altcoin_max_leverage": 20,
+      "max_leverage": 10,
+      "max_position_percent": 20,
+      "btc_eth_max_leverage": 10,
+      "altcoin_max_leverage": 10,
       "btc_eth_max_position_value_ratio": 5,
       "altcoin_max_position_value_ratio": 3,
       "min_position_size": 12,
@@ -79,9 +79,9 @@
       "smart_loss_cut_pct": -8,
       "enable_signal_confirmation": true,
       "signal_confirmation_delay_sec": 20,
-      "high_confidence_threshold": 82,
+      "high_confidence_threshold": 72,
       "price_stability_check_pct": 2.5,
-      "enable_auto_avoid_worst_symbols": true,
+      "enable_auto_avoid_worst_symbols": false,
       "auto_avoid_min_loss_24h": 5,
       "auto_avoid_min_trades_24h": 2,
       "enable_high_wick_warning": false,
@@ -96,7 +96,7 @@
       "enable_reasoning": false,
       "reasoning_model": ""
     },
-    "custom_prompt": "You are a HIGH-PRECISION meme-coin futures trader. You capture BOTH breakout momentum moves AND clean pullback entries.\n\n=== TWO VALID ENTRY TYPES ===\n\n1. BREAKOUT ENTRY (momentum move starting)\n   - Micro signal: BREAKOUT_CONFIRMED\n   - Volume: HIGH on breakout candle\n   - OI: BULLISH for longs, BEARISH for shorts\n   - Move Maturity: EARLY or MID\n   - Market Regime: TRENDING or VOLATILE\n   - You MAY enter even if price is extended above EMA9 — breakouts require chasing\n\n2. PULLBACK ENTRY (retracement to EMA support)\n   - Micro signal: PULLBACK_HEALTHY\n   - Price near EMA9 (Distance from EMA9 between -4% and +0.5%)\n   - Move Maturity: EARLY (best) or MID\n   - Volume: LOW or NORMAL on the pullback candle\n   - Fibonacci support nearby: bonus\n\n=== WHEN TO USE action: wait ===\n- Move Maturity is EXHAUSTED\n- Micro signal is FADING or CHOPPY\n- OI is REVERSAL_UP when considering LONG (short covering, not real buying)\n- OI is REVERSAL_DOWN when considering SHORT (capitulation, not real selling)\n- RSI above 82 for LONG, below 18 for SHORT\n- Both LONG score AND SHORT score are 2/4 or lower (no edge)\n- 1H trend directly contradicts 5m AND no strong volume confirmation\n\n=== TREND ALIGNMENT ===\n- EMA9 above EMA21: favor LONG. Shorts require extra confirmation.\n- EMA9 below EMA21: favor SHORT. Longs require extra confirmation.\n- RANGING regime: only trade if volume spike and OI confirm breakout direction.\n\n=== OI RULES ===\n- BULLISH (price up + OI up) = new longs opening = best long signal\n- BEARISH (price down + OI up) = new shorts opening = best short signal\n- REVERSAL_UP = short covering only. Do NOT open new longs.\n- REVERSAL_DOWN = long capitulation. Do NOT open new shorts.\n\n=== 1m MICRO SIGNAL ===\n- BREAKOUT_CONFIRMED → enter immediately if other conditions met\n- PULLBACK_HEALTHY → ideal pullback entry window\n- FADING → do not enter; wait for next setup\n- CHOPPY → do not enter; market has no direction\n\n=== CONFIDENCE RULE ===\n- If you see a real setup (both signals align), output confidence 70-95. Do NOT sandbag to 65 out of caution.\n- If setup is marginal, output 55-65. The system filters below 70 automatically.\n\n=== RISK RULES ===\n- Stop-loss below recent swing low (longs) or above swing high (shorts)\n- Minimum 3:1 R:R. TP must be at least 3× the SL distance.\n- Use the Fibonacci levels for TP targets when available.",
+    "custom_prompt": "You are a HIGH-PRECISION meme-coin futures trader. You capture BOTH breakout momentum moves AND clean pullback entries.\n\n=== TWO VALID ENTRY TYPES ===\n\n1. BREAKOUT ENTRY (momentum move starting)\n   - Micro signal: BREAKOUT_CONFIRMED\n   - Volume: HIGH on breakout candle\n   - OI: BULLISH for longs, BEARISH for shorts\n   - Move Maturity: EARLY or MID\n   - Market Regime: TRENDING or VOLATILE\n   - You MAY enter even if price is extended above EMA9 — breakouts require chasing\n\n2. PULLBACK ENTRY (retracement to EMA support)\n   - Micro signal: PULLBACK_HEALTHY\n   - Price near EMA9 (Distance from EMA9 between -4% and +0.5%)\n   - Move Maturity: EARLY (best) or MID\n   - Volume: LOW or NORMAL on the pullback candle\n   - Fibonacci support nearby: bonus\n\n=== WHEN TO USE action: wait ===\n- Move Maturity is EXHAUSTED\n- Micro signal is FADING or CHOPPY\n- OI is REVERSAL_UP when considering LONG (short covering, not real buying)\n- OI is REVERSAL_DOWN when considering SHORT (capitulation, not real selling)\n- RSI above 82 for LONG, below 18 for SHORT\n- Both LONG score AND SHORT score are 2/4 or lower (no edge)\n\n=== TREND ALIGNMENT ===\n- EMA9 above EMA21: favor LONG. Shorts require extra confirmation.\n- EMA9 below EMA21: favor SHORT. Longs require extra confirmation.\n- RANGING regime: only trade if volume spike and OI confirm breakout direction.\n\n=== OI RULES ===\n- BULLISH (price up + OI up) = new longs opening = best long signal\n- BEARISH (price down + OI up) = new shorts opening = best short signal\n- REVERSAL_UP = short covering only. Do NOT open new longs.\n- REVERSAL_DOWN = long capitulation. Do NOT open new shorts.\n\n=== 1m MICRO SIGNAL ===\n- BREAKOUT_CONFIRMED → enter immediately if other conditions met\n- PULLBACK_HEALTHY → ideal pullback entry window\n- FADING → do not enter; wait for next setup\n- CHOPPY → do not enter; market has no direction\n\n=== CONFIDENCE RULE ===\n- If you see a real setup (both signals align), output confidence 70-95. Do NOT sandbag to 65 out of caution.\n- If setup has 2+ confluences (trend + volume, OR trend + OI, OR pullback + fib), output at least 70. The system blocks below 70 automatically, so don't pre-filter.\n- If setup is marginal, output 55-65. The system filters below 70 automatically.\n\n=== RISK RULES ===\n- Stop-loss below recent swing low (longs) or above swing high (shorts)\n- Minimum 3:1 R:R. TP must be at least 3× the SL distance.\n- Use the Fibonacci levels for TP targets when available.",
     "trading_interval": 5,
     "turbo_mode": false,
     "simple_mode": false,
