@@ -4278,6 +4278,9 @@ func (e *Engine) logActiveRiskSettings(rc store.RiskControlConfig) {
 	if rc.EnableMaxHoldDuration {
 		features = append(features, fmt.Sprintf("MaxHold(%dm)", rc.MaxHoldDurationMins))
 	}
+	if rc.MaxPositionLossPct > 0 {
+		features = append(features, fmt.Sprintf("MaxPositionLoss(%.1f%%ROE)", rc.MaxPositionLossPct))
+	}
 	if rc.EnableSmartLossCut {
 		features = append(features, fmt.Sprintf("SmartLossCut(%dm, %.1f%%)", rc.SmartLossCutMins, rc.SmartLossCutPct))
 	}
@@ -4582,7 +4585,41 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		}
 
 		// =====================================================================
-		// 3. SMART LOSS CUT - Cut positions underwater too long (Uses RAW %)
+		// 3. MAX POSITION LOSS (ROE cap) - Hard stop regardless of price/time
+		// =====================================================================
+		if rc.MaxPositionLossPct > 0 && roePnlPct <= -rc.MaxPositionLossPct {
+			log.Printf("[%s][%s] 🛑 MAX POSITION LOSS: ROE=%.2f%% exceeded cap -%.2f%%. Force closing.",
+				e.name, pos.Symbol, roePnlPct, rc.MaxPositionLossPct)
+
+			if !e.shouldAttemptClose(pos.Symbol) {
+				log.Printf("[%s][%s] Skipping close attempt (rate limited)", e.name, pos.Symbol)
+				continue
+			}
+
+			closeOrder, err := e.binance.ClosePosition(ctx, pos.Symbol, pos.PositionAmt)
+			if err != nil {
+				log.Printf("[%s][%s] Failed to close position (max position loss): %v", e.name, pos.Symbol, err)
+			} else {
+				log.Printf("[%s][%s] ✅ Closed position at ROE=%.2f%% (raw=%.2f%%)", e.name, pos.Symbol, roePnlPct, rawPnlPct)
+				exitPrice := pos.MarkPrice
+				pnl := pos.UnrealizedProfit
+				if closeOrder != nil && closeOrder.AvgPrice > 0 {
+					exitPrice = closeOrder.AvgPrice
+					if pos.PositionAmt > 0 {
+						pnl = (closeOrder.AvgPrice - pos.EntryPrice) * closeOrder.ExecutedQty
+					} else {
+						pnl = (pos.EntryPrice - closeOrder.AvgPrice) * closeOrder.ExecutedQty
+					}
+				}
+				e.persistPositionClose(pos.Symbol, side, "max_position_loss", exitPrice, 0, pnl)
+				e.clearPositionTracking(pos.Symbol, side)
+				e.cancelBracketOrders(ctx, pos.Symbol, "max_position_loss")
+			}
+			continue
+		}
+
+		// =====================================================================
+		// 4. SMART LOSS CUT - Cut positions underwater too long (Uses RAW %)
 		// =====================================================================
 		if rc.EnableSmartLossCut {
 			smartLossMins := rc.SmartLossCutMins
@@ -4633,7 +4670,7 @@ func (e *Engine) checkPositionDrawdown(ctx context.Context) {
 		}
 
 		// =====================================================================
-		// 4. DRAWDOWN PROTECTION (Uses Raw % - same scale as Noise Zone & Trailing Stop)
+		// 5. DRAWDOWN PROTECTION (Uses Raw % - same scale as Noise Zone & Trailing Stop)
 		// =====================================================================
 		// In Simple Mode, we skip ONLY this automatic drawdown protection
 		// (features 1-3 above are explicitly enabled by user, so they still run)

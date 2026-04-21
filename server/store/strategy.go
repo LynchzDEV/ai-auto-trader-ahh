@@ -181,6 +181,10 @@ type RiskControlConfig struct {
 	SmartLossCutMins   int     `json:"smart_loss_cut_mins"`   // Minutes before cutting losers (default: 30)
 	SmartLossCutPct    float64 `json:"smart_loss_cut_pct"`    // Loss % threshold for smart cut (default: -1.0 = -1%)
 
+	// MAX POSITION LOSS - Hard ROE cap regardless of price move or hold time
+	// Example: 25 = close when margin is down 25% (leverage-aware, triggers at price_move = 25/leverage %)
+	MaxPositionLossPct float64 `json:"max_position_loss_pct"` // Max ROE loss % before forced close (0 = disabled)
+
 	// SIGNAL CONFIRMATION - Verify signals before executing trades
 	// For medium confidence (75-89%), wait and re-verify with AI before executing
 	// For high confidence (90%+), execute immediately

@@ -74,6 +74,7 @@
       "guaranteed_min_profit_pct": 30,
       "enable_max_hold_duration": false,
       "max_hold_duration_mins": 360,
+      "max_position_loss_pct": 25,
       "enable_smart_loss_cut": true,
       "smart_loss_cut_mins": 12,
       "smart_loss_cut_pct": -8,
