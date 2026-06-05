@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"auto-trader-ahh/analysis"
 	"auto-trader-ahh/backtest"
 	"auto-trader-ahh/config"
 	"auto-trader-ahh/debate"
@@ -27,21 +30,23 @@ import (
 )
 
 type Server struct {
-	port            string
-	strategyStore   *store.StrategyStore
-	traderStore     *store.TraderStore
-	decisionStore   *store.DecisionStore
-	equityStore     *store.EquityStore
-	tradeStore      *store.TradeStore
-	settingsStore   *store.SettingsStore
-	engineManager   *trader.EngineManager
-	debateEngine    *debate.Engine
-	backtestManager *backtest.Manager
-	aiClient        mcp.AIClient
-	binanceClient   *exchange.BinanceClient
-	accessPasskey   string
-	cfg             *config.Config
-	hub             *events.Hub
+	port             string
+	strategyStore    *store.StrategyStore
+	traderStore      *store.TraderStore
+	positionStore    *store.PositionStore
+	decisionStore    *store.DecisionStore
+	equityStore      *store.EquityStore
+	tradeStore       *store.TradeStore
+	settingsStore    *store.SettingsStore
+	attributionStore *store.AttributionStore
+	engineManager    *trader.EngineManager
+	debateEngine     *debate.Engine
+	backtestManager  *backtest.Manager
+	aiClient         mcp.AIClient
+	binanceClient    exchange.Exchange
+	accessPasskey    string
+	cfg              *config.Config
+	hub              *events.Hub
 
 	// SECURITY: Rate limiting
 	rateLimiters map[string]*rate.Limiter
@@ -49,11 +54,14 @@ type Server struct {
 }
 
 func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Server {
-	// Create OpenRouter AI client
-	aiClient := mcp.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel)
+	// AI client — routed through the local Quota Concierge sidecar (Claude MAX / Codex)
+	aiClient := mcp.NewConciergeClient(cfg.LLMModel)
 
-	// Create Binance client for backtest
-	binanceClient := exchange.NewBinanceClient(cfg.BinanceAPIKey, cfg.BinanceSecretKey, cfg.BinanceTestnet)
+	// Exchange client for backtest + dashboard market endpoints (active venue from EXCHANGE)
+	binanceClient, exErr := exchange.NewExchange(cfg)
+	if exErr != nil {
+		log.Fatalf("exchange init failed: %v", exErr)
+	}
 
 	// Create debate engine and register AI client
 	debateEng := debate.NewEngine()
@@ -65,27 +73,32 @@ func NewServer(port string, em *trader.EngineManager, cfg *config.Config) *Serve
 	equityStore := store.NewEquityStore()
 
 	srv := &Server{
-		port:            port,
-		strategyStore:   store.NewStrategyStore(),
-		traderStore:     store.NewTraderStore(),
-		decisionStore:   store.NewDecisionStore(),
-		equityStore:     equityStore,
-		tradeStore:      store.NewTradeStore(),
-		settingsStore:   store.NewSettingsStore(),
-		engineManager:   em,
-		debateEngine:    debateEng,
-		backtestManager: backtest.NewManager(aiClient, binanceClient),
-		aiClient:        aiClient,
-		binanceClient:   binanceClient,
-		accessPasskey:   cfg.AccessPasskey,
-		cfg:             cfg,
-		hub:             em.GetHub(),
-		rateLimiters:    make(map[string]*rate.Limiter),
+		port:             port,
+		strategyStore:    store.NewStrategyStore(),
+		traderStore:      store.NewTraderStore(),
+		positionStore:    store.NewPositionStore(),
+		decisionStore:    store.NewDecisionStore(),
+		equityStore:      equityStore,
+		tradeStore:       store.NewTradeStore(),
+		settingsStore:    store.NewSettingsStore(),
+		attributionStore: store.NewAttributionStore(),
+		engineManager:    em,
+		debateEngine:     debateEng,
+		backtestManager:  backtest.NewManager(aiClient, binanceClient),
+		aiClient:         aiClient,
+		binanceClient:    binanceClient,
+		accessPasskey:    cfg.AccessPasskey,
+		cfg:              cfg,
+		hub:              em.GetHub(),
+		rateLimiters:     make(map[string]*rate.Limiter),
 	}
 
 	// Wire up debate engine with market context provider and trade executor
 	debateEng.SetMarketContextProvider(srv.buildDebateMarketContextForCycle)
 	debateEng.SetTradeExecutor(srv.executeDebateDecisions)
+	// Council Attribution v0: log every consensus into attribution with participant
+	// persona/model provenance (read-only; fires for auto-execute and read-only sessions).
+	debateEng.SetConsensusRecorder(srv.recordCouncilConsensus)
 
 	return srv
 }
@@ -111,12 +124,53 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/traders/", s.authMiddleware(s.handleTrader))
 
 	// Data endpoints
+	mux.HandleFunc("/api/symbols", s.authMiddleware(s.handleSymbols))
+	mux.HandleFunc("/api/top-watches", s.authMiddleware(s.handleTopWatches))
+	mux.HandleFunc("/api/klines", s.authMiddleware(s.handleKlines))
+	mux.HandleFunc("/api/patterns", s.authMiddleware(s.handlePatterns))
+	// Live AI trading assistant (reliable non-streaming + token-streaming SSE)
+	mux.HandleFunc("/api/assistant/analyze", s.authMiddleware(s.handleAssistantAnalyze))
+	mux.HandleFunc("/api/assistant/stream", s.authMiddleware(s.handleAssistantStream))
+	// AI decision engine: one verdict per symbol + a management verdict per open position
+	mux.HandleFunc("/api/verdict", s.authMiddleware(s.handleVerdict))
+	mux.HandleFunc("/api/guardian", s.authMiddleware(s.handleGuardian))
+	// Deterministic signal board (fast, no LLM) — the "what the system is seeing" layer
+	mux.HandleFunc("/api/signals", s.authMiddleware(s.handleSignals))
+	// Read-only Validation Harness v0 — replays the deterministic board over history
+	mux.HandleFunc("/api/validation/signals", s.authMiddleware(s.handleValidationSignals))
+	// Read-only Attribution Log v0 — the Feedback Loop's evidence floor. Every fresh
+	// verdict is logged with the board it weighed; these endpoints inspect that log.
+	mux.HandleFunc("/api/attribution/verdicts", s.authMiddleware(s.handleAttributionVerdicts))
+	mux.HandleFunc("/api/attribution/verdicts/", s.authMiddleware(s.handleAttributionVerdict))
+	mux.HandleFunc("/api/attribution/summary", s.authMiddleware(s.handleAttributionSummary))
+	// Outcome Linkage v0 — manual, local-only resolver: replays klines after each pending
+	// verdict to populate attribution_outcomes (passive; no trade/exchange writes).
+	mux.HandleFunc("/api/attribution/resolve-outcomes", s.authMiddleware(s.handleResolveOutcomes))
+	// Per-Signal Outcome Rollups v0 — read-only, stance-aware aggregation of resolved
+	// outcomes (evidence before knobs; no weight tuning).
+	mux.HandleFunc("/api/attribution/rollups", s.authMiddleware(s.handleAttributionRollups))
+	// Realized Trade Rollups v0 — read-only aggregation of explicitly linked action
+	// results, kept separate from passive market outcomes.
+	mux.HandleFunc("/api/attribution/realized-rollups", s.authMiddleware(s.handleAttributionRealizedRollups))
+	// Trade-Fill Linkage v0 — bridge verdicts↔real/paper trades. Read-only candidate
+	// detection + explicit local linkage; never places/cancels/modifies orders.
+	mux.HandleFunc("/api/attribution/trade-links", s.authMiddleware(s.handleTradeLinks))
+	mux.HandleFunc("/api/attribution/trade-links/candidates", s.authMiddleware(s.handleTradeLinkCandidates))
+	mux.HandleFunc("/api/attribution/link-trades", s.authMiddleware(s.handleLinkTrades))
 	mux.HandleFunc("/api/status", s.authMiddleware(s.handleStatus))
 	mux.HandleFunc("/api/account", s.authMiddleware(s.handleAccount))
 	mux.HandleFunc("/api/positions", s.authMiddleware(s.handlePositions))
 	mux.HandleFunc("/api/decisions", s.authMiddleware(s.handleDecisions))
 	mux.HandleFunc("/api/trades", s.authMiddleware(s.handleTrades))
+	mux.HandleFunc("/api/trades/", s.authMiddleware(s.handleTradeNarrative))
 	mux.HandleFunc("/api/equity-history", s.authMiddleware(s.handleEquityHistory))
+	mux.HandleFunc("/api/kill-switch", s.authMiddleware(s.handleKillSwitch))
+	mux.HandleFunc("/api/venue-config", s.authMiddleware(s.handleVenueConfig))
+	// Named venue connection profiles (save several Phemex connections; switch via dropdown).
+	mux.HandleFunc("/api/connections", s.authMiddleware(s.handleConnections))
+	mux.HandleFunc("/api/connections/activate", s.authMiddleware(s.handleConnectionActivate))
+	mux.HandleFunc("/api/connections/delete", s.authMiddleware(s.handleConnectionDelete))
+	mux.HandleFunc("/api/connections/balance", s.authMiddleware(s.handleConnectionBalance))
 
 	// Backtest endpoints
 	mux.HandleFunc("/api/backtest", s.authMiddleware(s.handleBacktests))
@@ -129,6 +183,7 @@ func (s *Server) Start() error {
 
 	// Settings endpoints
 	mux.HandleFunc("/api/settings", s.authMiddleware(s.handleSettings))
+	mux.HandleFunc("/api/favorites", s.authMiddleware(s.handleFavorites))
 
 	// System endpoints
 	mux.HandleFunc("/api/logs/stream", s.authMiddleware(s.handleLogStream))
@@ -137,7 +192,7 @@ func (s *Server) Start() error {
 	handler := s.rateLimitHandler(s.corsMiddleware(mux))
 
 	log.Printf("API server starting at http://localhost:%s", s.port)
-	log.Printf("SECURITY: Rate limiting enabled - 10 req/s per IP, burst 20")
+	log.Printf("SECURITY: Rate limiting enabled - 50 req/s per IP, burst 100 (loopback exempt)")
 	if s.accessPasskey != "" {
 		log.Printf("Authentication enabled - passkey required")
 	} else {
@@ -155,8 +210,10 @@ func (s *Server) getLimiter(ip string) *rate.Limiter {
 
 	limiter, exists := s.rateLimiters[ip]
 	if !exists {
-		// Create new limiter: 10 requests per second with burst of 20
-		limiter = rate.NewLimiter(rate.Limit(10), 20)
+		// Create new limiter: 50 req/s, burst 100. Loopback (the local UI) is exempted
+		// entirely in the middleware, so this cap only applies to non-local clients, which
+		// must also pass the passkey auth gate.
+		limiter = rate.NewLimiter(rate.Limit(50), 100)
 		s.rateLimiters[ip] = limiter
 
 		// Clean up old limiters periodically (every 100 new IPs)
@@ -181,9 +238,28 @@ func (s *Server) cleanupLimiters() {
 	}
 }
 
+// isLoopbackAddr reports whether a request originates from localhost (the local UI / sidecar).
+// Loopback is exempt from rate limiting: the dashboard polls many endpoints at once, and the
+// passkey (authMiddleware) is the real access gate.
+func isLoopbackAddr(remoteAddr string) bool {
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return host == "localhost"
+}
+
 // rateLimitMiddleware enforces rate limits per IP address (for http.HandlerFunc)
 func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Local UI / sidecar traffic is never rate-limited (auth gates it instead).
+		if isLoopbackAddr(r.RemoteAddr) {
+			next(w, r)
+			return
+		}
 		// Extract IP from request
 		ip := r.RemoteAddr
 		if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
@@ -209,6 +285,10 @@ func (s *Server) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // rateLimitHandler wraps an http.Handler with rate limiting
 func (s *Server) rateLimitHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isLoopbackAddr(r.RemoteAddr) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// Extract IP from request
 		ip := r.RemoteAddr
 		if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
@@ -740,6 +820,9 @@ func (s *Server) handleTrader(w http.ResponseWriter, r *http.Request) {
 			}
 			s.jsonResponse(w, map[string]string{"status": "resumed"})
 
+		case "execute":
+			s.handleExecuteTraderPlan(w, r, id)
+
 		default:
 			s.errorResponse(w, http.StatusBadRequest, "Unknown action")
 		}
@@ -796,6 +879,197 @@ func (s *Server) handleTrader(w http.ResponseWriter, r *http.Request) {
 
 // ============ DATA ENDPOINTS ============
 
+// handleSymbols returns all active futures for the active exchange, enriched
+// with last price and 24h percent change where a ticker is available. Only the
+// active venue is queried (no Binance hardcoding) — on Phemex the 24h ticker may
+// only cover majors, so symbols without ticker data report zeros.
+func (s *Server) handleSymbols(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Index 24h tickers by symbol for O(1) lookup of last price + percent change.
+	tickerBySymbol := make(map[string]exchange.Ticker24h)
+	if tickers, err := s.binanceClient.Get24hTicker(ctx); err != nil {
+		// Non-fatal: still return symbol metadata with zeroed price fields.
+		log.Printf("[Symbols] Failed to fetch 24h ticker: %v", err)
+	} else {
+		for _, t := range tickers {
+			tickerBySymbol[t.Symbol] = t
+		}
+	}
+
+	type symbolResponse struct {
+		Symbol            string  `json:"symbol"`
+		LastPrice         float64 `json:"lastPrice"`
+		PriceChangePct    float64 `json:"priceChangePct"`
+		MaxLeverage       int     `json:"maxLeverage"`
+		QuantityPrecision int     `json:"quantityPrecision"`
+		PricePrecision    int     `json:"pricePrecision"`
+	}
+
+	var result []symbolResponse
+	for _, info := range s.binanceClient.ListSymbols() {
+		// Filter to active contracts only (Binance: "TRADING", Phemex: "Listed").
+		if !strings.EqualFold(info.Status, "TRADING") && !strings.EqualFold(info.Status, "Listed") {
+			continue
+		}
+
+		item := symbolResponse{
+			Symbol:            info.Symbol,
+			MaxLeverage:       info.MaxLeverage,
+			QuantityPrecision: info.QuantityPrecision,
+			PricePrecision:    info.PricePrecision,
+		}
+		if t, ok := tickerBySymbol[info.Symbol]; ok {
+			item.LastPrice = t.LastPrice
+			item.PriceChangePct = t.PriceChange
+		}
+		result = append(result, item)
+	}
+
+	// Sort by symbol for a stable, predictable response order.
+	sort.Slice(result, func(i, j int) bool { return result[i].Symbol < result[j].Symbol })
+
+	s.jsonResponse(w, result)
+}
+
+// handleKlines returns OHLCV candles for a symbol from the active exchange,
+// shaped for lightweight-charts: oldest-first, with time in UNIX SECONDS.
+// Query params: symbol (required), interval (default "1h"), limit (default 300,
+// clamped to 1..1000). GetKlines already returns candles sorted ascending.
+func (s *Server) handleKlines(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		s.errorResponse(w, http.StatusBadRequest, "symbol required")
+		return
+	}
+
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "1h"
+	}
+
+	limit := 300
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			limit = parsed
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	klines, err := s.binanceClient.GetKlines(ctx, symbol, interval, limit)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadGateway, "Failed to fetch klines: "+err.Error())
+		return
+	}
+
+	type candle struct {
+		Time   int64   `json:"time"` // unix SECONDS (lightweight-charts)
+		Open   float64 `json:"open"`
+		High   float64 `json:"high"`
+		Low    float64 `json:"low"`
+		Close  float64 `json:"close"`
+		Volume float64 `json:"volume"`
+	}
+
+	// GetKlines returns ascending (oldest-first) — preserve that order.
+	result := make([]candle, 0, len(klines))
+	for _, k := range klines {
+		result = append(result, candle{
+			Time:   k.OpenTime / 1000, // ms -> seconds
+			Open:   k.Open,
+			High:   k.High,
+			Low:    k.Low,
+			Close:  k.Close,
+			Volume: k.Volume,
+		})
+	}
+
+	s.jsonResponse(w, result)
+}
+
+// handlePatterns runs deterministic, pure-Go chart-pattern detection over recent
+// klines from the active exchange and returns the detected patterns as a JSON
+// array (sorted by confidence desc; empty array when none found). The chart
+// overlay consumes this now; the live AI assistant will consume it later.
+// Query params: symbol (required), interval (default "1h"), limit (default 300,
+// clamped to 1..1000). Candle.Time carries OpenTime in UNIX MILLISECONDS.
+func (s *Server) handlePatterns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		s.errorResponse(w, http.StatusBadRequest, "symbol required")
+		return
+	}
+
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "1h"
+	}
+
+	limit := 300
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			limit = parsed
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	klines, err := s.binanceClient.GetKlines(ctx, symbol, interval, limit)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadGateway, "Failed to fetch klines: "+err.Error())
+		return
+	}
+
+	// Map exchange klines onto the dependency-free analysis input. OpenTime is in
+	// UNIX MILLISECONDS and stays in ms in Candle.Time (the detectors never do
+	// time arithmetic; Time is carried through for context only).
+	candles := make([]analysis.Candle, 0, len(klines))
+	for _, k := range klines {
+		candles = append(candles, analysis.Candle{
+			Time:   k.OpenTime,
+			Open:   k.Open,
+			High:   k.High,
+			Low:    k.Low,
+			Close:  k.Close,
+			Volume: k.Volume,
+		})
+	}
+
+	patterns := analysis.DetectPatterns(candles)
+	s.jsonResponse(w, patterns)
+}
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	traderID := r.URL.Query().Get("trader_id")
 	if traderID == "" {
@@ -805,6 +1079,43 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	status := s.engineManager.GetStatus(traderID)
 	s.jsonResponse(w, status)
+}
+
+// handleKillSwitch reads or toggles the global order-placement kill switch.
+// GET  -> current {engaged, reason}. POST {engaged, reason} -> sets it and
+// returns the new state. When engaged, every order-write method on every venue
+// (paper, Phemex, Binance) returns exchange.ErrKillSwitch.
+func (s *Server) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.jsonResponse(w, map[string]interface{}{
+			"engaged": exchange.KillSwitchEngaged(),
+			"reason":  exchange.KillSwitchReason(),
+		})
+
+	case "POST":
+		var req struct {
+			Engaged bool   `json:"engaged"`
+			Reason  string `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.errorResponse(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		exchange.SetKillSwitch(req.Engaged, req.Reason)
+		if req.Engaged {
+			log.Printf("[KillSwitch] ENGAGED - all order placement blocked (reason: %q)", req.Reason)
+		} else {
+			log.Printf("[KillSwitch] DISENGAGED - order placement resumed (reason: %q)", req.Reason)
+		}
+		s.jsonResponse(w, map[string]interface{}{
+			"engaged": exchange.KillSwitchEngaged(),
+			"reason":  exchange.KillSwitchReason(),
+		})
+
+	default:
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
 }
 
 func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
@@ -826,7 +1137,36 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	positions := s.engineManager.GetPositions(traderID)
-	s.jsonResponse(w, map[string]interface{}{"positions": positions})
+	source := "engine"
+	// Fallback: when the live engine reports no positions (trader stopped, just
+	// restarted before the boot reconcile, or a transient reconcile that emptied
+	// the in-memory map), the dashboard would show nothing even though open
+	// positions are persisted in the DB. Surface the DB's open positions so the
+	// UI never silently hides a real open position.
+	if len(positions) == 0 {
+		if dbPos, err := s.positionStore.GetOpenPositions(traderID); err == nil && len(dbPos) > 0 {
+			positions = make([]map[string]interface{}, 0, len(dbPos))
+			for _, p := range dbPos {
+				amt := p.Quantity
+				if strings.EqualFold(p.Side, "short") {
+					amt = -amt
+				}
+				positions = append(positions, map[string]interface{}{
+					"symbol":      p.Symbol,
+					"side":        strings.ToUpper(p.Side),
+					"amount":      amt,
+					"entry_price": p.EntryPrice,
+					"mark_price":  p.EntryPrice, // no live mark when sourced from DB
+					"pnl":         0.0,
+					"pnl_percent": 0.0,
+					"leverage":    p.Leverage,
+					"source":      "db",
+				})
+			}
+			source = "db"
+		}
+	}
+	s.jsonResponse(w, map[string]interface{}{"positions": positions, "source": source})
 }
 
 func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
@@ -868,6 +1208,26 @@ func (s *Server) handleTrades(w http.ResponseWriter, r *http.Request) {
 	traderID := r.URL.Query().Get("trader_id")
 	if traderID == "" {
 		s.errorResponse(w, http.StatusBadRequest, "trader_id required")
+		return
+	}
+
+	// "all" → aggregate across every trader, including ones whose trader/strategy row
+	// was later deleted (trades are never cascade-deleted). Powers the all-time view and
+	// keeps orphaned history visible. Read-only; no order activity.
+	if traderID == "all" {
+		trades, err := s.tradeStore.GetAll(5000)
+		if err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		stats, err := s.tradeStore.GetAllStats()
+		if err != nil {
+			stats = map[string]interface{}{}
+		}
+		s.jsonResponse(w, map[string]interface{}{
+			"trades": trades,
+			"stats":  stats,
+		})
 		return
 	}
 
@@ -1093,6 +1453,13 @@ func (s *Server) handleDebateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch action {
+	case "events":
+		if r.Method != "GET" {
+			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		s.handleDebateEvents(w, r, sessionID)
+
 	case "start":
 		if r.Method != "POST" {
 			s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1148,6 +1515,79 @@ func (s *Server) handleDebateSession(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		s.errorResponse(w, http.StatusBadRequest, "Unknown action")
+	}
+}
+
+func (s *Server) handleDebateEvents(w http.ResponseWriter, r *http.Request, sessionID string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.errorResponse(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	events, unsubscribe, err := s.debateEngine.SubscribeEvents(sessionID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	emit := func(eventName string, payload interface{}) bool {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("debate event marshal error: %v", err)
+			return true
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\n", eventName); err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	session, err := s.debateEngine.GetSession(sessionID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !emit("snapshot", session) {
+		return
+	}
+
+	if session.Status != debate.StatusRunning && session.Status != debate.StatusVoting {
+		return
+	}
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			if !emit("ping", map[string]string{"session_id": sessionID}) {
+				return
+			}
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if event == nil {
+				continue
+			}
+			if !emit(event.Type, event) {
+				return
+			}
+		}
 	}
 }
 
@@ -1380,12 +1820,23 @@ func (s *Server) executeDebateDecisions(session *debate.Session, decisions []*de
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Create session-specific Binance client using session's credentials
-	binanceClient := exchange.NewBinanceClient(
-		session.BinanceAPIKey,
-		session.BinanceSecretKey,
-		session.BinanceTestnet,
-	)
+	// Resolve the execution venue. When the session carries explicit venue creds,
+	// build a session-specific client from them; otherwise fall back to the server's
+	// ALREADY-ACTIVE exchange (paper-trading by default → real prices + simulated
+	// fills + no keys, or a live venue using the keys saved on the Connections page).
+	// This is what lets auto-execute actually fire after we removed the redundant
+	// credential entry from the New Council Session modal.
+	binanceClient := s.binanceClient
+	if strings.TrimSpace(session.VenueAPIKey) != "" {
+		exCfg := *s.cfg
+		exCfg.PhemexAPIKey, exCfg.PhemexSecretKey, exCfg.PhemexTestnet = session.VenueAPIKey, session.VenueSecretKey, session.VenueTestnet
+		exCfg.BinanceAPIKey, exCfg.BinanceSecretKey, exCfg.BinanceTestnet = session.VenueAPIKey, session.VenueSecretKey, session.VenueTestnet
+		c, exErr := exchange.NewExchange(&exCfg)
+		if exErr != nil {
+			return fmt.Errorf("debate exchange init: %w", exErr)
+		}
+		binanceClient = c
+	}
 
 	for _, d := range decisions {
 		if d.Action == "wait" || d.Action == "hold" {
@@ -1449,6 +1900,20 @@ func (s *Server) executeDebateDecisions(session *debate.Session, decisions []*de
 		d.ExecutedAt = time.Now()
 		d.OrderID = fmt.Sprintf("%d", order.OrderID)
 		log.Printf("[Debate] Executed order %d: %s %s %.4f @ %.2f", order.OrderID, side, d.Symbol, quantity, ticker.Price)
+
+		// Trade-Fill Linkage: a Council auto-execute is a LIVE verdict→order handoff. Link
+		// the council attribution verdict (logged at consensus) to this order. Best-effort,
+		// local-only — it never affects execution.
+		if s.attributionStore != nil {
+			if lerr := s.attributionStore.UpsertTradeLink(&store.AttributionTradeLink{
+				VerdictID: councilVerdictID(session.ID, d), LinkedVia: "explicit", LinkConfidence: "high",
+				LinkNotes: "Council auto-execute", ActionTaken: true, Actor: "council", Status: "open",
+				TraderID: session.TraderID, OrderID: d.OrderID, EntryPrice: ticker.Price, EntrySize: quantity,
+				SourceSurface: "council", SourcePersonaName: "Council", SourceProvider: "concierge",
+			}); lerr != nil {
+				log.Printf("[Attribution] council trade-link failed (%s): %v", d.Symbol, lerr)
+			}
+		}
 
 		// Place stop-loss and take-profit orders for new positions
 		if d.Action == "open_long" || d.Action == "open_short" || d.Action == "BUY" || d.Action == "SELL" {
@@ -1531,8 +1996,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"settings": settings,
 			"configured": map[string]bool{
-				"openrouter": settings.OpenRouterAPIKey != "" || s.cfg.OpenRouterAPIKey != "",
-				"binance":    settings.BinanceAPIKey != "" || s.cfg.BinanceAPIKey != "",
+				"phemex": settings.PhemexAPIKey != "" || s.cfg.PhemexAPIKey != "",
 			},
 		}
 		s.jsonResponse(w, response)
@@ -1548,14 +2012,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		existing, _ := s.settingsStore.GetGlobalSettings()
 
 		// Only update non-masked values (if masked value sent, keep existing)
-		if isMasked(req.OpenRouterAPIKey) {
-			req.OpenRouterAPIKey = existing.OpenRouterAPIKey
+		if isMasked(req.PhemexAPIKey) {
+			req.PhemexAPIKey = existing.PhemexAPIKey
 		}
-		if isMasked(req.BinanceAPIKey) {
-			req.BinanceAPIKey = existing.BinanceAPIKey
-		}
-		if isMasked(req.BinanceSecretKey) {
-			req.BinanceSecretKey = existing.BinanceSecretKey
+		if isMasked(req.PhemexSecretKey) {
+			req.PhemexSecretKey = existing.PhemexSecretKey
 		}
 
 		if err := s.settingsStore.SaveGlobalSettings(&req); err != nil {
@@ -1578,6 +2039,56 @@ func isMasked(s string) bool {
 	return len(s) > 0 && (s == "****" || (len(s) > 8 && s[4:8] == "****"))
 }
 
+// handleFavorites persists the user's favorite symbols server-side so they survive any
+// client reset (cache clear, dev-port change, a different browser) — fixing favorites
+// being lost across restarts. Stored as a JSON string array under the generic settings
+// key "ui_favorites"; touches no secrets and places no orders.
+func (s *Server) handleFavorites(w http.ResponseWriter, r *http.Request) {
+	const key = "ui_favorites"
+	switch r.Method {
+	case "GET":
+		raw, err := s.settingsStore.Get(key)
+		if err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		favorites := []string{}
+		if raw != "" {
+			_ = json.Unmarshal([]byte(raw), &favorites)
+		}
+		s.jsonResponse(w, map[string]interface{}{"favorites": favorites})
+
+	case "PUT", "POST":
+		var req struct {
+			Favorites []string `json:"favorites"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.errorResponse(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		// De-dup + drop blanks so the stored list stays clean.
+		seen := map[string]bool{}
+		clean := []string{}
+		for _, sym := range req.Favorites {
+			sym = strings.TrimSpace(sym)
+			if sym == "" || seen[sym] {
+				continue
+			}
+			seen[sym] = true
+			clean = append(clean, sym)
+		}
+		data, _ := json.Marshal(clean)
+		if err := s.settingsStore.Set(key, string(data)); err != nil {
+			s.errorResponse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.jsonResponse(w, map[string]interface{}{"favorites": clean})
+
+	default:
+		s.errorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
 // reloadConfig reloads the AI client and Binance client with new settings
 func (s *Server) reloadConfig() {
 	settings, err := s.settingsStore.GetGlobalSettings()
@@ -1586,41 +2097,28 @@ func (s *Server) reloadConfig() {
 		return
 	}
 
-	// Use DB settings if available, otherwise fall back to .env
-	apiKey := settings.OpenRouterAPIKey
-	if apiKey == "" {
-		apiKey = s.cfg.OpenRouterAPIKey
-	}
-	model := settings.OpenRouterModel
-	if model == "" {
-		model = s.cfg.OpenRouterModel
-	}
-
-	// Update AI client
-	s.aiClient = mcp.NewOpenRouterClient(apiKey, model)
+	// AI client always routes through the Quota Concierge sidecar (no key/model needed).
+	s.aiClient = mcp.NewConciergeClient(s.cfg.LLMModel)
 	s.debateEngine.RegisterClient("openrouter", s.aiClient)
 	s.debateEngine.RegisterClient("openai", s.aiClient)
 	s.debateEngine.RegisterClient("anthropic", s.aiClient)
 	s.debateEngine.RegisterClient("deepseek", s.aiClient)
 
-	// Update Binance client
-	binanceKey := settings.BinanceAPIKey
-	if binanceKey == "" {
-		binanceKey = s.cfg.BinanceAPIKey
+	// Exchange client: prefer Phemex keys from settings, else fall back to .env config.
+	exCfg := *s.cfg
+	if settings.PhemexAPIKey != "" {
+		exCfg.PhemexAPIKey = settings.PhemexAPIKey
+		exCfg.PhemexSecretKey = settings.PhemexSecretKey
+		exCfg.PhemexTestnet = settings.PhemexTestnet
 	}
-	binanceSecret := settings.BinanceSecretKey
-	if binanceSecret == "" {
-		binanceSecret = s.cfg.BinanceSecretKey
-	}
-	testnet := settings.BinanceTestnet
-	if settings.BinanceAPIKey == "" {
-		testnet = s.cfg.BinanceTestnet
+	if exch, err := exchange.NewExchange(&exCfg); err == nil {
+		s.binanceClient = exch
+		s.backtestManager = backtest.NewManager(s.aiClient, s.binanceClient)
+	} else {
+		log.Printf("Config reload: exchange init failed: %v", err)
 	}
 
-	s.binanceClient = exchange.NewBinanceClient(binanceKey, binanceSecret, testnet)
-	s.backtestManager = backtest.NewManager(s.aiClient, s.binanceClient)
-
-	log.Printf("Config reloaded: OpenRouter model=%s, Binance testnet=%v", model, testnet)
+	log.Printf("Config reloaded: exchange=%s, AI=Quota Concierge sidecar", s.cfg.Exchange)
 }
 
 // ============ SYSTEM ENDPOINTS ============
